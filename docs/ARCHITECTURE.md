@@ -613,6 +613,10 @@ All seven items are done; §13 to §15 record what was built.
 - **Standalone output**: `next build` emits `.next/standalone/server.js`; `better-sqlite3`, `sharp` and `gifenc` are
   traced into it once imported by server code. `next start` still works but prints a warning; Docker should run
   `node server.js` and copy `.next/static` and `public/` next to it.
+- **Parallel previews**: never run `next dev/build/typegen` in the repo root while other agents may do the same (they share `.next`, and Next
+  rewrites `tsconfig.json` when `distDir` is customised). Use `node scripts/preview.mjs <name> <port> [dev|start]`: it mirrors the working
+  tree into `$TMPDIR/aivore-preview/<name>` (own `.next`, SQLite file, media dir, hardlinked `node_modules`), re-syncs every second and serves
+  there. Edit in the real tree; the preview follows. Demo provider on, `.env.local` keys NOT copied unless `PREVIEW_WITH_ENV=1`.
 - `next dev` may create an `AGENTS.md` at the repo root (Next's agent-rules feature, `agentRules` in `next.config.ts`).
 
 ## 14. Kernel facts (`lib/*` and `server/*` as built)
