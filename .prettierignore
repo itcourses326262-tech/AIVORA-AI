@@ -1,0 +1,10 @@
+node_modules
+.next
+coverage
+data
+drizzle
+playwright-report
+test-results
+package-lock.json
+next-env.d.ts
+public/openapi.json

@@ -1,0 +1,28 @@
+# dependencies
+node_modules
+
+# Next.js
+.next
+out
+next-env.d.ts
+
+# runtime data (SQLite databases, generated media)
+data
+*.db*
+
+# test output
+coverage
+playwright-report
+test-results
+blob-report
+
+# TypeScript
+*.tsbuildinfo
+
+# environment (only the template is tracked)
+.env*
+!.env.example
+
+# logs and OS cruft
+*.log
+.DS_Store
