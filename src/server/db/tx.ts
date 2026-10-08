@@ -10,6 +10,10 @@ export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 /** Accepted by functions that join the caller's transaction when given a {@link Tx}. */
 export type DbOrTx = Db | Tx;
 
+function isTx(db: DbOrTx): db is Tx {
+  return db instanceof SQLiteTransaction;
+}
+
 function isThenable(value: unknown): boolean {
   return (
     typeof value === 'object' &&
@@ -34,8 +38,8 @@ export function withTx<T>(db: DbOrTx, fn: (tx: Tx) => T): T {
     }
     return result;
   };
-  if (db instanceof SQLiteTransaction) return (db as Tx).transaction(run);
-  return (db as Db).transaction(run, { behavior: 'immediate' });
+  if (isTx(db)) return db.transaction(run);
+  return db.transaction(run, { behavior: 'immediate' });
 }
 
 /** True for SQLite lock contention errors (`SQLITE_BUSY`, `SQLITE_LOCKED` and their variants). */

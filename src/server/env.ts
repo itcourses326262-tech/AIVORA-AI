@@ -16,9 +16,21 @@ const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 const text = <T extends z.ZodType>(schema: T) => z.preprocess(blankToUndefined, schema);
-const flag = (fallback: boolean) => text(z.stringbool().default(fallback));
-const whole = (fallback: number, min: number, max: number) =>
-  text(z.coerce.number().int().min(min).max(max).default(fallback));
+const flag = (fallback: boolean) =>
+  text(z.stringbool({ error: 'must be true or false' }).default(fallback));
+const whole = (fallback: number, min: number, max: number) => {
+  const error = `must be a whole number between ${min} and ${max}`;
+  return text(
+    z.coerce
+      .number({ error })
+      .int({ error })
+      .min(min, { error })
+      .max(max, { error })
+      .default(fallback),
+  );
+};
+const choice = <const T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) =>
+  text(z.enum(values, { error: `must be one of: ${values.join(', ')}` }).default(fallback));
 const list = text(
   z
     .string()
@@ -44,13 +56,13 @@ const baseUrl = text(
 
 const envSchema = z
   .object({
-    NODE_ENV: text(z.enum(['development', 'production', 'test']).default('development')),
+    NODE_ENV: choice(['development', 'production', 'test'], 'development'),
     APP_URL: baseUrl,
     DATABASE_PATH: text(z.string().default('./data/aivore.db')),
     SESSION_SECRET: text(z.string().optional()),
-    STORAGE_DRIVER: text(z.enum(['local', 's3']).default('local')),
+    STORAGE_DRIVER: choice(['local', 's3'], 'local'),
     STORAGE_LOCAL_DIR: text(z.string().default('./data/media')),
-    S3_ENDPOINT: text(z.url().optional()),
+    S3_ENDPOINT: text(z.url({ error: 'must be a URL such as https://s3.example.com' }).optional()),
     S3_REGION: text(z.string().default('auto')),
     S3_BUCKET: text(z.string().optional()),
     S3_ACCESS_KEY_ID: text(z.string().optional()),
@@ -62,13 +74,13 @@ const envSchema = z
     FAL_KEY: text(z.string().optional()),
     REPLICATE_API_TOKEN: text(z.string().optional()),
     ANTHROPIC_API_KEY: text(z.string().optional()),
-    PROMPT_ENHANCER: text(z.enum(['auto', 'openai', 'anthropic', 'heuristic']).default('auto')),
+    PROMPT_ENHANCER: choice(['auto', 'openai', 'anthropic', 'heuristic'], 'auto'),
     PROMPT_ENHANCER_OPENAI_MODEL: text(z.string().default('gpt-4.1-mini')),
     PROMPT_ENHANCER_ANTHROPIC_MODEL: text(z.string().default('claude-haiku-5-5')),
     SIGNUP_ENABLED: flag(true),
     SIGNUP_BONUS_CREDITS: whole(50, 0, 1_000_000),
     ADMIN_EMAILS: lowerList,
-    WORKER_MODE: text(z.enum(['inline', 'external', 'off']).default('inline')),
+    WORKER_MODE: choice(['inline', 'external', 'off'], 'inline'),
     WORKER_CONCURRENCY: whole(2, 1, 32),
     MAX_ACTIVE_PER_USER: whole(4, 1, 100),
     MAX_ATTEMPTS: whole(3, 1, 10),
@@ -76,8 +88,8 @@ const envSchema = z
     GENERATION_TIMEOUT_SEC_VIDEO: whole(900, 30, 7200),
     MAX_UPLOAD_MB: whole(10, 1, 100),
     MODERATION_BLOCKLIST: list,
-    MODERATION_PROVIDER: text(z.enum(['none', 'openai']).default('none')),
-    LOG_LEVEL: text(z.enum(LOG_LEVELS).default('info')),
+    MODERATION_PROVIDER: choice(['none', 'openai'], 'none'),
+    LOG_LEVEL: choice(LOG_LEVELS, 'info'),
     /** Trust `X-Forwarded-For` for client IPs. Enable only behind a proxy you control. */
     TRUST_PROXY: flag(false),
   })

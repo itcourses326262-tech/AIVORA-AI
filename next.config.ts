@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Native / CommonJS-only packages must be required at runtime, not bundled.
   serverExternalPackages: ['better-sqlite3', 'sharp', 'gifenc'],
+  // Migrations are read from `<cwd>/drizzle` at runtime, which file tracing cannot see.
+  outputFileTracingIncludes: { '/**/*': ['./drizzle/**/*'] },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders(isProd) }];
   },

@@ -61,6 +61,8 @@ beforeEach(() => {
   mocks.hit
     .mockReset()
     .mockReturnValue({ allowed: true, remaining: 9, resetAt: Date.now() + 30_000 });
+  // Tests that provoke 5xx errors would otherwise print their (expected) error logs.
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 
 afterEach(() => {
