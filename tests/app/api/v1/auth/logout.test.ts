@@ -75,11 +75,12 @@ describe('POST /api/v1/auth/logout', () => {
     expect((await whoami(session.cookie)).json.data?.id).toBe(user.id);
   });
 
-  it('does not accept GET', async () => {
-    const handler = logout as unknown as Record<string, unknown>;
-    expect(handler).toBeDefined();
-    const route = await import('@/app/api/v1/auth/logout/route');
-    expect(Object.keys(route).filter((key) => /^(GET|PUT|PATCH|DELETE)$/.test(key))).toEqual([]);
+  it('exports POST only: a GET (link, image, prefetch) can never sign anybody out', async () => {
+    const module = await import('@/app/api/v1/auth/logout/route');
+    expect(Object.keys(module).filter((key) => /^(GET|HEAD|PUT|PATCH|DELETE)$/.test(key))).toEqual(
+      [],
+    );
+    expect(typeof module.POST).toBe('function');
   });
 });
 
