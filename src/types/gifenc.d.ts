@@ -1,7 +1,5 @@
-// gifenc ships no type declarations. Only the default export is declared on purpose: the
-// package is CommonJS (no "exports" map), so Node's native ESM loader (tsx worker, Vitest)
-// cannot see its named exports; `import gifenc from 'gifenc'` is the form that works
-// everywhere. Usage: `const { GIFEncoder, quantize, applyPalette } = gifenc;`
+// gifenc ships no type declarations. Do not import it directly: use `@/lib/gifenc`, which
+// normalises the module-shape differences between runtimes (enforced by an ESLint rule).
 //
 // Gotcha: prequantize()/applyPalette() view `rgba.buffer` as a whole Uint32Array and ignore
 // byteOffset/length, so the RGBA array must own its ArrayBuffer (pass `new Uint8Array(buf)`
@@ -70,25 +68,51 @@ declare module 'gifenc' {
     writeFrame(index: Uint8Array, width: number, height: number, options?: WriteFrameOptions): void;
   }
 
-  interface Gifenc {
-    GIFEncoder(options?: GifEncoderOptions): GifEncoderInstance;
-    quantize(rgba: Uint8Array | Uint8ClampedArray, maxColors: number, options?: QuantizeOptions): Palette;
-    prequantize(rgba: Uint8Array | Uint8ClampedArray, options?: PrequantizeOptions): void;
-    applyPalette(rgba: Uint8Array | Uint8ClampedArray, palette: Palette, format?: PixelFormat): Uint8Array;
-    nearestColorIndex(palette: Palette, pixel: RgbColor | RgbaColor, distanceFn?: DistanceFn): number;
-    nearestColorIndexWithDistance(
-      palette: Palette,
-      pixel: RgbColor | RgbaColor,
-      distanceFn?: DistanceFn,
-    ): [number, number];
-    nearestColor(
-      palette: Palette,
-      pixel: RgbColor | RgbaColor,
-      distanceFn?: DistanceFn,
-    ): RgbColor | RgbaColor | undefined;
-    snapColorsToPalette(palette: Palette, knownColors: Palette, threshold?: number): void;
-  }
+  export function GIFEncoder(options?: GifEncoderOptions): GifEncoderInstance;
+  export function quantize(
+    rgba: Uint8Array | Uint8ClampedArray,
+    maxColors: number,
+    options?: QuantizeOptions,
+  ): Palette;
+  export function prequantize(
+    rgba: Uint8Array | Uint8ClampedArray,
+    options?: PrequantizeOptions,
+  ): void;
+  export function applyPalette(
+    rgba: Uint8Array | Uint8ClampedArray,
+    palette: Palette,
+    format?: PixelFormat,
+  ): Uint8Array;
+  export function nearestColorIndex(
+    palette: Palette,
+    pixel: RgbColor | RgbaColor,
+    distanceFn?: DistanceFn,
+  ): number;
+  export function nearestColorIndexWithDistance(
+    palette: Palette,
+    pixel: RgbColor | RgbaColor,
+    distanceFn?: DistanceFn,
+  ): [number, number];
+  export function nearestColor(
+    palette: Palette,
+    pixel: RgbColor | RgbaColor,
+    distanceFn?: DistanceFn,
+  ): RgbColor | RgbaColor | undefined;
+  export function snapColorsToPalette(
+    palette: Palette,
+    knownColors: Palette,
+    threshold?: number,
+  ): void;
 
-  const gifenc: Gifenc;
+  const gifenc: {
+    GIFEncoder: typeof GIFEncoder;
+    quantize: typeof quantize;
+    prequantize: typeof prequantize;
+    applyPalette: typeof applyPalette;
+    nearestColorIndex: typeof nearestColorIndex;
+    nearestColorIndexWithDistance: typeof nearestColorIndexWithDistance;
+    nearestColor: typeof nearestColor;
+    snapColorsToPalette: typeof snapColorsToPalette;
+  };
   export default gifenc;
 }

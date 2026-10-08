@@ -13,7 +13,10 @@ function contentSecurityPolicy(isProd: boolean): string {
     ['default-src', ["'self'"]],
     // Next.js streams inline bootstrap/RSC scripts; a static header cannot carry a per-request
     // nonce, so 'unsafe-inline' is required. React's dev tooling additionally needs eval.
-    ['script-src', isProd ? ["'self'", "'unsafe-inline'"] : ["'self'", "'unsafe-inline'", "'unsafe-eval'"]],
+    [
+      'script-src',
+      isProd ? ["'self'", "'unsafe-inline'"] : ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+    ],
     ['style-src', ["'self'", "'unsafe-inline'"]],
     ['img-src', ["'self'", 'data:', 'blob:']],
     ['media-src', ["'self'", 'data:', 'blob:']],

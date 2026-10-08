@@ -8,6 +8,7 @@ const defaultExportAllowed = [
   'src/app/**/{page,layout,template,default,loading,error,global-error,not-found,forbidden,unauthorized}.tsx',
   'src/app/**/{sitemap,robots,manifest,icon,apple-icon,opengraph-image,twitter-image}.{ts,tsx}',
   'src/lib/i18n/messages/*.ts',
+  'src/types/**/*.d.ts',
 ];
 
 export default defineConfig([
@@ -33,10 +34,26 @@ export default defineConfig([
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       'import/no-default-export': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'gifenc',
+              message:
+                "Import from '@/lib/gifenc' instead: gifenc's module shape differs per runtime.",
+            },
+          ],
+        },
+      ],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
       'no-var': 'error',
       'prefer-const': 'error',
     },
+  },
+  {
+    files: ['src/lib/gifenc.ts'],
+    rules: { 'no-restricted-imports': 'off' },
   },
   {
     files: defaultExportAllowed,

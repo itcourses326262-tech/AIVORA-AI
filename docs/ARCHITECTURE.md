@@ -460,3 +460,29 @@ Unit tests mirror `src/` under `tests/`. Tests never touch the network or the re
 5. Test helpers: `tests/helpers/{db,http,factories}.ts` (in-memory DB, invoke route handlers with `Request`, create user/session/generation fixtures).
 6. App shell: root layout (fonts, `<html lang dir>`, providers), placeholder `/`, `/api/health`, `instrumentation.ts` calling the (stub-safe) worker start.
 7. Updated `docs/ARCHITECTURE.md` where reality differs.
+
+## 13. Tooling facts (verified on the installed versions)
+
+- **Versions**: Next 16.4 (Turbopack build), React 19.3, TypeScript 5.9, Tailwind 4.3, Vitest 5, ESLint **9** (not 10:
+  `eslint-config-next`'s plugins do not support it yet), jsdom 29, Playwright 1.64, Drizzle ORM 0.45 / kit 0.31, zod 4.
+- **Scripts that import `src/server/**`** (`db:migrate`, `worker`, `admin`, `db:generate`) run with
+  `--conditions=react-server`, otherwise the real `server-only` package throws. `tsx` scripts also load `.env` then
+  `.env.local` (missing files are fine). `drizzle-kit` resolves the `@/*` alias itself.
+- **`typecheck`** runs `next typegen` first (generates `next-env.d.ts` and typed-route helpers, both git-ignored).
+- **`gifenc`** is CommonJS with no types and exposes a different module shape per runtime (bundlers/Vitest: named
+  exports; Node's native ESM loader used by `tsx`: only `default`). Import it **only** through `@/lib/gifenc`
+  (ESLint forbids importing `gifenc` anywhere else); types live in `src/types/gifenc.d.ts`. `applyPalette` /
+  `prequantize` need an RGBA array that owns its `ArrayBuffer` (`new Uint8Array(buffer)`, not a pooled `Buffer`).
+- **Vitest**: `globals` are off (import `describe/it/expect` from `vitest`); node environment by default, files named
+  `*.dom.test.tsx` run under jsdom with `@testing-library/jest-dom` matchers and automatic cleanup. `tests/setup.ts`
+  forces `DATABASE_PATH=:memory:`, `WORKER_MODE=off`, local storage in the OS temp dir and removes provider keys.
+  `server-only` and `@/*` are aliased. Tests live under `tests/` only (Playwright specs live in `e2e/`).
+- **Lint**: `export default` is an error except in Next-required files, `*.config.*`, `lib/i18n/messages/*.ts` and
+  `src/types/**/*.d.ts`; `import type` is enforced; unused names must start with `_`.
+- **Playwright**: the pre-installed Chromium (`/opt/pw-browsers/chromium-*`) is older than the one Playwright pins, so
+  the config launches it via `executablePath` (override with `PW_CHROMIUM_PATH`, port with `PW_PORT`, default 3200).
+  The web server is production mode with a scratch DB/media dir under the OS temp dir.
+- **Standalone output**: `next build` emits `.next/standalone/server.js`; `better-sqlite3`, `sharp` and `gifenc` are
+  traced into it once imported by server code. `next start` still works but prints a warning; Docker should run
+  `node server.js` and copy `.next/static` and `public/` next to it.
+- `next dev` may create an `AGENTS.md` at the repo root (Next's agent-rules feature, `agentRules` in `next.config.ts`).

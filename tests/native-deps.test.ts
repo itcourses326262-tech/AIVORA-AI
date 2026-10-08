@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
-import gifenc from 'gifenc';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
+import { GIFEncoder, applyPalette, quantize } from '@/lib/gifenc';
 
 // Guards the runtime interop of the native / CommonJS dependencies: if a bundler, loader or
 // dependency upgrade breaks one of these imports, this fails before any feature code does.
@@ -24,8 +24,7 @@ describe('native dependencies', () => {
     expect(meta).toMatchObject({ format: 'png', width: 4, height: 3 });
   });
 
-  it('writes an animated GIF with gifenc via the default import', () => {
-    const { GIFEncoder, quantize, applyPalette } = gifenc;
+  it('writes an animated GIF with gifenc through the interop wrapper', () => {
     const width = 4;
     const height = 4;
     const encoder = GIFEncoder();

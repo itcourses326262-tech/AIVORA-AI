@@ -2,19 +2,19 @@
 node_modules
 
 # Next.js
-.next
-out
+/.next
+/out
 next-env.d.ts
 
 # runtime data (SQLite databases, generated media)
-data
+/data
 *.db*
 
 # test output
-coverage
-playwright-report
-test-results
-blob-report
+/coverage
+/playwright-report
+/test-results
+/blob-report
 
 # TypeScript
 *.tsbuildinfo
