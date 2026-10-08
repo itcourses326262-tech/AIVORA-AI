@@ -431,6 +431,31 @@ As built (real code; owner `providers-mock` extends it additively):
   override set). It imports `mockProvider` (`./mock`), `openaiProvider` (`./openai`), `falProvider` (`./fal`), `replicateProvider` (`./replicate`):
   keep those export names. Until the real adapters exist the three real stubs report `isConfigured() === false`, so no model is offered through them.
 
+**Demo (mock) provider, as built** (`providers/mock/**` and `lib/catalog/models/mock.ts`, real; the module key is `providers-mock`). `mockProvider`
+serves `aivore-demo-image` (text-to-image + image-to-image; 1 credit per image; aspect ratios 1:1, 16:9, 9:16, 4:3, 3:4; count 1-4; negative prompt, seed and
+strength) and `aivore-demo-video` (text-to-video + image-to-video; 3 or 5 s; 2 credits per second at 480p, 3 at 720p; seed). Both carry the `demo` badge.
+- **Deterministic**: every output is a pure function of (prompt, negative prompt, seed, size), so the same request gives the same bytes. Without
+  `params.seed` the seed derives from `generationId`. With `count > 1` each image gets a sub-seed (image 0 keeps the request's seed, so the seed echoed
+  in `ProviderOutput.seed` reproduces that exact image alone).
+- **Images** are lossy WebP (`image/webp`) in the exact requested ratio at about 1 MP (1:1 is 1024x1024, 16:9 is 1280x720, 9:16 is 720x1280, 4:3 is
+  1152x864, 3:4 is 864x1152), painted procedurally with sharp (flowing colour field, one of four compositions, grain). The prompt is never drawn as text;
+  it only steers the colour mood (English and Arabic keywords such as sunset, ocean, forest, night, desert, snow, flower, neon) and the composition.
+  image-to-image is a seeded colour grade of the input scaled by `strength` (default 0.6, clamped to 0.1-1): it keeps the input's aspect ratio (shrunk to
+  about 1 MP, never enlarged), keeps transparency and ignores `aspectRatio`.
+- **Videos** are looping animated GIFs (`mimeType: 'image/gif'`, `kind: 'video'`, `durationMs` = requested seconds) with at most 30 frames and 480 px on the
+  longest side, built only through `@/lib/gifenc` (one shared palette, ordered dithering). text-to-video is a flowing scene; image-to-video is a Ken Burns
+  push-in with a light parallax that keeps the input's proportions. `resolution` only changes the price: the demo clip is always this small preview.
+  A 5 s clip costs about 1 s of CPU (the test budget is 3 s) and yields to the event loop after every frame. **UI note**: show these assets with
+  `<img>`, not `<video>`; `persistOutput` thumbnails images only, so a video card either uses the GIF itself or needs a first-frame thumbnail from storage.
+- **Async path**: `submit` returns `{ mode: 'async', providerJobId: 'mock_…', meta: { v: 1, startedAt, durationMs, seed, outcome } }` with a latency
+  picked from the seed (images 2.5-4 s, videos 7-10 s). `poll` is stateless: progress (0-99) comes from `Date.now()` and `meta`, and the outputs are
+  rendered by the first poll that finds the job finished, so it survives a worker restart. Damaged `meta` is a `failed` result (`unknown`, not retryable).
+  `cancel` does nothing. Prompts are never logged.
+- **Failure injection** for tests and E2E: a substring of the prompt (case-insensitive; the words are stripped before rendering, so they never change the
+  art). `__fail__` makes the job fail after its delay with `ProviderError('unavailable', { retryable: false })`; `__content__` fails it with
+  `content_policy` (wins over `__fail__`); `__slow__` makes it take 25 s; `__sync__` makes `submit` return `{ mode: 'sync', outputs }` at once (with
+  `__fail__` or `__content__` it throws that error from `submit`). The same list is in the header of `providers/mock/index.ts`.
+
 **Provider verification rule**: real-provider owners must try to verify endpoints, request/response shapes and model ids
 against the official docs (WebFetch/WebSearch, load via ToolSearch). Anything not verifiable is isolated behind the adapter,
 marked `// UNVERIFIED:` and listed in `openIssues`. Never invent model ids — fewer, verified models beat many guesses.
@@ -663,7 +688,7 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
 | Owner | Files |
 | ----- | ----- |
 | `auth-security` | `server/auth/{context,users,sessions,api-keys,cookies,password}.ts`, `server/security/ssrf.ts`, `scripts/admin.ts` (stubs); `server/auth/tokens.ts` (*real*, storage contract); `server/auth/index.ts` (*real* barrel); `server/security/{origin,ip}.ts` (kernel stubs); `server/security/rate-limit.ts` (working in-memory baseline, see §6.2) |
-| `providers-mock` | `server/providers/{types,errors,http,registry}.ts` (*real*), `server/providers/mock/index.ts` (stub, exports `mockProvider`; `isConfigured` is `env.ENABLE_MOCK_PROVIDER`) |
+| `providers-mock` | `server/providers/{types,errors,http,registry}.ts` (*real*), `server/providers/mock/**` (*real*, exports `mockProvider`, see §6.4; `isConfigured` is `env.ENABLE_MOCK_PROVIDER`) |
 | `provider-openai`, `provider-fal`, `provider-replicate` | `server/providers/{openai,fal,replicate}/index.ts` (stubs exporting `openaiProvider`, `falProvider`, `replicateProvider`; `isConfigured` is always false) |
 | `storage` | `server/storage/{local,s3}.ts`, `server/uploads/{index,sniff,image}.ts` (stubs); `server/storage/{types,index}.ts` (*real*) |
 | `engine` | `server/generations/{service,lifecycle,queries}.ts`, `server/jobs/runner.ts` (stubs); `server/generations/dto.ts`, `server/jobs/{worker,start}.ts`, `instrumentation.ts` (*real*); `scripts/worker.ts` (wiring done, runs the stub runner) |

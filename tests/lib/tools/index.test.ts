@@ -2,7 +2,14 @@ import * as icons from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { TOOLS } from '@/lib/catalog/types';
 import { createTranslator, type MessageKey } from '@/lib/i18n';
-import { getTool, getTools } from '@/lib/tools';
+import {
+  filterModelsForTool,
+  getTool,
+  getTools,
+  getToolsForKind,
+  isTool,
+  toolNeedsImage,
+} from '@/lib/tools';
 
 describe('tools registry', () => {
   it('declares exactly the four tools of the product', () => {
@@ -55,5 +62,47 @@ describe('tools registry', () => {
         }
       }
     }
+  });
+});
+
+describe('tool helpers', () => {
+  it('lists the tools of one kind in registry order', () => {
+    expect(getToolsForKind('image').map((tool) => tool.id)).toEqual([
+      'text-to-image',
+      'image-to-image',
+    ]);
+    expect(getToolsForKind('video').map((tool) => tool.id)).toEqual([
+      'text-to-video',
+      'image-to-video',
+    ]);
+    expect(getToolsForKind('audio' as never)).toEqual([]);
+  });
+
+  it('tells which tools need an input image', () => {
+    expect(TOOLS.filter((tool) => toolNeedsImage(tool))).toEqual([
+      'image-to-image',
+      'image-to-video',
+    ]);
+    expect(toolNeedsImage('nope' as never)).toBe(false);
+  });
+
+  it('recognizes tool ids', () => {
+    for (const tool of TOOLS) expect(isTool(tool)).toBe(true);
+    for (const value of ['toString', '', 'text-to-audio', null, undefined, 3, {}]) {
+      expect(isTool(value)).toBe(false);
+    }
+  });
+
+  it('filters models by the tools they serve without reordering them', () => {
+    const models = [
+      { id: 'a', tools: ['text-to-image', 'image-to-image'] },
+      { id: 'b', tools: ['text-to-video'] },
+      { id: 'c', tools: ['image-to-image'] },
+    ] as const;
+    expect(filterModelsForTool(models, 'image-to-image').map((model) => model.id)).toEqual([
+      'a',
+      'c',
+    ]);
+    expect(filterModelsForTool(models, 'image-to-video')).toEqual([]);
   });
 });

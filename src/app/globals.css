@@ -19,33 +19,197 @@
   }
 }
 
-/* Theme tokens. `<html data-theme>` is rendered by the server from the aivore_theme cookie:
-   dark (default), light, or system (follows prefers-color-scheme). */
+/* ==========================================================================================
+   Design tokens
+   `<html data-theme>` is rendered by the server from the aivore_theme cookie: dark (default),
+   light, or system (follows prefers-color-scheme). Dark and light are tuned separately and every
+   text/background pair below is checked against WCAG AA by tests/components/tokens.test.ts.
+   The light block exists twice (explicit light, and system under a light OS): keep them identical,
+   the same test compares them.
+   ========================================================================================== */
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
+
+  /* Surfaces, from the page backdrop up to floating layers. */
   --background: #0b0b16;
+  --surface: #12121f;
+  --surface-raised: #1a1a2e;
+  --surface-overlay: #222240;
+
+  /* Lines. `--field-border` is the 3:1 outline of form controls (WCAG 1.4.11). */
+  --border: #2a2a45;
+  --border-strong: #3d3d63;
+  --field-border: #666690;
+
+  /* Text. */
   --foreground: #f4f4fa;
   --muted: #a8a8c0;
+  --subtle: #8b8bab;
+
+  /* Brand: `--primary` is a fill that carries white text; `--brand` is violet text/icons that
+     reads on every surface; the gradient stops are decoration only (never behind text). */
+  --primary: #6d4aff;
+  --primary-hover: #7a5bff;
+  --primary-foreground: #ffffff;
+  --primary-gradient-from: #7048ff;
+  --primary-gradient-to: #3b6cf0;
+  --brand: #a99bff;
+  --brand-soft: rgb(139 108 255 / 0.16);
+  --brand-from: #8b6cff;
+  --brand-to: #22d3ee;
+  --accent: #22d3ee;
+  --accent-soft: rgb(34 211 238 / 0.14);
   --ring: #8b7cff;
+
+  /* Status colours: the base colour is text/icon on any surface and on its own soft tint. */
+  --success: #4ade80;
+  --success-soft: rgb(74 222 128 / 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgb(251 191 36 / 0.14);
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.15);
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #e23a3a;
+  --danger-solid-foreground: #ffffff;
+  --info: #60a5fa;
+  --info-soft: rgb(96 165 250 / 0.15);
+
+  /* Depth. */
+  --scrim: rgb(5 5 14 / 0.72);
+  --elev-xs: 0 1px 2px rgb(0 0 0 / 0.4);
+  --elev-sm: 0 1px 3px rgb(0 0 0 / 0.45), 0 1px 2px rgb(0 0 0 / 0.3);
+  --elev-md: 0 8px 24px -6px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.35);
+  --elev-lg: 0 24px 56px -12px rgb(0 0 0 / 0.65), 0 8px 20px -6px rgb(0 0 0 / 0.4);
+  --elev-glow: 0 0 0 1px rgb(139 108 255 / 0.35), 0 10px 40px -10px rgb(109 74 255 / 0.55);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --background: #ffffff;
+
+  --background: #f6f6fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+
+  --border: #e2e2ee;
+  --border-strong: #cdcde0;
+  --field-border: #8a8aa8;
+
   --foreground: #14142b;
   --muted: #55556f;
+  --subtle: #6b6b86;
+
+  --primary: #5b3df5;
+  --primary-hover: #4c2fe0;
+  --primary-foreground: #ffffff;
+  --primary-gradient-from: #5b3df5;
+  --primary-gradient-to: #3b6cf0;
+  --brand: #4a2fe0;
+  --brand-soft: rgb(91 61 245 / 0.09);
+  --brand-from: #6d4aff;
+  --brand-to: #0b86a6;
+  --accent: #0e7490;
+  --accent-soft: rgb(14 116 144 / 0.1);
   --ring: #5b45e6;
+
+  --success: #166534;
+  --success-soft: rgb(22 163 74 / 0.12);
+  --warning: #8f4a07;
+  --warning-soft: rgb(217 119 6 / 0.13);
+  --danger: #b91c1c;
+  --danger-soft: rgb(220 38 38 / 0.09);
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #c81e1e;
+  --danger-solid-foreground: #ffffff;
+  --info: #1d4ed8;
+  --info-soft: rgb(37 99 235 / 0.1);
+
+  --scrim: rgb(20 20 43 / 0.45);
+  --elev-xs: 0 1px 2px rgb(24 24 60 / 0.06);
+  --elev-sm: 0 1px 3px rgb(24 24 60 / 0.08), 0 1px 2px rgb(24 24 60 / 0.05);
+  --elev-md: 0 8px 24px -6px rgb(24 24 60 / 0.12), 0 2px 6px rgb(24 24 60 / 0.06);
+  --elev-lg: 0 24px 56px -12px rgb(24 24 60 / 0.22), 0 8px 20px -6px rgb(24 24 60 / 0.08);
+  --elev-glow: 0 0 0 1px rgb(91 61 245 / 0.25), 0 10px 36px -10px rgb(91 61 245 / 0.4);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.6);
 }
 
 @media (prefers-color-scheme: light) {
   :root[data-theme='system'] {
     color-scheme: light;
-    --background: #ffffff;
+
+    --background: #f6f6fb;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-overlay: #ffffff;
+
+    --border: #e2e2ee;
+    --border-strong: #cdcde0;
+    --field-border: #8a8aa8;
+
     --foreground: #14142b;
     --muted: #55556f;
+    --subtle: #6b6b86;
+
+    --primary: #5b3df5;
+    --primary-hover: #4c2fe0;
+    --primary-foreground: #ffffff;
+    --primary-gradient-from: #5b3df5;
+    --primary-gradient-to: #3b6cf0;
+    --brand: #4a2fe0;
+    --brand-soft: rgb(91 61 245 / 0.09);
+    --brand-from: #6d4aff;
+    --brand-to: #0b86a6;
+    --accent: #0e7490;
+    --accent-soft: rgb(14 116 144 / 0.1);
     --ring: #5b45e6;
+
+    --success: #166534;
+    --success-soft: rgb(22 163 74 / 0.12);
+    --warning: #8f4a07;
+    --warning-soft: rgb(217 119 6 / 0.13);
+    --danger: #b91c1c;
+    --danger-soft: rgb(220 38 38 / 0.09);
+    --danger-solid: #dc2626;
+    --danger-solid-hover: #c81e1e;
+    --danger-solid-foreground: #ffffff;
+    --info: #1d4ed8;
+    --info-soft: rgb(37 99 235 / 0.1);
+
+    --scrim: rgb(20 20 43 / 0.45);
+    --elev-xs: 0 1px 2px rgb(24 24 60 / 0.06);
+    --elev-sm: 0 1px 3px rgb(24 24 60 / 0.08), 0 1px 2px rgb(24 24 60 / 0.05);
+    --elev-md: 0 8px 24px -6px rgb(24 24 60 / 0.12), 0 2px 6px rgb(24 24 60 / 0.06);
+    --elev-lg: 0 24px 56px -12px rgb(24 24 60 / 0.22), 0 8px 20px -6px rgb(24 24 60 / 0.08);
+    --elev-glow: 0 0 0 1px rgb(91 61 245 / 0.25), 0 10px 36px -10px rgb(91 61 245 / 0.4);
+    --highlight: inset 0 1px 0 rgb(255 255 255 / 0.6);
   }
+}
+
+/* Reading direction as numbers: `--flow` is +1 in LTR and -1 in RTL, so transforms and gradients
+   that must follow the inline direction can be written once (`translateX(calc(var(--flow) * 50%))`). */
+:root {
+  --flow: 1;
+  --brand-angle: 120deg;
+  --aurora-x-1: 18%;
+  --aurora-x-2: 88%;
+  --brand-gradient: linear-gradient(var(--brand-angle), var(--brand-from), var(--brand-to));
+  --primary-gradient: linear-gradient(
+    var(--brand-angle),
+    var(--primary-gradient-from),
+    var(--primary-gradient-to)
+  );
+  --header-height: 4rem;
+  --topbar-height: 3.5rem;
+  --bottom-nav-height: 3.75rem;
+}
+
+:root[dir='rtl'] {
+  --flow: -1;
+  --brand-angle: 240deg;
+  --aurora-x-1: 82%;
+  --aurora-x-2: 12%;
 }
 
 /* The font stack depends on the page language: Arabic gets Cairo first (Latin glyphs, digits and
@@ -62,20 +226,414 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-field: var(--field-border);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-from: var(--brand-from);
+  --color-brand-to: var(--brand-to);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-solid-hover: var(--danger-solid-hover);
+  --color-danger-solid-foreground: var(--danger-solid-foreground);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-scrim: var(--scrim);
+
   --font-sans: var(--font-family-base);
+
+  --shadow-xs: var(--elev-xs);
+  --shadow-sm: var(--elev-sm);
+  --shadow-md: var(--elev-md);
+  --shadow-lg: var(--elev-lg);
+  --shadow-glow: var(--elev-glow);
+}
+
+@theme {
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --animate-fade-in: fade-in 180ms var(--ease-out-soft) both;
+  --animate-fade-out: fade-out 150ms ease-in both;
+  --animate-slide-up: slide-up 220ms var(--ease-out-soft) both;
+  --animate-scale-in: scale-in 180ms var(--ease-out-soft) both;
+  --animate-scale-out: scale-out 130ms ease-in both;
+  --animate-slide-in-start: slide-in-start 260ms var(--ease-out-soft) both;
+  --animate-slide-in-end: slide-in-end 260ms var(--ease-out-soft) both;
+  --animate-slide-in-bottom: slide-in-bottom 260ms var(--ease-out-soft) both;
+  --animate-toast-in: toast-in 260ms var(--ease-out-soft) both;
+  --animate-toast-out: toast-out 160ms ease-in both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-pulse-soft: pulse-soft 1.8s ease-in-out infinite;
+  --animate-spinner: spinner 0.8s linear infinite;
+  --animate-indeterminate: indeterminate 1.4s var(--ease-out-soft) infinite;
+  --animate-bump: bump 380ms var(--ease-out-soft) both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes scale-out {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  @keyframes slide-in-start {
+    from {
+      transform: translateX(calc(var(--flow) * -100%));
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-in-end {
+    from {
+      transform: translateX(calc(var(--flow) * 100%));
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-in-bottom {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(0.5rem) scale(0.98);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: calc(50% + var(--flow) * 50%) 0;
+    }
+    to {
+      background-position: calc(50% - var(--flow) * 50%) 0;
+    }
+  }
+  @keyframes pulse-soft {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+  @keyframes spinner {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(calc(var(--flow) * -100%)) scaleX(0.4);
+    }
+    50% {
+      transform: translateX(calc(var(--flow) * 40%)) scaleX(0.6);
+    }
+    100% {
+      transform: translateX(calc(var(--flow) * 250%)) scaleX(0.3);
+    }
+  }
+  @keyframes bump {
+    0% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.12);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
 }
 
 @layer base {
+  /* Tailwind 4 defaults borders to currentColor; the system draws them in the border token. */
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--border);
+  }
+
+  html {
+    background-color: var(--background);
+    text-size-adjust: 100%;
+    scroll-padding-top: calc(var(--header-height) + 1rem);
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
+  }
+
+  /* Arabic joins its letters: tracking would tear words apart, so it never applies there. */
+  :root[lang='ar'] * {
+    letter-spacing: normal !important;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 38%, transparent);
+    color: var(--foreground);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--field-border);
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Toasts live in <body>, outside the app shell: lift them above the mobile tab bar. */
+  @media (max-width: 63.999rem) {
+    body:has([data-app-shell]) {
+      --shell-bottom-inset: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* Motion is a flourish, never information: with reduced motion every transition and animation
+     collapses to an instant change. The spinner keeps a gentle, non-moving fade so a pending state
+     still reads as alive. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+
+    .animate-spinner,
+    .animate-pulse-soft,
+    .animate-indeterminate {
+      animation-duration: 2s !important;
+      animation-iteration-count: infinite !important;
+      animation-name: pulse-soft !important;
+      transform: none !important;
+    }
+
+    .animate-shimmer {
+      animation: none !important;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------------------------
+   Brand utilities
+   ------------------------------------------------------------------------------------------ */
+
+/* Violet to cyan fill for display text. Only for large type: the cyan end is below 4.5:1 on light. */
+@utility text-gradient-brand {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+
+  @media (forced-colors: active) {
+    background-image: none;
+    color: CanvasText;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+@utility bg-brand-gradient {
+  background-image: var(--brand-gradient);
+}
+
+/* The gradient carried by primary actions: violet to blue so white text stays above 4.5:1. */
+@utility bg-primary-gradient {
+  background-image: var(--primary-gradient);
+}
+
+/* A 1px gradient outline around a filled surface (`--gradient-fill` picks the inner colour). */
+@utility border-gradient-brand {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--gradient-fill, var(--surface)), var(--gradient-fill, var(--surface)))
+      padding-box,
+    var(--brand-gradient) border-box;
+}
+
+@utility glow-brand {
+  box-shadow: var(--elev-glow);
+}
+
+/* Frosted bar for sticky headers and floating controls. */
+@utility surface-glass {
+  background-color: color-mix(in oklab, var(--background) 72%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+/* Soft violet and cyan light behind hero areas and the auth backdrop. */
+@utility bg-aurora {
+  background-image:
+    radial-gradient(
+      48rem 26rem at var(--aurora-x-1) -8%,
+      color-mix(in oklab, var(--brand-from) 26%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      40rem 24rem at var(--aurora-x-2) 4%,
+      color-mix(in oklab, var(--brand-to) 16%, transparent),
+      transparent 70%
+    );
+}
+
+/* A faint dot grid that fades towards its edges. */
+@utility bg-dots {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 75%);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Shimmering placeholder fill for skeletons. */
+@utility bg-shimmer {
+  background-color: var(--surface-raised);
+  background-image: linear-gradient(
+    calc(var(--flow) * 100deg),
+    transparent 20%,
+    color-mix(in oklab, var(--foreground) 9%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
 }

@@ -8,6 +8,19 @@ export default defineMessages({
     },
     a11y: {
       skipToContent: 'Skip to main content',
+      loading: 'Loading',
+      home: 'AIVORE home',
+      mainNavigation: 'Main navigation',
+      appNavigation: 'App navigation',
+      mobileNavigation: 'Mobile navigation',
+      openMenu: 'Open menu',
+      closeMenu: 'Close menu',
+      userMenu: 'Account menu',
+      collapseSidebar: 'Collapse sidebar',
+      expandSidebar: 'Expand sidebar',
+      dismissNotification: 'Dismiss notification',
+      notifications: 'Notifications',
+      progress: 'Progress',
     },
     nav: {
       home: 'Home',
@@ -16,6 +29,7 @@ export default defineMessages({
       explore: 'Explore',
       account: 'Account',
       docs: 'API docs',
+      docsShort: 'API',
       login: 'Log in',
       register: 'Sign up',
       logout: 'Log out',
@@ -44,6 +58,27 @@ export default defineMessages({
       dark: 'Dark',
       system: 'System',
     },
+    credits: {
+      label: 'Credits',
+      balance: 'Credits: {amount}',
+      low: 'Running low',
+    },
+    user: {
+      signedInAs: 'Signed in as',
+      admin: 'Admin',
+    },
+    states: {
+      errorTitle: 'Something went wrong',
+      emptyTitle: 'Nothing here yet',
+    },
+    form: {
+      required: 'required',
+      optional: 'optional',
+      characterCount: '{count} of {max} characters',
+    },
+    toast: {
+      loggedOut: 'You are logged out. See you soon!',
+    },
     tools: {
       textToImage: {
         name: 'Text to image',
@@ -70,6 +105,19 @@ export default defineMessages({
     },
     a11y: {
       skipToContent: 'تخطَّ إلى المحتوى الرئيسي',
+      loading: 'جارٍ التحميل',
+      home: 'الصفحة الرئيسية لـ AIVORE',
+      mainNavigation: 'التنقل الرئيسي',
+      appNavigation: 'التنقل داخل التطبيق',
+      mobileNavigation: 'التنقل على الجوال',
+      openMenu: 'فتح القائمة',
+      closeMenu: 'إغلاق القائمة',
+      userMenu: 'قائمة الحساب',
+      collapseSidebar: 'طيّ الشريط الجانبي',
+      expandSidebar: 'توسيع الشريط الجانبي',
+      dismissNotification: 'إخفاء الإشعار',
+      notifications: 'الإشعارات',
+      progress: 'التقدّم',
     },
     nav: {
       home: 'الرئيسية',
@@ -78,6 +126,7 @@ export default defineMessages({
       explore: 'استكشاف',
       account: 'حسابي',
       docs: 'توثيق الواجهة البرمجية',
+      docsShort: 'API',
       login: 'تسجيل الدخول',
       register: 'إنشاء حساب',
       logout: 'تسجيل الخروج',
@@ -105,6 +154,27 @@ export default defineMessages({
       light: 'فاتح',
       dark: 'داكن',
       system: 'تلقائي',
+    },
+    credits: {
+      label: 'الرصيد',
+      balance: 'الرصيد: {amount}',
+      low: 'رصيدك على وشك النفاد',
+    },
+    user: {
+      signedInAs: 'مسجّل الدخول باسم',
+      admin: 'مشرف',
+    },
+    states: {
+      errorTitle: 'حدث خطأ ما',
+      emptyTitle: 'لا يوجد شيء هنا بعد',
+    },
+    form: {
+      required: 'مطلوب',
+      optional: 'اختياري',
+      characterCount: '{count} من {max} حرفًا',
+    },
+    toast: {
+      loggedOut: 'تم تسجيل خروجك. نراك قريبًا!',
     },
     tools: {
       textToImage: {

@@ -1,4 +1,4 @@
-import type { Kind, Tool } from '@/lib/catalog/types';
+import { TOOLS, type Kind, type Tool } from '@/lib/catalog/types';
 
 export interface ToolSpec {
   id: Tool;
@@ -48,4 +48,26 @@ export function getTools(): ToolSpec[] {
 export function getTool(id: Tool): ToolSpec | undefined {
   const tool = TOOL_SPECS.find((candidate) => candidate.id === id);
   return tool ? { ...tool } : undefined;
+}
+
+export function isTool(value: unknown): value is Tool {
+  return typeof value === 'string' && (TOOLS as readonly string[]).includes(value);
+}
+
+/** The tools of one kind, in registry order (what a "Images" or "Videos" tab lists). */
+export function getToolsForKind(kind: Kind): ToolSpec[] {
+  return getTools().filter((tool) => tool.kind === kind);
+}
+
+/** Whether the tool takes an uploaded input image. False for an unknown tool. */
+export function toolNeedsImage(id: Tool): boolean {
+  return TOOL_SPECS.some((tool) => tool.id === id && tool.needsInputImage);
+}
+
+/** The models that serve `tool`, keeping the order of `models`. */
+export function filterModelsForTool<M extends { readonly tools: readonly Tool[] }>(
+  models: readonly M[],
+  tool: Tool,
+): M[] {
+  return models.filter((model) => model.tools.includes(tool));
 }
