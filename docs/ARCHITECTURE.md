@@ -92,7 +92,7 @@ src/
     api/v1/**/route.ts                     # THE API (used by UI and by developers)
   components/ui/**  components/layout/**  components/studio/** components/gallery/** components/account/** components/marketing/**
   lib/                                     # isomorphic
-    id.ts utils.ts errors.ts api-types.ts api-client.ts
+    id.ts utils.ts errors.ts api-types.ts api-client.ts theme.ts theme-server.ts version.ts
     i18n/{index.ts,define.ts,locales.ts,server.ts,client.tsx,messages/*.ts}
     catalog/{types.ts,pricing.ts,aspect.ts,models/{mock,openai,fal,replicate}.ts,index.ts}
     tools/{index.ts}
@@ -101,7 +101,7 @@ src/
     env.ts logger.ts
     db/{schema.ts,index.ts,tx.ts,migrate.ts}
     http/{route.ts,errors.ts,respond.ts,request.ts}
-    auth/{index.ts,password.ts,sessions.ts,api-keys.ts,cookies.ts,context.ts,users.ts}
+    auth/{index.ts,password.ts,sessions.ts,api-keys.ts,cookies.ts,context.ts,users.ts,tokens.ts}
     security/{rate-limit.ts,origin.ts,ssrf.ts,ip.ts,headers.ts}
     credits/index.ts
     moderation/index.ts
@@ -117,7 +117,7 @@ src/
 
 | Owner key           | Owns |
 | ------------------- | ---- |
-| `foundation`        | tooling/config, `lib/{id,utils,errors,api-types,api-client}`, `lib/i18n/**` runtime + empty namespace files, `lib/catalog/{types,pricing,aspect,index}.ts`, `server/{env,logger}`, `server/db/**`, `server/http/**`, `server/credits/**`, module **stubs**, `tests/helpers/**`, `app/layout.tsx` shell, `app/api/health` |
+| `foundation`        | tooling/config, `lib/{id,utils,errors,api-types,api-client}`, `lib/i18n/**` runtime + empty namespace files, `lib/catalog/{types,pricing,aspect,index}.ts`, `server/{env,logger}`, `server/db/**`, `server/http/**`, `server/credits/**`, module **stubs**, `tests/helpers/**`, `app/layout.tsx` shell + `globals.css` baseline, `lib/{theme,theme-server,version}.ts`, `instrumentation.ts` wiring, `app/api/health`, the placeholder `app/(marketing)/page.tsx` (ui-kit replaces it) |
 | `auth-security`     | `server/auth/**`, `server/security/**`, `app/api/v1/auth/**`, `app/api/v1/account/**`, `app/api/v1/keys/**`, `scripts/admin.ts`, tests for these |
 | `catalog`           | `lib/catalog/models/mock.ts`(with providers-mock), `lib/tools/**`, `lib/validation/**`, `server/moderation/**`, `server/prompt/**`, `app/api/v1/{models,tools,prompt}/**` |
 | `providers-mock`    | `server/providers/{types,errors,registry,http}.ts`, `server/providers/mock/**`, `lib/catalog/models/mock.ts` |
@@ -342,6 +342,19 @@ security/headers.ts: baseline security headers object used by next.config.ts (CS
 Routes: `POST /auth/register|login|logout`, `GET /auth/me`, `GET|PATCH /account`, `POST /account/password`,
 `GET /account/ledger`, `GET|POST /keys`, `DELETE /keys/:id`.
 
+As built (stubs, see §15): everything is imported from `@/server/auth` (a barrel over `context.ts` (`SessionUser`, `AuthContext`,
+`authenticate`, `getCurrentUser`), `users.ts` (`registerUser`, `loginUser`, `changePassword`, types `RegisterInput`, `LoginInput`,
+`SessionMeta {ip?, userAgent?}`, `AuthResult`), `sessions.ts` (`logout`, `logoutAll`), `api-keys.ts` (`createApiKey` → `CreateApiKeyResponse`,
+`listApiKeys`, `revokeApiKey`), `cookies.ts`, `password.ts` (`hashPassword`, `verifyPassword`, `assertPasswordPolicy`, `PASSWORD_MIN_LENGTH`,
+`PASSWORD_MAX_LENGTH`)). Additive to the signatures above: `registerUser(input, meta?)` also takes `SessionMeta`, and
+`changePassword(userId, current, next, keepSessionId?)` keeps the caller's own session. **`auth/tokens.ts` is real and is a storage
+contract**: `hashToken(secret, pepper = SESSION_SECRET)` = hex HMAC-SHA256 of the secret keyed with the pepper, used for session tokens
+(`sessions.tokenHash`) and API keys (`api_keys.keyHash`); `generateToken()` = 32 random bytes as base64url. Test factories insert
+sessions with it, so auth-security must hash through `hashToken` and must keep its output stable.
+`security/ssrf.ts`: `assertPublicHttpsUrl(url: string | URL): Promise<URL>` and
+`safeFetch(url, { maxBytes, timeoutMs, allowedContentTypes: readonly string[], signal? }): Promise<{ bytes: Uint8Array; contentType; finalUrl }>`
+(the body is buffered; `allowedContentTypes` accepts `image/*` style wildcards).
+
 ### 6.3 `server/credits` (foundation, implemented + tested)
 
 ```ts
@@ -387,6 +400,23 @@ Rules: providers never touch DB/storage; never log secrets/prompts at info; map 
 all `fetch` calls take `ctx.signal`; request/response shaping is unit-tested with a stubbed `ctx.fetch`.
 Provider outputs given as `url` are downloaded by the **engine** through `safeFetch` (SSRF-safe) and persisted.
 
+As built (real code; owner `providers-mock` extends it additively):
+- `providers/types.ts` holds the interfaces above verbatim. `providers/errors.ts`: `new ProviderError(code, message, { retryable?, userMessage?,
+  httpStatus?, retryAfterMs?, cause? })` (`PROVIDER_ERROR_CODES`, `isProviderError`). Retryable by default: `rate_limited`, `unavailable`,
+  `timeout`. `message` is for logs; only `userMessage` (a generic default per code, override it) may reach users or be stored on the generation.
+  `providerErrorFromStatus(status, { message?, contentPolicy?, retryAfterMs?, cause? })`: 401/402/403 → `auth`, 408 → `timeout`, 429 →
+  `rate_limited`, 5xx → `unavailable` (retryable), 400/413/415/422 → `invalid_input`, other statuses → `unknown`; a content-policy payload on a
+  4xx (not 429) → `content_policy`.
+- `providers/http.ts`: `httpJson<T>(ctx, { url, method?, headers?, body?, timeoutMs = 30000, maxResponseBytes = 10 MiB, schema?, classifyError? })`
+  → `{ status, headers, data }`. It calls `ctx.fetch` under `AbortSignal.any([ctx.signal, timeout])`, parses the JSON, validates with `schema`
+  (mismatch → `unknown`, the message names paths, never values) and reports every failure as a `ProviderError` (network error → `unavailable`,
+  timeout → `timeout`, `Retry-After` → `retryAfterMs`). If `ctx.signal` aborts, the abort error is rethrown untouched (cancellation is not a
+  provider failure). `classifyError(failure)` lets an adapter map its own error payloads first. Request and response bodies and the query
+  string are never logged; the debug line has only method, host, path, status and duration. Adapter tests build contexts with `fakeProviderContext`.
+- `providers/registry.ts`: `getProvider`, `listProviders`, `isProviderAvailable(id, env)`, `setProviderOverrides(partial | null)` (replaces the whole
+  override set). It imports `mockProvider` (`./mock`), `openaiProvider` (`./openai`), `falProvider` (`./fal`), `replicateProvider` (`./replicate`):
+  keep those export names. Until the real adapters exist the three real stubs report `isConfigured() === false`, so no model is offered through them.
+
 **Provider verification rule**: real-provider owners must try to verify endpoints, request/response shapes and model ids
 against the official docs (WebFetch/WebSearch, load via ToolSearch). Anything not verifiable is isolated behind the adapter,
 marked `// UNVERIFIED:` and listed in `openIssues`. Never invent model ids — fewer, verified models beat many guesses.
@@ -404,10 +434,19 @@ interface StorageDriver {
 getStorage(): StorageDriver     // by env STORAGE_DRIVER; local driver is path-traversal-proof (keys validated /^[a-z0-9/_\-.]+$/, no .., resolved under root)
 keys: `u/<userId>/<generationId|uploads>/<assetId>.<ext>`; thumbs `…/<assetId>.thumb.webp`
 uploads/: acceptUpload(file: File, userId): Promise<AssetRecord>   // size limit, magic-byte sniff (png/jpeg/webp only), sharp decode (rejects polyglots/decompression bombs via limitInputPixels), strips EXIF, normalizes to ≤ 4096px, stores + thumb, creates asset row (role 'input')
-persistOutput(...) helper used by engine: store bytes, probe dims with sharp (images), make thumb (images), create asset row
+persistOutput(storage, input): Promise<PersistedOutput>   // used by the engine: store bytes, probe dims with sharp (images), make thumb (images). It does NOT insert the asset row: completeGeneration inserts the rows in the same tx that marks the generation succeeded
 GET /api/v1/media/:assetId[?variant=thumb] — access: owner (session or API key) OR generation.isPublic; Range support (206) for video; ETag; Cache-Control private vs public; `X-Content-Type-Options: nosniff`; Content-Disposition inline (or attachment with ?download=1); for S3 either stream or 302 to short-lived signed URL
 POST /api/v1/uploads (multipart `file`) → { data: AssetDTO }
 ```
+
+As built (stubs, see §15): `storage/types.ts` (real) exports `StorageDriver`, `StorageRange`, `StorageReadResult`, `StoredObjectInfo` and
+`STORAGE_KEY_PATTERN`. `storage/index.ts` is real wiring: `getStorage()` (lazy, kept on `globalThis`, chosen by `STORAGE_DRIVER`) and
+`setStorageOverride(driver | null)` for tests; it calls the stubs `createLocalStorage(rootDir)` (`local.ts`) and `createS3Storage(env)` (`s3.ts`).
+`uploads/index.ts`: `acceptUpload(file, userId): Promise<AssetRecord>` (`AssetRecord = AssetRow`),
+`persistOutput(storage, { userId, generationId, index, kind, bytes, mimeType, durationMs?, width?, height? }): Promise<PersistedOutput>` where
+`PersistedOutput = { assetId, index, kind, storageKey, thumbKey?, mimeType, bytes, width?, height?, durationMs?, sha256? }`, and
+`removeAssetObjects(storage, assets)` (best effort, for deletes). `uploads/sniff.ts`: `sniffImageType(bytes)`, `extensionForMime`, `UPLOAD_MIME_TYPES`;
+`uploads/image.ts`: `normalizeUpload`, `probeImage`, `makeThumbnail`. `toAssetDTO(row)` lives in `generations/dto.ts` (real).
 
 ### 6.6 `server/generations` + `server/jobs` (owner `engine`)
 
@@ -436,6 +475,16 @@ class JobRunner { constructor(deps: { db; storage; providers; env; log; now? });
 start.ts: startWorker() singleton on globalThis (HMR-safe); instrumentation.ts calls it only when NEXT_RUNTIME==='nodejs' && WORKER_MODE==='inline'
 scripts/worker.ts: standalone entry for WORKER_MODE=external (graceful SIGTERM)
 ```
+As built (stubs, see §15): the `lifecycle.ts` functions take the connection first, like the credits functions
+(`claimNextJob(db, workerId, leaseMs, now?)`, `extendLease(db, id, workerId, leaseMs, now?)`, `recordSubmitted(db, id, workerId, providerJobId, meta?)`,
+`updateProgress(db, id, workerId, progress)`, `completeGeneration(db, id, workerId, outputs: PersistedOutput[])`,
+`failGeneration(db, id, workerId | null, error)`, `requeueStale(db, now?)`), and stay synchronous. `service.ts` functions are async except
+`getPublicGeneration`; `listGenerations(userId, ListGenerationsQuery)` and `listPublicGenerations({ kind?, limit?, cursor? })` return `Page<GenerationDTO>`;
+`updateGeneration(userId, id, UpdateGenerationRequest)` and `cancelGeneration` return the `GenerationDTO`. `queries.ts` (`findGenerationRow`,
+`findOwnedGenerationRow`, `countActiveGenerations`, `hydrateGenerations`) is internal to the engine. `dto.ts` is real: `toGenerationDTO(row, { outputs, input?, owner? })`
+never exposes provider, provider job id/meta, worker, lease, attempts, idempotency key or owner id. `JobRunnerDeps = { db, storage, providers: { getProvider }, env, log, now? }`;
+`jobs/worker.ts` `createJobRunner(overrides?)` and `jobs/start.ts` `startWorker()` / `stopWorker()` are real wiring over the stub `JobRunner`.
+
 Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /generations/:id/cancel`, `GET /explore` (public feed, no auth).
 `GET /generations?ids=a,b,c` supports cheap batch polling by the UI (UI polls active ones every 1.5–4 s with backoff and pauses when the tab is hidden).
 `Idempotency-Key` header on `POST /generations`.
@@ -448,6 +497,12 @@ enhancePrompt({ prompt, kind, locale? }): Promise<{ prompt: string; engine: 'ope
    // LLM path: translate Arabic→English when the target models are English-centric + enrich (subject, style, lighting, composition); returns ONLY the prompt; heuristic path appends tasteful descriptors, never calls network
 ```
 `lib/validation/generation.ts`: `validateGenerationRequest(req, env?) → { ok: true; model; params /* normalized */; cost } | { ok: false; errors }` – checks tool/model compatibility, prompt length, allowed aspect ratio/duration/resolution/count, requires `inputAssetId` iff tool needs an image, clamps defaults.
+
+As built (stubs, see §15): `moderatePrompt(text, { signal?, fetch? }): Promise<{ allowed; category?; reason? }>`;
+`enhancePrompt(EnhancePromptRequest, { env?, fetch?, signal? }): Promise<EnhancePromptResponse>` and the sync
+`enhanceHeuristically(EnhancePromptRequest): EnhancePromptResponse` (`prompt/heuristic.ts`). `lib/validation/generation.ts` keeps the real zod
+schema and adds the stub `validateGenerationRequest(request, env?: { ENABLE_MOCK_PROVIDER?: boolean }): GenerationValidationResult`, i.e.
+`{ ok: true; model; params; cost } | { ok: false; errors: ValidationIssue[] }` (the structural `env` type keeps `lib/` free of server imports; pass `getEnv()`).
 
 ## 7. HTTP API (v1) — summary
 
@@ -470,7 +525,7 @@ Base `/api/v1`. Auth: session cookie (UI) **or** `Authorization: Bearer avk_…`
 | POST | `/generations/:id/cancel` | required | |
 | GET | `/explore` | none | public feed |
 | GET | `/openapi.json` | none | served from `public/openapi.json`-equivalent |
-| GET | `/api/health` | none | `{status:'ok', db:true, worker, version}` |
+| GET | `/api/health` | none | bare (not enveloped) `HealthDTO` `{status:'ok', db:true, worker, version}`; `{status:'error', db:false, …}` with HTTP 503 when `SELECT 1` fails |
 
 ## 8. Generation lifecycle
 
@@ -509,6 +564,8 @@ Scripts: `dev build start lint typecheck test test:watch test:e2e db:generate db
 Unit tests mirror `src/` under `tests/`. Tests never touch the network or the real filesystem outside temp dirs.
 
 ## 12. Foundation deliverables (checklist)
+
+All seven items are done; §13 to §15 record what was built.
 
 1. Tooling/config/deps installed (all deps up-front, incl. dev). `build`, `lint`, `typecheck`, `test` green on the skeleton.
 2. `lib/*` kernel implemented + tested (`id`, `utils`, `errors`, `api-types`, `api-client`, `i18n` runtime, catalog types/pricing/aspect/index with empty model files, tools registry skeleton).
@@ -569,12 +626,55 @@ Unit tests mirror `src/` under `tests/`. Tests never touch the network or the re
   `<cwd>/drizzle` by default. `next.config.ts` (`outputFileTracingIncludes`) copies `drizzle/` into `.next/standalone/`; Docker must keep it next to
   `server.js`. `npm run db:migrate` (`scripts/migrate.ts`) runs the same code. A test fails when `schema.ts` and `drizzle/` drift.
 - **Stubs created by the kernel step** (owner `auth-security`, replace fully, keep these exports because `route()` imports them):
-  `server/auth/index.ts` → `SessionUser`, `AuthContext`, `authenticate(req)`; `server/security/rate-limit.ts` → `RateLimitResult`,
-  `RateLimiter`, `getRateLimiter()`; `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
-  `getClientIp(req): string` (the stub always returns `'unknown'`). `SESSION_COOKIE_NAME` is exported by `server/http/request.ts`.
-- **Test helpers** (`tests/helpers`): `db.ts` (`createTestDb({ file? })` → `{ db, path, close }`, fully migrated; `seedUser`),
+  `server/auth` (`SessionUser`, `AuthContext`, `authenticate(req)`, still exported from the `@/server/auth` barrel); `server/security/rate-limit.ts` →
+  `RateLimitResult`, `RateLimiter`, `getRateLimiter()`; `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
+  `getClientIp(req): string` (the stub always returns `'unknown'`). `SESSION_COOKIE_NAME` is exported by `server/http/request.ts`. The rest of the stubs are listed in §15.
+- **Test helpers** (`tests/helpers`; the HTTP, factory and fake helpers are described in §15): `db.ts` (`createTestDb({ file? })` → `{ db, path, close }`, fully migrated; `seedUser`; `freshDb()`),
   `credits.ts` (`ledgerInOrder`, `expectConsistentLedger` — the balance/chain invariants), `model-spec.ts` (`modelSpecProblems(model)`;
   provider owners should assert it is `[]` for the models they add), and two child-process workers (`credits-race-worker.ts`,
   `migrate-worker.ts`) run with `node --import tsx --conditions=react-server`. better-sqlite3 is synchronous, so only separate
   processes can race; see `tests/server/credits/race.test.ts` for the pattern. Route tests mock `@/server/auth` and
   `@/server/security/*` (see `tests/server/http/route.test.ts`).
+
+## 15. Stubs, test helpers and app shell (as built)
+
+**Stub files.** Each starts with `// OWNER: <key> — replace this stub`, keeps the exact exports below, and throws `NotImplementedError` from
+`@/lib/errors` (types, interfaces, constants and error classes are real). The owner replaces the whole file and may add exports, not remove them.
+Files marked *real* are finished wiring or contracts and carry a different `// OWNER:` header.
+
+| Owner | Files |
+| ----- | ----- |
+| `auth-security` | `server/auth/{context,users,sessions,api-keys,cookies,password}.ts`, `server/security/ssrf.ts`, `scripts/admin.ts` (stubs); `server/auth/tokens.ts` (*real*, storage contract); `server/auth/index.ts` (*real* barrel); `server/security/{rate-limit,origin,ip}.ts` (kernel stubs) |
+| `providers-mock` | `server/providers/{types,errors,http,registry}.ts` (*real*), `server/providers/mock/index.ts` (stub, exports `mockProvider`; `isConfigured` is `env.ENABLE_MOCK_PROVIDER`) |
+| `provider-openai`, `provider-fal`, `provider-replicate` | `server/providers/{openai,fal,replicate}/index.ts` (stubs exporting `openaiProvider`, `falProvider`, `replicateProvider`; `isConfigured` is always false) |
+| `storage` | `server/storage/{local,s3}.ts`, `server/uploads/{index,sniff,image}.ts` (stubs); `server/storage/{types,index}.ts` (*real*) |
+| `engine` | `server/generations/{service,lifecycle,queries}.ts`, `server/jobs/runner.ts` (stubs); `server/generations/dto.ts`, `server/jobs/{worker,start}.ts`, `instrumentation.ts` (*real*); `scripts/worker.ts` (wiring done, runs the stub runner) |
+| `catalog` | `server/moderation/index.ts`, `server/prompt/{enhancer,heuristic}.ts` (stubs), `validateGenerationRequest` in `lib/validation/generation.ts` (stub next to the real schema) |
+
+**Test helpers** (`tests/helpers`, import with relative paths):
+- `db.ts`: `createTestDb({ file? })`, `seedUser`, and `freshDb()`, which registers `beforeEach`/`afterEach` hooks so code that calls `getDb()` itself
+  (services, routes) gets a fresh migrated in-memory database per test; read `.db` inside tests. (Not named `use…` because ESLint treats that as a React hook.)
+- `http.ts`: `invokeRoute(handler, { method?, url?, query?, headers?, body?, params? })` → `{ status, headers, json, text, response }`. It builds a real `Request`
+  against `APP_URL`, sends plain bodies as JSON (strings, `Uint8Array` and `FormData` untouched) and passes `params` as a promise like Next.js. Nothing is mocked.
+- `factories.ts`: `createUser(db, overrides?)` (50 credits, emails lowercased), `createSession(db, userId, opts?)` → `{ id, token, cookie, headers: { cookie, origin }, expiresAt, row }`
+  (inserted directly with `hashToken`, so it authenticates as soon as auth exists; `headers` includes an `Origin` equal to `APP_URL` so mutating calls pass the CSRF check),
+  `createUserWithSession`, `createGeneration(db, { userId, … })` (queued Demo generation; kind follows `tool`; does not debit credits), `createAsset(db, { userId, … })`.
+  It also re-exports the fakes below.
+- `fakes.ts`: `fakeStorage({ signedUrls? })` (in-memory `StorageDriver` that enforces the key rules, `not_found`, inclusive ranges), `fakeProvider(options?)`
+  (`vi.fn` methods; defaults to `count` tiny decodable outputs, scriptable `submit`/`poll`/`cancel`/`configured`), `fakeProviderContext(overrides?)` (silent logger, test env,
+  a `fetch` that fails unless you stub it), `tinyOutput`, `TINY_PNG`, `TINY_GIF`, `streamToBytes`. Inject with `setProviderOverrides({ mock: fakeProvider() })` and `setStorageOverride(fakeStorage())`.
+
+**App shell.**
+- `app/layout.tsx` is async: `<html lang dir data-theme>` come from `getI18n()` (cookie `aivore_locale`, then `Accept-Language`, then `ar`) and `getTheme()` (cookie `aivore_theme`:
+  `light | dark | system`, default `dark`; `lib/theme.ts` has the constants and `serializeThemeCookie`). Rendering the theme on the server means no inline script and no flash; it also makes every page
+  dynamic. It provides `I18nProvider`, a localized skip link (`common.a11y.skipToContent`) and `generateMetadata`/`viewport`. **Every page or layout must render exactly one
+  `<main id="main-content">`**, the skip link's target. Theme and locale switchers write the cookies and refresh.
+- `app/globals.css` (ui-kit extends it): imports Tailwind and the self-hosted `@fontsource-variable/{inter,cairo}` (families `Inter Variable`, `Cairo Variable`; the build emits woff2 per unicode-range
+  subset, including `cairo-arabic`), defines `--background/--foreground/--muted/--ring` for `:root[data-theme=dark|light]` and `data-theme=system` (via `prefers-color-scheme`) and maps them to
+  Tailwind colors (`bg-background`, `text-foreground`, `text-muted`). Arabic pages get Cairo first.
+- `app/(marketing)/page.tsx` is the placeholder landing page (name and tagline in the active locale). `src/app/page.tsx` no longer exists; ui-kit replaces the placeholder in place.
+- `app/api/health/route.ts` (real): bare `HealthDTO`, `SELECT 1` against the database, `worker` = `WORKER_MODE`, `version` from `lib/version.ts` (package.json inlined at build time). 503 when the database fails.
+- `instrumentation.ts` (real): in the Node.js runtime with `WORKER_MODE=inline` it dynamic-imports `server/jobs/start` and calls `startWorker()`; any failure (bad env, stub runner) is logged at error
+  and swallowed, so the app always boots. Verified: with the stub runner and `WORKER_MODE=inline` the server logged the `NotImplementedError` and still served `/` and `/api/health`.
+- Verified on the production build: `/api/health` returns `{"status":"ok","db":true,"worker":"off","version":"0.1.0"}`; `/` renders `<html lang="ar" dir="rtl">` for `Accept-Language: ar` or no header,
+  `lang="en" dir="ltr"` for `en`, a locale cookie beats the header, and `aivore_theme=light` renders `data-theme="light"`.

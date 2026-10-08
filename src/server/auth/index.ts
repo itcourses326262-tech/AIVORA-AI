@@ -1,25 +1,11 @@
-// OWNER: auth-security — replace this stub
+// OWNER: auth-security — barrel of the public auth API; keep these exports
 import 'server-only';
-import { NotImplementedError } from '@/lib/errors';
-import type { Locale } from '@/lib/i18n/locales';
 
-export interface SessionUser {
-  id: string;
-  email: string;
-  name: string;
-  role: 'user' | 'admin';
-  locale: Locale;
-  creditBalance: number;
-}
-
-export interface AuthContext {
-  user: SessionUser;
-  via: 'session' | 'api_key';
-  sessionId?: string;
-  apiKeyId?: string;
-}
-
-/** Bearer `avk_…` -> API key; otherwise the `aivore_session` cookie. Null when unauthenticated. */
-export async function authenticate(_req: Request): Promise<AuthContext | null> {
-  throw new NotImplementedError('auth.authenticate');
-}
+// Public surface of server/auth. `route()` imports `authenticate`, `AuthContext` and `SessionUser`
+// from here, so keep them exported.
+export * from './api-keys';
+export * from './context';
+export * from './cookies';
+export * from './password';
+export * from './sessions';
+export * from './users';

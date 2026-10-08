@@ -1,6 +1,6 @@
 import 'server-only';
 import { z, type ZodType } from 'zod';
-import { AppError } from '@/lib/errors';
+import { AppError, isAppError } from '@/lib/errors';
 import { validationError } from './errors';
 
 /** Name of the session cookie (owned by `server/auth`, mirrored here to detect credentials). */
@@ -37,6 +37,48 @@ export function parseOrThrow<T>(schema: ZodType<T>, input: unknown): T {
 }
 
 const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json(?:\s*;|$)/i;
+const FORM_CONTENT_TYPE = /^multipart\/form-data\s*(?:;|$)/i;
+
+function bodyTooLarge(maxBytes: number): AppError {
+  return AppError.of('payload_too_large', `Request body exceeds ${maxBytes} bytes`);
+}
+
+/** 413 when the client announces a body above the cap, before a single byte is read. */
+function assertDeclaredLength(req: Request, maxBytes: number): void {
+  const header = req.headers.get('content-length');
+  if (header === null) return;
+  const declared = Number(header);
+  if (Number.isFinite(declared) && declared > maxBytes) throw bodyTooLarge(maxBytes);
+}
+
+/**
+ * Returns a request whose body fails with `payload_too_large` as soon as more than `maxBytes`
+ * have been read, whichever way a handler consumes it (`json()`, `text()`, `formData()`,
+ * `arrayBuffer()` or the raw stream). Chunked uploads have no Content-Length to check up front,
+ * so the cap has to sit on the stream itself. Bodiless requests are returned as they are.
+ */
+export function capRequestBody(req: Request, maxBytes: number): Request {
+  assertDeclaredLength(req, maxBytes);
+  if (req.body === null) return req;
+  let received = 0;
+  const limited = req.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.byteLength;
+        if (received > maxBytes) controller.error(bodyTooLarge(maxBytes));
+        else controller.enqueue(chunk);
+      },
+    }),
+  );
+  const init: RequestInit & { duplex: 'half' } = {
+    method: req.method,
+    headers: req.headers,
+    body: limited,
+    duplex: 'half',
+    signal: req.signal,
+  };
+  return new Request(req.url, init);
+}
 
 async function readLimited(
   body: ReadableStream<Uint8Array>,
@@ -51,7 +93,7 @@ async function readLimited(
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw AppError.of('payload_too_large', `Request body exceeds ${maxBytes} bytes`);
+      throw bodyTooLarge(maxBytes);
     }
     chunks.push(value);
   }
@@ -76,10 +118,7 @@ export async function readJsonBody(
   if (!JSON_CONTENT_TYPE.test(req.headers.get('content-type') ?? '')) {
     throw AppError.of('unsupported_media_type', 'Content-Type must be application/json');
   }
-  const declared = Number(req.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    throw AppError.of('payload_too_large', `Request body exceeds ${maxBytes} bytes`);
-  }
+  assertDeclaredLength(req, maxBytes);
 
   const bytes = await readLimited(req.body, maxBytes);
   let text: string;
@@ -96,11 +135,33 @@ export async function readJsonBody(
   }
 }
 
-/** Query string as a plain object; a key that appears more than once becomes an array. */
+/**
+ * Parses a `multipart/form-data` body. Size is whatever cap `req` carries (see
+ * {@link capRequestBody}; `route()` applies it to `ctx.req`), a wrong content type is 415 and an
+ * unparseable body is 400.
+ */
+export async function readFormBody(req: Request): Promise<FormData> {
+  if (!FORM_CONTENT_TYPE.test(req.headers.get('content-type') ?? '')) {
+    throw AppError.of('unsupported_media_type', 'Content-Type must be multipart/form-data');
+  }
+  try {
+    return await req.formData();
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    throw AppError.of('bad_request', 'Request body is not valid multipart/form-data');
+  }
+}
+
+/**
+ * Query string as a plain object; a key that appears more than once becomes an array. The object
+ * has no prototype and `__proto__` is dropped, so a hostile `?__proto__=x` or `?length=1` can
+ * neither swap the prototype nor be mistaken for an inherited member.
+ */
 export function queryObject(req: Request): Record<string, string | string[]> {
-  const out: Record<string, string | string[]> = {};
+  const out: Record<string, string | string[]> = Object.create(null);
   for (const [key, value] of new URL(req.url).searchParams) {
-    const previous = out[key];
+    if (key === '__proto__') continue;
+    const previous = Object.hasOwn(out, key) ? out[key] : undefined;
     if (previous === undefined) out[key] = value;
     else out[key] = Array.isArray(previous) ? [...previous, value] : [previous, value];
   }

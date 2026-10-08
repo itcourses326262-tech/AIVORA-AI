@@ -222,8 +222,9 @@ export interface ListGenerationsQuery {
   cursor?: string;
 }
 
+/** Body of `GET /api/health` (not enveloped). `status` is `error`, with HTTP 503, when the database is unreachable. */
 export interface HealthDTO {
-  status: 'ok';
+  status: 'ok' | 'error';
   db: boolean;
   worker: 'inline' | 'external' | 'off';
   version: string;

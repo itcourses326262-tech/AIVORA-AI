@@ -1,10 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach } from 'vitest';
 import { newId } from '@/lib/id';
-import { createDb, type Db, type DbOrTx } from '@/server/db';
+import { closeDb, createDb, getDb, type Db, type DbOrTx } from '@/server/db';
 import { runMigrations } from '@/server/db/migrate';
 import { users, type NewUserRow, type UserRow } from '@/server/db/schema';
+import { resetEnvForTests } from '@/server/env';
 
 export interface TestDb {
   db: Db;
@@ -53,4 +55,24 @@ export function seedUser(db: DbOrTx, overrides: Partial<NewUserRow> = {}): UserR
     })
     .returning()
     .get();
+}
+
+/**
+ * For code under test that calls `getDb()` itself (services, routes): registers hooks that give
+ * every test its own fresh, fully migrated in-memory database (`DATABASE_PATH` is `:memory:` in
+ * tests). Call it at the top of a `describe` or test file and read `.db` inside tests.
+ */
+export function freshDb(): { readonly db: Db } {
+  beforeEach(() => {
+    closeDb();
+    resetEnvForTests();
+  });
+  afterEach(() => {
+    closeDb();
+  });
+  return {
+    get db() {
+      return getDb();
+    },
+  };
 }

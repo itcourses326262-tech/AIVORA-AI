@@ -1,1 +1,81 @@
 @import 'tailwindcss';
+/* Self-hosted variable fonts (no network at build or run time). The default entry ships every
+   unicode-range subset, so the browser only downloads the scripts a page actually uses. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/cairo';
+
+/* `dark:` follows the theme the user picked (`<html data-theme>`), not only the OS preference:
+   a Light choice on a dark-mode OS must not switch on dark utilities. In `system` mode the OS
+   decides, exactly like the tokens below. Prefer the token classes (`bg-background`) where possible. */
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) {
+    @slot;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    &:where([data-theme='system'], [data-theme='system'] *) {
+      @slot;
+    }
+  }
+}
+
+/* Theme tokens. `<html data-theme>` is rendered by the server from the aivore_theme cookie:
+   dark (default), light, or system (follows prefers-color-scheme). */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #0b0b16;
+  --foreground: #f4f4fa;
+  --muted: #a8a8c0;
+  --ring: #8b7cff;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #14142b;
+  --muted: #55556f;
+  --ring: #5b45e6;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme='system'] {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #14142b;
+    --muted: #55556f;
+    --ring: #5b45e6;
+  }
+}
+
+/* The font stack depends on the page language: Arabic gets Cairo first (Latin glyphs, digits and
+   spaces then come from Cairo too, so a run of Arabic text never mixes two fonts), everything else
+   gets Inter first. `@theme inline` copies the value of `--font-sans` into the `font-sans` utility,
+   so the stack lives in a plain custom property that the theme variable merely points at. */
+:root {
+  --font-family-base: 'Inter Variable', 'Cairo Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[lang='ar'] {
+  --font-family-base: 'Cairo Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-family-base);
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}

@@ -1,9 +1,9 @@
 // gifenc ships no type declarations. Do not import it directly: use `@/lib/gifenc`, which
 // normalises the module-shape differences between runtimes (enforced by an ESLint rule).
 //
-// Gotcha: prequantize()/applyPalette() view `rgba.buffer` as a whole Uint32Array and ignore
-// byteOffset/length, so the RGBA array must own its ArrayBuffer (pass `new Uint8Array(buf)`
-// rather than a pooled Node Buffer or a subarray).
+// Gotcha: the raw quantize()/prequantize()/applyPalette() view `rgba.buffer` as a whole Uint32Array
+// and ignore byteOffset/length. `@/lib/gifenc` wraps all three so pooled Buffers and subarrays are
+// copied first; only the wrapped functions are safe for arbitrary views.
 
 declare module 'gifenc' {
   export type RgbColor = [number, number, number];

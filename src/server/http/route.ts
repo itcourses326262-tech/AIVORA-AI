@@ -9,10 +9,12 @@ import { getClientIp } from '@/server/security/ip';
 import { errorResponse, normalizeError } from './errors';
 import {
   DEFAULT_MAX_JSON_BYTES,
+  capRequestBody,
   hasCredentials,
   isMutatingMethod,
   parseOrThrow,
   queryObject,
+  readFormBody,
   readJsonBody,
   requestIdOf,
 } from './request';
@@ -20,19 +22,35 @@ import { noContent, ok } from './respond';
 
 export type AuthMode = 'required' | 'optional' | 'none';
 
+export interface RateLimitOptions {
+  name: string;
+  limit: number;
+  windowSec: number;
+  /** Defaults to `user` for `auth: 'required'` routes and `ip` otherwise. */
+  by?: 'ip' | 'user';
+}
+
+/**
+ * Applied to every route that does not pass its own `rateLimit`, so a forgotten option can never
+ * leave an endpoint unthrottled. The bucket is shared by all such routes (per user or IP).
+ */
+export const GENERAL_RATE_LIMIT: Readonly<RateLimitOptions> = {
+  name: 'general',
+  limit: 300,
+  windowSec: 60,
+};
+
 export interface RouteOptions {
   /**
    * `required`: 401 without valid credentials. `optional`: `ctx.auth` is null for anonymous calls.
    * `none`: credentials are not even looked at.
    */
   auth: AuthMode;
-  rateLimit?: {
-    name: string;
-    limit: number;
-    windowSec: number;
-    /** Defaults to `user` for `auth: 'required'` routes and `ip` otherwise. */
-    by?: 'ip' | 'user';
-  };
+  /**
+   * Defaults to {@link GENERAL_RATE_LIMIT} (300 requests per minute). Pass a specific limit for
+   * costly or abusable endpoints, or `false` to opt out explicitly (health probes, media streaming).
+   */
+  rateLimit?: RateLimitOptions | false;
   /** Requires `auth: 'required'` and an admin account. */
   admin?: boolean;
   /**
@@ -40,11 +58,18 @@ export interface RouteOptions {
    * pass `true` for unauthenticated cookie-setting routes (login, register) and `false` to opt out.
    */
   csrf?: boolean;
-  /** Cap for `ctx.body()`. Defaults to 1 MiB. */
-  maxBodyBytes?: number;
+  /**
+   * Cap on the request body in bytes, defaults to 1 MiB. It covers every way of reading the body
+   * (`ctx.body()`, `ctx.formData()` and `ctx.req.json()/text()/formData()/arrayBuffer()/body`):
+   * a larger Content-Length is rejected up front and a stream that grows past the cap fails with
+   * `payload_too_large` (413) mid-read. A function is evaluated per request, for limits that come
+   * from configuration (modules must not read the environment at import time).
+   */
+  maxBodyBytes?: number | (() => number);
 }
 
 export interface RouteCtx<P> {
+  /** The incoming request with the body cap of `maxBodyBytes` enforced on its body. */
   req: Request;
   params: P;
   /** Null for anonymous calls; never null on `auth: 'required'` routes. */
@@ -53,6 +78,8 @@ export interface RouteCtx<P> {
   requestId: string;
   /** Size-limited JSON body validated by `schema`; invalid input is a 422 with per-field details. */
   body<T>(schema: ZodType<T>): Promise<T>;
+  /** Size-limited `multipart/form-data` body (415 for other content types, 400 when malformed). */
+  formData(): Promise<FormData>;
   /** Query string validated by `schema` (repeated keys arrive as arrays). */
   query<T>(schema: ZodType<T>): T;
 }
@@ -94,7 +121,7 @@ export function route<P>(
 
     try {
       const ip = getClientIp(req);
-      const rate = opts.rateLimit;
+      const rate = opts.rateLimit === false ? undefined : (opts.rateLimit ?? GENERAL_RATE_LIMIT);
       const rateBy = rate ? (rate.by ?? (opts.auth === 'required' ? 'user' : 'ip')) : undefined;
       const hit = (scope: string) => {
         if (!rate) return;
@@ -118,18 +145,21 @@ export function route<P>(
       }
       if (rateBy === 'user') hit(auth ? `user:${auth.user.id}` : `ip:${ip}`);
 
-      const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_JSON_BYTES;
+      const maxBodyBytes = bodyLimit(opts.maxBodyBytes);
+      const capped = capRequestBody(req, maxBodyBytes);
       let rawBody: Promise<unknown> | undefined;
+      let rawForm: Promise<FormData> | undefined;
       const ctx: RouteCtx<P> = {
-        req,
+        req: capped,
         params: (await nextCtx?.params) ?? ({} as P),
         auth,
         ip,
         requestId,
         body: async (schema) => {
-          rawBody ??= readJsonBody(req, maxBodyBytes);
+          rawBody ??= readJsonBody(capped, maxBodyBytes);
           return parseOrThrow(schema, await rawBody);
         },
+        formData: () => (rawForm ??= readFormBody(capped)),
         query: (schema) => parseOrThrow(schema, queryObject(req)),
       };
 
@@ -151,6 +181,11 @@ export function route<P>(
 interface RateInfo {
   limit: number;
   result: RateLimitResult;
+}
+
+function bodyLimit(option: RouteOptions['maxBodyBytes']): number {
+  if (option === undefined) return DEFAULT_MAX_JSON_BYTES;
+  return typeof option === 'function' ? option() : option;
 }
 
 async function resolveAuth(req: Request, mode: AuthMode): Promise<AuthContext | null> {

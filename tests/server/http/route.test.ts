@@ -21,7 +21,7 @@ vi.mock('@/server/db', () => ({
 }));
 
 import type { AuthContext } from '@/server/auth';
-import { route } from '@/server/http/route';
+import { GENERAL_RATE_LIMIT, route } from '@/server/http/route';
 import { resetLoggerForTests } from '@/server/logger';
 
 const BASE = 'http://localhost:3000/api/v1/things';
@@ -399,9 +399,59 @@ describe('rate limiting', () => {
     expect(mocks.hit).not.toHaveBeenCalled();
   });
 
-  it('does not touch the limiter on routes without a limit', async () => {
-    await route({ auth: 'none' }, async () => 'x')(request());
-    expect(mocks.hit).not.toHaveBeenCalled();
+  describe('the general default', () => {
+    it('is 300 requests per minute, so a route that declares nothing is never unthrottled', () => {
+      expect(GENERAL_RATE_LIMIT).toEqual({ name: 'general', limit: 300, windowSec: 60 });
+    });
+
+    it('limits anonymous routes by IP and reports it in the headers', async () => {
+      const response = await route({ auth: 'none' }, async () => 'x')(request());
+      expect(response.status).toBe(200);
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith('general:ip:203.0.113.7', 300, 60);
+      expect(response.headers.get('x-ratelimit-limit')).toBe('300');
+    });
+
+    it('limits authenticated routes by user', async () => {
+      mocks.authenticate.mockResolvedValue(sessionAuth);
+      await route({ auth: 'required' }, async () => 'x')(request({ headers: withSession }));
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith('general:user:usr_1', 300, 60);
+    });
+
+    it('limits optional-auth routes by IP, before looking at credentials', async () => {
+      mocks.authenticate.mockResolvedValue(keyAuth);
+      await route({ auth: 'optional' }, async () => 'x')(request({ headers: withBearer }));
+      expect(mocks.hit).toHaveBeenCalledWith('general:ip:203.0.113.7', 300, 60);
+    });
+
+    it('answers 429 once the budget is spent', async () => {
+      mocks.hit.mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 4000 });
+      const ran = vi.fn();
+      const response = await route({ auth: 'none' }, async () => ran())(request());
+      expect(response.status).toBe(429);
+      expect(response.headers.get('retry-after')).toBe('4');
+      expect(ran).not.toHaveBeenCalled();
+    });
+
+    it('is replaced, not added to, by a route-specific limit', async () => {
+      await route({ auth: 'none', rateLimit: limited }, async () => 'x')(request());
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith('create:ip:203.0.113.7', 30, 60);
+    });
+
+    it('rateLimit: false opts out explicitly', async () => {
+      mocks.authenticate.mockResolvedValue(sessionAuth);
+      const anonymous = await route({ auth: 'none', rateLimit: false }, async () => 'x')(request());
+      const authed = await route(
+        { auth: 'required', rateLimit: false },
+        async () => 'x',
+      )(request({ headers: withSession }));
+      expect(anonymous.status).toBe(200);
+      expect(authed.status).toBe(200);
+      expect(mocks.hit).not.toHaveBeenCalled();
+      expect(anonymous.headers.has('x-ratelimit-limit')).toBe(false);
+    });
   });
 });
 
@@ -458,6 +508,223 @@ describe('ctx.body', () => {
     });
     expect(await (await handler(jsonPost({ a: 21 }))).json()).toEqual({
       data: { first: { a: 21 }, second: 42 },
+    });
+  });
+});
+
+describe('body size cap', () => {
+  const MiB = 1024 * 1024;
+
+  function multipart(bytes: number, extra: Record<string, string> = {}): FormData {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(extra)) form.append(key, value);
+    form.append('file', new Blob([new Uint8Array(bytes)]), 'big.bin');
+    return form;
+  }
+
+  function upload(form: FormData, headers: Record<string, string> = {}) {
+    return request({ method: 'POST', body: form, headers });
+  }
+
+  /** A body with no Content-Length (chunked), like a streaming client would send. */
+  function chunked(chunkBytes: number, chunks: number, onCancel?: () => void): Request {
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ >= chunks) controller.close();
+        else controller.enqueue(new Uint8Array(chunkBytes));
+      },
+      cancel: onCancel,
+    });
+    return new Request(`${BASE}/stream`, {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+      headers: { 'content-type': 'application/octet-stream' },
+    } as RequestInit);
+  }
+
+  it.each(['formData', 'arrayBuffer', 'text', 'blob'] as const)(
+    'applies maxBodyBytes to ctx.req.%s(), not just to ctx.body()',
+    async (method) => {
+      const ran = vi.fn();
+      const handler = route({ auth: 'none', maxBodyBytes: 1000 }, async (ctx) => {
+        await ctx.req[method]();
+        ran();
+        return { received: true };
+      });
+      // A Request built from FormData carries no Content-Length, so only the stream-level cap
+      // can stop it.
+      const response = await handler(upload(multipart(5 * MiB)));
+      expect(response.status).toBe(413);
+      expect((await response.json()).error.code).toBe('payload_too_large');
+      expect(ran).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects an oversized multipart upload read through ctx.formData() with 413', async () => {
+    const handler = route({ auth: 'none', maxBodyBytes: 1000 }, async (ctx) => {
+      const form = await ctx.formData();
+      return { received: (form.get('file') as File).size };
+    });
+    const response = await handler(upload(multipart(5 * MiB)));
+    expect(response.status).toBe(413);
+  });
+
+  it('rejects an announced Content-Length above the cap without reading anything', async () => {
+    const cancelled = vi.fn();
+    const ran = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(10));
+      },
+      cancel: cancelled,
+    });
+    const handler = route({ auth: 'none', maxBodyBytes: 100 }, async () => ran());
+    const response = await handler(
+      new Request(`${BASE}/x`, {
+        method: 'POST',
+        body: stream,
+        duplex: 'half',
+        headers: { 'content-length': '5000', 'content-type': 'application/octet-stream' },
+      } as RequestInit),
+    );
+    expect(response.status).toBe(413);
+    expect(ran).not.toHaveBeenCalled();
+  });
+
+  it('stops a chunked body that has no Content-Length once it passes the cap', async () => {
+    const cancelled = vi.fn();
+    const handler = route({ auth: 'none', maxBodyBytes: 1000 }, async (ctx) => {
+      await ctx.req.arrayBuffer();
+      return 'unreachable';
+    });
+    // 10 000 chunks of 100 bytes would be 1 MB: the cap must cut it off early.
+    const response = await handler(chunked(100, 10_000, cancelled));
+    expect(response.status).toBe(413);
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('lets bodies at or below the cap through unchanged', async () => {
+    const handler = route({ auth: 'none', maxBodyBytes: 20 }, async (ctx) => ({
+      text: await ctx.req.text(),
+      method: ctx.req.method,
+      contentType: ctx.req.headers.get('content-type'),
+    }));
+    const exact = 'x'.repeat(20);
+    const response = await handler(
+      request({ method: 'PUT', body: exact, headers: { 'content-type': 'text/plain' } }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toEqual({
+      text: exact,
+      method: 'PUT',
+      contentType: 'text/plain',
+    });
+    const over = await handler(
+      request({ method: 'PUT', body: `${exact}!`, headers: { 'content-type': 'text/plain' } }),
+    );
+    expect(over.status).toBe(413);
+  });
+
+  it('defaults to 1 MiB for every kind of body', async () => {
+    const handler = route({ auth: 'none' }, async (ctx) => (await ctx.req.text()).length);
+    const fits = await handler(request({ method: 'POST', body: 'x'.repeat(MiB) }));
+    expect(fits.status).toBe(200);
+    const tooBig = await handler(request({ method: 'POST', body: 'x'.repeat(MiB + 1) }));
+    expect(tooBig.status).toBe(413);
+  });
+
+  it('accepts a function so the cap can come from configuration at request time', async () => {
+    let limit = 10;
+    const calls = vi.fn(() => limit);
+    const handler = route(
+      { auth: 'none', maxBodyBytes: calls },
+      async (ctx) => (await ctx.req.text()).length,
+    );
+    expect(calls).not.toHaveBeenCalled(); // not evaluated while the module loads
+    const body = 'x'.repeat(50);
+    expect((await handler(request({ method: 'POST', body }))).status).toBe(413);
+    limit = 100;
+    expect((await handler(request({ method: 'POST', body }))).status).toBe(200);
+    expect(calls).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not interfere with requests that have no body', async () => {
+    const handler = route({ auth: 'none', maxBodyBytes: 1 }, async (ctx) => ({
+      hasBody: ctx.req.body !== null,
+      url: ctx.req.url,
+    }));
+    const response = await handler(request({ path: '/plain' }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toEqual({ hasBody: false, url: `${BASE}/plain` });
+  });
+
+  it('still lets the handler abort through the request signal', async () => {
+    const controller = new AbortController();
+    const handler = route({ auth: 'none' }, async (ctx) => ({ aborted: ctx.req.signal.aborted }));
+    controller.abort();
+    const response = await handler(
+      request({ method: 'POST', body: 'x', signal: controller.signal }),
+    );
+    expect((await response.json()).data).toEqual({ aborted: true });
+  });
+});
+
+describe('ctx.formData', () => {
+  it('returns the parsed multipart body', async () => {
+    const handler = route({ auth: 'none' }, async (ctx) => {
+      const form = await ctx.formData();
+      const file = form.get('file');
+      return { note: form.get('note'), size: file instanceof File ? file.size : null };
+    });
+    const form = new FormData();
+    form.append('note', 'قطة');
+    form.append('file', new Blob([new Uint8Array(321)]), 'a.png');
+    const response = await handler(request({ method: 'POST', body: form }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toEqual({ note: 'قطة', size: 321 });
+  });
+
+  it('is size-limited by maxBodyBytes (the upload endpoint cannot bypass it)', async () => {
+    const handler = route({ auth: 'none', maxBodyBytes: 2048 }, async (ctx) => {
+      const form = await ctx.formData();
+      return { received: (form.get('file') as File).size };
+    });
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(100_000)]), 'big.bin');
+    const response = await handler(request({ method: 'POST', body: form }));
+    expect(response.status).toBe(413);
+    expect((await response.json()).error.code).toBe('payload_too_large');
+  });
+
+  it('answers 415 for other content types and 400 for a broken multipart body', async () => {
+    const handler = route({ auth: 'none' }, async (ctx) => {
+      await ctx.formData();
+      return 'ok';
+    });
+    expect((await handler(jsonPost({ a: 1 }))).status).toBe(415);
+    const broken = await handler(
+      request({
+        method: 'POST',
+        body: 'this is not multipart',
+        headers: { 'content-type': 'multipart/form-data; boundary=nope' },
+      }),
+    );
+    expect(broken.status).toBe(400);
+    expect((await broken.json()).error.code).toBe('bad_request');
+  });
+
+  it('can be awaited twice because the stream is read once', async () => {
+    const handler = route({ auth: 'none' }, async (ctx) => {
+      const first = await ctx.formData();
+      const second = await ctx.formData();
+      return { same: first === second };
+    });
+    const form = new FormData();
+    form.append('a', 'b');
+    expect((await (await handler(request({ method: 'POST', body: form }))).json()).data).toEqual({
+      same: true,
     });
   });
 });

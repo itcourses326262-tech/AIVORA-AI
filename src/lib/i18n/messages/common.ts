@@ -6,6 +6,9 @@ export default defineMessages({
       name: 'AIVORE',
       tagline: 'Create stunning images and videos with AI',
     },
+    a11y: {
+      skipToContent: 'Skip to main content',
+    },
     nav: {
       home: 'Home',
       studio: 'Studio',
@@ -64,6 +67,9 @@ export default defineMessages({
     app: {
       name: 'AIVORE',
       tagline: 'أنشئ صورًا وفيديوهات مذهلة بالذكاء الاصطناعي',
+    },
+    a11y: {
+      skipToContent: 'تخطَّ إلى المحتوى الرئيسي',
     },
     nav: {
       home: 'الرئيسية',
