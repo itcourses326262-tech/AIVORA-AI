@@ -16,6 +16,7 @@ import {
   type GenerationValidationCode,
   type ReportIssue,
 } from './generation-params';
+import { hasVisibleText } from './visible-text';
 
 export { defaultParamsFor, type GenerationValidationCode } from './generation-params';
 
@@ -41,7 +42,12 @@ export const createGenerationRequestSchema = z
   .object({
     tool: z.enum(TOOLS),
     modelId: z.string().trim().min(1).max(100),
-    prompt: z.string().trim().min(1).max(MAX_PROMPT_CHARS_HARD),
+    prompt: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_PROMPT_CHARS_HARD)
+      .refine(hasVisibleText, { message: 'Prompt must not be empty' }),
     negativePrompt: z.string().trim().max(MAX_NEGATIVE_PROMPT_CHARS_HARD).optional(),
     params: generationParamsSchema.optional(),
     inputAssetId: z
@@ -150,7 +156,8 @@ function validateRequest(
   }
 
   const prompt = checkText(request.prompt, 'prompt', model?.limits.maxPromptChars, report);
-  if (request.prompt === undefined || prompt === '') {
+  // `trim` leaves zero-width characters, so "visible" is what decides whether a prompt is empty.
+  if (request.prompt === undefined || (prompt !== undefined && !hasVisibleText(prompt))) {
     report('prompt', 'required', 'prompt must not be empty');
   }
 
@@ -160,7 +167,7 @@ function validateRequest(
     model?.limits.supportsNegativePrompt ? model.limits.maxPromptChars : undefined,
     report,
   );
-  if (negativePrompt === '') negativePrompt = undefined;
+  if (negativePrompt !== undefined && !hasVisibleText(negativePrompt)) negativePrompt = undefined;
   else if (negativePrompt !== undefined && model && !model.limits.supportsNegativePrompt) {
     report('negativePrompt', 'unsupported', 'This model does not support a negative prompt');
   }

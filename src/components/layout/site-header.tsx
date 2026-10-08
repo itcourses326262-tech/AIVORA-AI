@@ -159,7 +159,7 @@ export function SiteHeader() {
         <Link
           href="/"
           aria-label={t('common.a11y.home')}
-          className="-m-1 shrink-0 rounded-lg p-1 text-foreground"
+          className="hit-area -m-1 shrink-0 rounded-lg p-1 text-foreground"
         >
           <Logo label={null} className="h-6 sm:h-7" />
         </Link>

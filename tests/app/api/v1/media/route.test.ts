@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetEnvForTests } from '@/server/env';
 import {
   InMemoryRateLimiter,
   setRateLimiter,
@@ -28,9 +29,17 @@ const state = freshDb();
 const disk = withTempStorage();
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
+  resetEnvForTests();
   setRateLimiter(new InMemoryRateLimiter());
   auth.authenticate.mockReset().mockImplementation(authenticateFromDb);
 });
+
+/** Behind a reverse proxy: the client address is read from `X-Forwarded-For`. */
+function behindProxy() {
+  vi.stubEnv('TRUST_PROXY', 'true');
+  resetEnvForTests();
+}
 
 interface CallOptions {
   headers?: Record<string, string>;
@@ -803,7 +812,8 @@ describe('rate limiting', () => {
     return { limiter, hits };
   }
 
-  it('uses a high, dedicated budget keyed by user when signed in and by IP otherwise', async () => {
+  it('uses a high, dedicated budget keyed by user when signed in and by address otherwise', async () => {
+    behindProxy();
     const { owner } = twoUsers();
     const asset = await storeAsset(disk.storage, {
       userId: owner.user.id,
@@ -813,11 +823,95 @@ describe('rate limiting', () => {
     const { limiter, hits } = recordingLimiter();
     setRateLimiter(limiter);
     const signedIn = await get(asset.id, { headers: owner.session.headers });
-    const anonymous = await get(asset.id);
-    expect(hits[0]).toEqual({ key: `media:user:${owner.user.id}`, limit: 1200, windowSec: 60 });
-    expect(hits[1]?.key).toMatch(/^media:ip:/);
+    const anonymous = await get(asset.id, { headers: { 'x-forwarded-for': '203.0.113.7' } });
+    expect(hits).toEqual([
+      { key: `media:user:${owner.user.id}`, limit: 1200, windowSec: 60 },
+      { key: 'media:ip:203.0.113.7', limit: 1200, windowSec: 60 },
+    ]);
     expect(signedIn.headers.get('x-ratelimit-limit')).toBe('1200');
     expect(anonymous.headers.get('x-ratelimit-limit')).toBe('1200');
+    expect(anonymous.headers.get('x-ratelimit-remaining')).toBe('5');
+    expect(anonymous.headers.get('x-ratelimit-reset')).toMatch(/^\d+$/);
+  });
+
+  it('puts the budget headers on client errors too', async () => {
+    const { owner } = twoUsers();
+    const missing = await get('ast_00000000000000000000000000', { headers: owner.session.headers });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('x-ratelimit-limit')).toBe('1200');
+    const invalid = await get('not-an-id', { headers: owner.session.headers });
+    expect(invalid.status).toBe(404);
+    expect(invalid.headers.get('x-ratelimit-remaining')).toBeTruthy();
+    const badQuery = await get('ast_00000000000000000000000000', {
+      headers: owner.session.headers,
+      query: '?variant=nope',
+    });
+    expect(badQuery.status).toBe(422);
+    expect(badQuery.headers.get('x-ratelimit-limit')).toBe('1200');
+  });
+
+  describe('anonymous viewers of public pages', () => {
+    async function publicAsset() {
+      const { owner } = twoUsers();
+      return storeAsset(disk.storage, {
+        userId: owner.user.id,
+        bytes: TINY_PNG,
+        generation: { isPublic: true },
+      });
+    }
+
+    it('are not counted at all while their address is unknown (TRUST_PROXY=false)', async () => {
+      const asset = await publicAsset();
+      const { limiter, hits } = recordingLimiter();
+      setRateLimiter(limiter);
+      const result = await get(asset.id);
+      expect(result.status).toBe(200);
+      expect(hits).toEqual([]);
+      expect(result.headers.get('x-ratelimit-limit')).toBeNull();
+    });
+
+    it('cannot lock each other out through a shared bucket (TRUST_PROXY=false)', async () => {
+      const asset = await publicAsset();
+      const { owner } = twoUsers();
+      const flood = await Promise.all(
+        Array.from({ length: 1300 }, () =>
+          head(asset.id, { headers: { 'x-forwarded-for': '198.51.100.1' } }),
+        ),
+      );
+      expect(flood.filter((result) => result.status === 429)).toHaveLength(0);
+
+      const bystander = await get(asset.id, { headers: { 'x-forwarded-for': '198.51.100.2' } });
+      expect(bystander.status).toBe(200);
+      const plain = await get(asset.id);
+      expect(plain.status).toBe(200);
+      const signedIn = await get(asset.id, { headers: owner.session.headers });
+      expect(signedIn.status).toBe(200);
+    });
+
+    it('are throttled per address once a proxy provides it, and only the flooder is', async () => {
+      behindProxy();
+      const asset = await publicAsset();
+      const flooder = { 'x-forwarded-for': '198.51.100.1' };
+      const flood = await Promise.all(
+        Array.from({ length: 1250 }, () => head(asset.id, { headers: flooder })),
+      );
+      expect(flood.filter((result) => result.status === 200)).toHaveLength(1200);
+      expect(flood.filter((result) => result.status === 429)).toHaveLength(50);
+
+      const blocked = await get(asset.id, { headers: flooder });
+      expect(blocked.status).toBe(429);
+      expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(blocked.headers.get('x-ratelimit-remaining')).toBe('0');
+
+      const bystander = await get(asset.id, { headers: { 'x-forwarded-for': '198.51.100.2' } });
+      expect(bystander.status).toBe(200);
+      // Signed in from the flooder's address: counted by user, not by the address.
+      const signedIn = await get(asset.id, {
+        headers: { ...twoUsers().other.session.headers, ...flooder },
+      });
+      expect(signedIn.status).toBe(200);
+      expect(signedIn.headers.get('x-ratelimit-remaining')).toBe('1199');
+    });
   });
 
   it('shares nothing with the general bucket', async () => {

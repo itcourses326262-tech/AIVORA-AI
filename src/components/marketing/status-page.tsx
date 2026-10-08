@@ -68,7 +68,7 @@ export function StatusPage({
     <div className="relative isolate flex min-h-dvh flex-col overflow-hidden">
       <MeshBackdrop />
       <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8 sm:py-6">
-        <Link href="/" aria-label={homeLabel} className="rounded-lg text-foreground">
+        <Link href="/" aria-label={homeLabel} className="hit-area rounded-lg text-foreground">
           <Logo label={null} className="h-7" />
         </Link>
         <div className="flex items-center gap-1">
@@ -100,7 +100,9 @@ export function StatusPage({
               {reference}
             </p>
           ) : null}
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-3">{actions}</div>
+          <div className="mt-2 flex w-full max-w-xs flex-col items-stretch gap-3 sm:w-auto sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+            {actions}
+          </div>
         </div>
       </main>
     </div>

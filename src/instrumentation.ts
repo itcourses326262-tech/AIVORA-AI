@@ -6,15 +6,20 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-  const { getLogger } = await import('@/server/logger');
-  const log = getLogger();
   try {
-    const { getEnv } = await import('@/server/env');
-    if (getEnv().WORKER_MODE !== 'inline') return;
-    const { startWorker } = await import('@/server/jobs/start');
-    const runner = startWorker();
-    log.info('Inline job runner started', { workerId: runner.workerId });
+    const { getLogger } = await import('@/server/logger');
+    const log = getLogger();
+    try {
+      const { getEnv } = await import('@/server/env');
+      if (getEnv().WORKER_MODE !== 'inline') return;
+      const { startWorker } = await import('@/server/jobs/start');
+      const runner = startWorker();
+      log.info('Inline job runner started', { workerId: runner.workerId });
+    } catch (error) {
+      log.error('Inline job runner failed to start; generations will stay queued', { err: error });
+    }
   } catch (error) {
-    log.error('Inline job runner failed to start; generations will stay queued', { err: error });
+    // Not even the logger could be loaded; the app still has to come up.
+    console.error('Instrumentation failed; the inline job runner is not running', error);
   }
 }

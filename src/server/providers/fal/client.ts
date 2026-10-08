@@ -81,6 +81,22 @@ export interface SubmittedJob {
   urls: QueueUrls;
 }
 
+/**
+ * fal's queue has no idempotency key. When a submit ends without any HTTP answer (the connection
+ * broke, the response was lost, the call timed out) the request may already be queued and billed,
+ * and a retry would queue a second paid one whose id we never see and cannot cancel. Such a failure
+ * is therefore final. An answer with a status (429, 5xx, ...) means fal replied about this very
+ * request, so retrying stays safe and keeps its default.
+ */
+function finalIfOutcomeUnknown(error: unknown): unknown {
+  if (!isProviderError(error) || error.httpStatus !== undefined || !error.retryable) return error;
+  return new ProviderError(error.code, error.message, {
+    retryable: false,
+    userMessage: error.userMessage,
+    cause: error.cause,
+  });
+}
+
 export async function submitJob(
   ctx: ProviderContext,
   endpoint: string,
@@ -97,6 +113,8 @@ export async function submitJob(
     timeoutMs: SUBMIT_TIMEOUT_MS,
     schema: submitResponseSchema,
     classifyError: classifyFalFailure,
+  }).catch((error: unknown) => {
+    throw finalIfOutcomeUnknown(error);
   });
   const requestId = data.request_id;
   const urls = resolveUrls(endpoint, requestId, {

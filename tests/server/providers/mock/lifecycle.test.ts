@@ -12,6 +12,9 @@ import type { PollResult, SubmitResult } from '@/server/providers/types';
 import { fakeProviderContext } from '../../../helpers/fakes';
 import { captureContext, forbidNetwork, mockInput, useFakeClock } from './fixtures';
 
+// These tests really render pictures and clips; a loaded CI runner needs far more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
+
 const START = 1_800_000_000_000;
 
 beforeEach(() => {

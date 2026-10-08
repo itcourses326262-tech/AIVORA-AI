@@ -41,7 +41,7 @@ export function CopyButton({ text, label, copiedLabel, failedLabel, className }:
         type="button"
         onClick={() => void copy()}
         className={cn(
-          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-2.5 text-xs font-medium whitespace-nowrap text-[#e6e6f5] transition-colors duration-150 hover:bg-white/[0.12] focus-visible:outline-[#a5b4fc] active:scale-[0.98]',
+          'hit-area inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-2.5 text-xs font-medium whitespace-nowrap text-[#e6e6f5] transition-colors duration-150 hover:bg-white/[0.12] focus-visible:outline-[#a5b4fc] active:scale-[0.98]',
           className,
         )}
       >

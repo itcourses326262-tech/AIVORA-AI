@@ -33,7 +33,7 @@ export function CreditsChip({ className }: { className?: string }) {
           : t('common.credits.balance', { amount })
       }
       className={cn(
-        'inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-semibold tabular-nums transition-colors duration-150',
+        'inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-semibold tabular-nums transition-colors duration-150 pointer-coarse:h-11',
         empty
           ? 'border-danger/40 bg-danger-soft text-danger hover:bg-danger-soft/70'
           : low

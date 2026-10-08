@@ -466,10 +466,7 @@ describe('the public feed', () => {
 
   it('filters by kind and paginates stably', async () => {
     const user = createUser(harness.db);
-    const images = Array.from(
-      { length: 11 },
-      (_, index) => publish(user.id, { createdAt: BASE_TIME }).id,
-    );
+    const images = Array.from({ length: 11 }, () => publish(user.id, { createdAt: BASE_TIME }).id);
     publish(user.id, { tool: 'text-to-video', createdAt: BASE_TIME });
     const seen: string[] = [];
     let cursor: string | undefined;

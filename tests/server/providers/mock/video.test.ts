@@ -12,10 +12,16 @@ import {
   captureContext,
   forbidNetwork,
   generate,
+  makeNoiseImage,
   makeTestImage,
+  measureWork,
   mockInput,
+  noiseRgba,
   useFakeClock,
 } from './fixtures';
+
+// These tests really render pictures and clips; a loaded CI runner needs far more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 
 beforeEach(() => {
   useFakeClock();
@@ -279,6 +285,54 @@ describe('GIF encoder', () => {
     });
   });
 
+  it('keeps flat colours exact: palette entries are the true colours, not rounded bin centres', async () => {
+    const width = 24;
+    const height = 16;
+    const colours = [
+      [200, 41, 37],
+      [33, 187, 52],
+      [45, 62, 213],
+    ] as const;
+    const frames = colours.map(([r, g, b]) => {
+      const rgba = new Uint8Array(width * height * 4);
+      for (let p = 0; p < width * height; p++) rgba.set([r, g, b, 255], p * 4);
+      return rgba;
+    });
+    const gif = await encodeGif({ frames, width, height, delayMs: 100, dither: 0 });
+    const { data, info } = await sharp(Buffer.from(gif), { animated: true })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const frameBytes = width * height * info.channels;
+    colours.forEach(([r, g, b], frame) => {
+      const o = frame * frameBytes + 5 * info.channels;
+      expect(Math.abs(data[o]! - r)).toBeLessThanOrEqual(2);
+      expect(Math.abs(data[o + 1]! - g)).toBeLessThanOrEqual(2);
+      expect(Math.abs(data[o + 2]! - b)).toBeLessThanOrEqual(2);
+    });
+  });
+
+  it('builds the palette of a pure-noise clip in a fraction of a second, without a long stall', async () => {
+    // Regression: gifenc's default 16-bit histogram spent about 10 s of CPU in one synchronous
+    // quantize() call on this input, freezing every request the process was serving.
+    const width = 480;
+    const height = 360;
+    const frames = Array.from({ length: 30 }, (_, i) => noiseRgba(width, height, i + 1));
+    let gif: Uint8Array = new Uint8Array();
+    const cost = await measureWork(async () => {
+      gif = await encodeGif({ frames, width, height, delayMs: 100, dither: 10 });
+    });
+    expect(parseGif(gif)).toMatchObject({
+      width,
+      height,
+      frameCount: 30,
+      globalColorTableSize: 256,
+      localColorTables: 0,
+      endsWithTrailer: true,
+    });
+    expect(cost.cpuMs).toBeLessThan(3000);
+    expect(cost.longestStallMs).toBeLessThan(1000);
+  });
+
   it('does not read past a frame that lives inside a larger buffer', async () => {
     const width = 8;
     const height = 8;
@@ -319,6 +373,27 @@ describe('performance budget', () => {
     );
     expect(textCpu).toBeLessThan(budgetMs);
     expect(imageCpu).toBeLessThan(budgetMs);
+  }, 60_000);
+
+  it('stays within the budget for a grainy, native-resolution photo (palette cost does not depend on the input)', async () => {
+    // Regression: random noise made one image-to-video render cost about 7 s of CPU, of which
+    // 6 s were a single blocking call. Smooth test pictures never showed it.
+    const photo = mockInput('image-to-video', {
+      inputImage: { bytes: await makeNoiseImage(480, 360), mimeType: 'image/png' },
+    });
+    let outputs: Awaited<ReturnType<typeof generate>> = [];
+    const cost = await measureWork(async () => {
+      outputs = await generate({ ...photo, params: { ...photo.params, durationSec: 5 } });
+    });
+    expect(outputs[0]).toMatchObject({
+      kind: 'video',
+      mimeType: 'image/gif',
+      width: 480,
+      height: 360,
+    });
+    expect(parseGif(gifOf(outputs[0]!))).toMatchObject({ frameCount: 30, endsWithTrailer: true });
+    expect(cost.cpuMs).toBeLessThan(3000);
+    expect(cost.longestStallMs).toBeLessThan(1000);
   }, 60_000);
 
   it('keeps memory bounded: at most thirty small frames are held at once', async () => {

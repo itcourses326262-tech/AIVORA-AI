@@ -5,6 +5,7 @@ import {
   servableMimeType,
   sniffImageType,
   sniffMediaType,
+  startsWithQuickTimeAtom,
 } from '@/server/uploads/sniff';
 import { TINY_GIF, TINY_PNG } from '../../helpers/fakes';
 import { SVG, fakeMp4, makeJpeg, makeWebp, utf8 } from './support';
@@ -54,6 +55,29 @@ describe('sniffMediaType', () => {
     expect(sniffMediaType(SVG)).toBeNull();
     expect(sniffMediaType(utf8('hello world'))).toBeNull();
     expect(sniffMediaType(new Uint8Array(0))).toBeNull();
+  });
+});
+
+describe('startsWithQuickTimeAtom', () => {
+  const atom = (size: number[], type: string) =>
+    new Uint8Array([...size, ...utf8(type), ...utf8('payload')]);
+
+  it('accepts a known leading atom after a plausible size', () => {
+    for (const type of ['moov', 'mdat', 'free', 'wide', 'skip', 'pnot']) {
+      expect(startsWithQuickTimeAtom(atom([0, 0, 0, 0x20], type))).toBe(true);
+    }
+    // 0 means "to the end of the file", 1 means a 64-bit size follows.
+    expect(startsWithQuickTimeAtom(atom([0, 0, 0, 0], 'mdat'))).toBe(true);
+    expect(startsWithQuickTimeAtom(atom([0, 0, 0, 1], 'mdat'))).toBe(true);
+  });
+
+  it('refuses text, other atoms, impossible sizes and short input', () => {
+    expect(startsWithQuickTimeAtom(utf8('<html><body>nope</body></html>'))).toBe(false);
+    expect(startsWithQuickTimeAtom(utf8('{"error":"quota exceeded"}'))).toBe(false);
+    expect(startsWithQuickTimeAtom(atom([0, 0, 0, 0x20], 'trak'))).toBe(false);
+    expect(startsWithQuickTimeAtom(atom([0, 0, 0, 4], 'moov'))).toBe(false);
+    expect(startsWithQuickTimeAtom(new Uint8Array([0, 0, 0, 8, 0x6d, 0x6f, 0x6f]))).toBe(false);
+    expect(startsWithQuickTimeAtom(new Uint8Array(0))).toBe(false);
   });
 });
 

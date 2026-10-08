@@ -93,7 +93,7 @@ export function Checkbox({
         <label
           htmlFor={control.id ?? ownId}
           className={cn(
-            'cursor-pointer text-sm leading-6 font-medium',
+            'cursor-pointer text-sm leading-6 font-medium pointer-coarse:-my-2.5 pointer-coarse:py-2.5',
             control.disabled && 'opacity-60',
           )}
         >

@@ -58,17 +58,23 @@ export interface OpenPageOptions {
   theme?: 'dark' | 'light';
   width: number;
   height?: number;
+  /** A touch screen: `(pointer: coarse)` matches, as on a phone or tablet. */
+  touch?: boolean;
 }
 
 /** Opens `markup` inside `<body>` of a document that looks like the app's, at the given viewport. */
 export async function openPage(
   browser: Browser,
   markup: string,
-  { locale, theme = 'dark', width, height = 800 }: OpenPageOptions,
+  { locale, theme = 'dark', width, height = 800, touch = false }: OpenPageOptions,
 ): Promise<Page> {
   const css = await compiledStylesheet();
   const html = `<!doctype html><html lang="${locale}" dir="${dirOf(locale)}" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AIVORE</title><style>${css}</style></head><body class="min-h-dvh antialiased">${markup}</body></html>`;
-  const context = await browser.newContext({ viewport: { width, height }, locale });
+  const context = await browser.newContext({
+    viewport: { width, height },
+    locale,
+    hasTouch: touch,
+  });
   const page = await context.newPage();
   await page.route(`${ORIGIN}/**`, async (route) => {
     const { pathname } = new URL(route.request().url());

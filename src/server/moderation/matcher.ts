@@ -2,7 +2,9 @@ import 'server-only';
 import { foldText, tokenViews, tokenize } from './normalize';
 import {
   COMBO_RULES,
+  INPUT_IMAGE_TERM_RULES,
   MODERATION_CATEGORIES,
+  NOT_SPELLED_OUT,
   SAFE_PHRASES,
   TERM_RULES,
   type ModerationCategory,
@@ -89,6 +91,7 @@ interface CompiledCombo {
   window: number;
   a: Phrase[];
   b: Phrase[];
+  c?: Phrase[];
 }
 
 interface CompiledCategory {
@@ -148,25 +151,45 @@ function comboHits(combo: CompiledCombo, found: Occurrences): boolean {
   const left = combo.a.flatMap((phrase) => spansOf(phrase, found));
   if (left.length === 0) return false;
   const right = combo.b.flatMap((phrase) => spansOf(phrase, found));
-  return left.some((a) => right.some((b) => near(a, b, combo.window)));
+  const third = combo.c?.flatMap((phrase) => spansOf(phrase, found));
+  if (third?.length === 0) return false;
+  return left.some((a) =>
+    right.some(
+      (b) =>
+        near(a, b, combo.window) &&
+        (third === undefined ||
+          third.some((c) => near(c, a, combo.window) || near(c, b, combo.window))),
+    ),
+  );
 }
 
 /**
  * Joins runs of very short tokens that spell a known word (`p o r n`, `s-e-x`, `po rn`) into
- * that word. Only joins that land exactly on a rule word count, so ordinary text is untouched.
+ * that word. Only joins that land exactly on a rule word count, so ordinary text is untouched,
+ * and `harmless` lists the few everyday word pairs that happen to do so ("pen is" -> "penis").
  */
-function joinSpelledOut(tokens: readonly string[], vocabulary: ReadonlySet<string>): string[] {
+function joinSpelledOut(
+  tokens: readonly string[],
+  vocabulary: ReadonlySet<string>,
+  harmless: ReadonlySet<string>,
+): string[] {
+  // runEnd[i] is where the run of short tokens that starts at i stops. Computing it once keeps
+  // the whole pass linear however long a run of single letters is.
+  const runEnd = new Array<number>(tokens.length + 1).fill(tokens.length);
+  for (let i = tokens.length - 1; i >= 0; i -= 1) {
+    runEnd[i] =
+      (tokens[i] as string).length <= MAX_JOINED_SHORT_TOKEN ? (runEnd[i + 1] as number) : i;
+  }
+
   const out: string[] = [];
   let position = 0;
   while (position < tokens.length) {
-    let runEnd = position;
-    while (runEnd < tokens.length && (tokens[runEnd] as string).length <= MAX_JOINED_SHORT_TOKEN) {
-      runEnd += 1;
-    }
     let joined = false;
-    for (let end = Math.min(runEnd, position + MAX_JOIN_TOKENS); end >= position + 2; end -= 1) {
-      const candidate = tokens.slice(position, end).join('');
-      if (vocabulary.has(candidate)) {
+    const longest = Math.min(runEnd[position] as number, position + MAX_JOIN_TOKENS);
+    for (let end = longest; end >= position + 2; end -= 1) {
+      const run = tokens.slice(position, end);
+      const candidate = run.join('');
+      if (vocabulary.has(candidate) && !harmless.has(run.join(' '))) {
         out.push(candidate);
         position = end;
         joined = true;
@@ -181,9 +204,14 @@ function joinSpelledOut(tokens: readonly string[], vocabulary: ReadonlySet<strin
   return out;
 }
 
+export interface LocalCheckOptions {
+  /** The request edits an uploaded photo: any nudity word counts as undressing its subject. */
+  hasInputImage?: boolean;
+}
+
 export interface LocalMatcher {
   /** The most serious category the text falls into, or null. Never returns the matched text. */
-  check(text: string): ModerationCategory | null;
+  check(text: string, options?: LocalCheckOptions): ModerationCategory | null;
 }
 
 /**
@@ -196,23 +224,33 @@ export function createLocalMatcher(extraTerms: readonly string[] = []): LocalMat
   const compileAll = (entries: readonly string[]): Phrase[] =>
     entries.map(compile).filter((phrase) => phrase.length > 0);
 
-  const categories: CompiledCategory[] = MODERATION_CATEGORIES.map((category) => ({
-    category,
-    terms: [
-      ...TERM_RULES.filter((rule) => rule.category === category).flatMap((rule) =>
-        compileAll(rule.terms),
-      ),
-      ...(category === 'blocklist' ? compileAll(extraTerms) : []),
-    ],
-    combos: COMBO_RULES.filter((rule) => rule.category === category).map((rule) => ({
-      window: rule.window,
-      a: compileAll(rule.a),
-      b: compileAll(rule.b),
-    })),
-  }));
+  const compileCategories = (withInputImageRules: boolean): CompiledCategory[] =>
+    MODERATION_CATEGORIES.map((category) => ({
+      category,
+      terms: [
+        ...TERM_RULES.filter((rule) => rule.category === category).flatMap((rule) =>
+          compileAll(rule.terms),
+        ),
+        ...(category === 'blocklist' ? compileAll(extraTerms) : []),
+        ...(withInputImageRules
+          ? INPUT_IMAGE_TERM_RULES.filter((rule) => rule.category === category).flatMap((rule) =>
+              compileAll(rule.terms),
+            )
+          : []),
+      ],
+      combos: COMBO_RULES.filter((rule) => rule.category === category).map((rule) => ({
+        window: rule.window,
+        a: compileAll(rule.a),
+        b: compileAll(rule.b),
+        ...(rule.c === undefined ? {} : { c: compileAll(rule.c) }),
+      })),
+    }));
+  const textCategories = compileCategories(false);
+  const imageCategories = compileCategories(true);
   const safePhrases = compileAll(SAFE_PHRASES);
+  const harmlessPairs = new Set(NOT_SPELLED_OUT.map((entry) => wordsOf(entry).join(' ')));
 
-  function categoryOf(tokens: readonly string[]): number {
+  function categoryOf(tokens: readonly string[], categories: readonly CompiledCategory[]): number {
     const found = occurrencesIn(tokens, index);
     // Known harmless phrases ("Al Gore", "Gore-Tex") are blanked, not trusted: the same word
     // anywhere else in the prompt still counts.
@@ -232,13 +270,14 @@ export function createLocalMatcher(extraTerms: readonly string[] = []): LocalMat
   }
 
   return {
-    check(text) {
+    check(text, options = {}) {
+      const categories = options.hasInputImage ? imageCategories : textCategories;
       let best = Number.POSITIVE_INFINITY;
       for (const view of tokenViews(text)) {
-        const spelled = joinSpelledOut(view, index.vocabulary);
+        const spelled = joinSpelledOut(view, index.vocabulary, harmlessPairs);
         const streams = spelled.length === view.length ? [view] : [view, spelled];
         for (const stream of streams) {
-          best = Math.min(best, categoryOf(stream));
+          best = Math.min(best, categoryOf(stream, categories));
           if (best === 0) break;
         }
         if (best === 0) break;

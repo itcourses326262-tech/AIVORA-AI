@@ -137,9 +137,13 @@ export const falModels: ModelSpec[] = [
     pricing: { type: 'image', perImage: 38 },
   },
   {
-    // Price: USD 0.03 per megapixel (fal.ai/models/fal-ai/flux/dev/image-to-image, 2026-10-08; one
-    // third-party page quoted 0.04). The adapter shrinks the input to under 1 MP, which is what the
-    // output size follows: 7.5 credits, rounded up to 8.
+    // UNVERIFIED: sources conflict. The model's own page (fal.ai/models/fal-ai/flux/dev/image-to-
+    // image) shows USD 0.03 per megapixel, but fal's LoRA page quotes USD 0.04 for the base
+    // image-to-image endpoint, and the page does not say whether the input image is billed too. We
+    // price at the HIGHER quote, so a wrong guess means slightly overcharging rather than selling
+    // below cost: USD 0.04 = 10 credits per image (0.03 would be 8). The adapter shrinks the input
+    // to under 1 MP, which is what the output size follows. Lower this only after reading the
+    // price on fal's own page.
     id: 'fal-flux-dev-img2img',
     provider: 'fal',
     providerModel: 'fal-ai/flux/dev/image-to-image',
@@ -160,7 +164,7 @@ export const falModels: ModelSpec[] = [
       supportsSeed: true,
       supportsStrength: true,
     },
-    pricing: { type: 'image', perImage: 8 },
+    pricing: { type: 'image', perImage: 10 },
   },
 
   // ---- text-to-video ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isAppError } from '@/lib/errors';
 import { isValidId } from '@/lib/id';
 import { createLocalStorage } from '@/server/storage/local';
@@ -42,6 +42,15 @@ const storedFiles = () =>
     .sort();
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+/** A box header (`size`, `type`) followed by some payload: a container that does not open with `ftyp`. */
+function atomFile(type: string, size = 0x20): Uint8Array {
+  return concat(
+    new Uint8Array([(size >>> 24) & 0xff, (size >>> 16) & 0xff, (size >>> 8) & 0xff, size & 0xff]),
+    utf8(type),
+    utf8('payload'.repeat(8)),
+  );
+}
 const readBack = async (key: string) => streamToBytes((await storage.get(key)).stream);
 
 function input(overrides: Partial<PersistOutputInput>): PersistOutputInput {
@@ -278,9 +287,9 @@ describe('persistOutput: videos', () => {
     expect(detected.mimeType).toBe('video/mp4');
     const claimed = await persistOutput(
       storage,
-      input({ kind: 'video', bytes: utf8('opaque container bytes'), mimeType: 'video/webm' }),
+      input({ kind: 'video', bytes: atomFile('moov'), mimeType: 'video/quicktime' }),
     );
-    expect(claimed.mimeType).toBe('video/webm');
+    expect(claimed.mimeType).toBe('video/quicktime');
     const html = await rejection(
       persistOutput(
         storage,
@@ -288,6 +297,66 @@ describe('persistOutput: videos', () => {
       ),
     );
     expect(html.code).toBe('bad_request');
+  });
+
+  describe('a provider claim is not enough', () => {
+    const avif = Uint8Array.from([0, 0, 0, 0x1c, ...utf8('ftypavif'), 0, 0, 0, 0]);
+
+    it.each([
+      ['HTML', utf8('<html><script>alert(1)</script></html>')],
+      ['a JSON error body', utf8('{"error":"quota exceeded","status":429}')],
+      ['plain text', utf8('Service Unavailable, try again later')],
+      ['a PNG', TINY_PNG],
+      ['a JPEG header', Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46])],
+      ['an AVIF still image', avif],
+      ['too few bytes to be a container', Uint8Array.from([0, 0, 0, 8, 0x6d, 0x6f, 0x6f])],
+      ['a leading atom with an impossible size', atomFile('moov', 4)],
+      ['a leading atom that no video opens with', atomFile('abcd')],
+      ['zeroes', new Uint8Array(64)],
+    ])('refuses %s claimed as video/mp4 and stores nothing', async (_name, bytes) => {
+      const buffered = await rejection(
+        persistOutput(storage, input({ kind: 'video', bytes, mimeType: 'video/mp4' })),
+      );
+      expect(buffered.code).toBe('bad_request');
+      const streamed = await rejection(
+        persistOutput(
+          storage,
+          input({ kind: 'video', bytes: Readable.from([bytes]), mimeType: 'video/mp4' }),
+        ),
+      );
+      expect(streamed.code).toBe('bad_request');
+      expect(storedFiles()).toEqual([]);
+    });
+
+    it('does not accept a webm claim for bytes that are not Matroska/WebM', async () => {
+      for (const bytes of [atomFile('moov'), utf8('opaque container bytes'), fakeMp4().slice(8)]) {
+        const error = await rejection(
+          persistOutput(storage, input({ kind: 'video', bytes, mimeType: 'video/webm' })),
+        );
+        expect(error.code).toBe('bad_request');
+      }
+      expect(storedFiles()).toEqual([]);
+    });
+
+    it('lets what the bytes say win over a different video claim', async () => {
+      const result = await persistOutput(
+        storage,
+        input({ kind: 'video', bytes: fakeMp4(), mimeType: 'video/webm' }),
+      );
+      expect(result.mimeType).toBe('video/mp4');
+    });
+
+    it.each(['moov', 'mdat', 'free', 'wide', 'skip', 'pnot'])(
+      'still accepts an MP4/QuickTime file that opens with a %s atom instead of ftyp',
+      async (atom) => {
+        const result = await persistOutput(
+          storage,
+          input({ kind: 'video', bytes: atomFile(atom), mimeType: 'video/mp4' }),
+        );
+        expect(result.mimeType).toBe('video/mp4');
+        expect(result.storageKey.endsWith('.mp4')).toBe(true);
+      },
+    );
   });
 
   it('refuses an SVG that claims to be a video', async () => {
@@ -365,6 +434,71 @@ describe('persistOutput: videos', () => {
         readdirSync(sandbox, { recursive: true }).filter((n) => String(n).includes('.tmp-')),
       ).toEqual([]);
       expect(storedFiles()).toEqual([]);
+    });
+
+    describe('when storage fails before reading the stream', () => {
+      const failing = (error: Error): StorageDriver => ({
+        ...storage,
+        put: async () => {
+          throw error;
+        },
+      });
+      const source = () => Readable.from([fakeMp4(), fakeMp4()]);
+
+      it('releases the provider download', async () => {
+        const download = source();
+        await expect(
+          persistOutput(
+            failing(new Error('disk full')),
+            input({ kind: 'video', bytes: download, mimeType: 'video/mp4' }),
+          ),
+        ).rejects.toThrow('disk full');
+        await vi.waitFor(() => expect(download.destroyed).toBe(true));
+      });
+
+      it('releases it for a key that cannot be written too', async () => {
+        const download = source();
+        const error = await rejection(
+          persistOutput(
+            storage,
+            input({
+              kind: 'video',
+              userId: '../other',
+              bytes: download,
+              mimeType: 'video/mp4',
+            }),
+          ),
+        );
+        expect(error.code).toBe('bad_request');
+        await vi.waitFor(() => expect(download.destroyed).toBe(true));
+      });
+
+      it(
+        'does not wait for a stalled download to report the failure',
+        { timeout: 2000 },
+        async () => {
+          const stalled = new Readable({ read() {} });
+          stalled.push(fakeMp4());
+          const readsThenFails: StorageDriver = {
+            ...storage,
+            put: async (_key, body) => {
+              const chunks = (body as NodeJS.ReadableStream)[Symbol.asyncIterator]();
+              await chunks.next();
+              // Leaves a read pending on the stalled source, then the write breaks.
+              chunks.next().catch(() => undefined);
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              throw new Error('disk full');
+            },
+          };
+          await expect(
+            persistOutput(
+              readsThenFails,
+              input({ kind: 'video', bytes: stalled, mimeType: 'video/mp4' }),
+            ),
+          ).rejects.toThrow('disk full');
+          stalled.destroy();
+        },
+      );
     });
 
     it('refuses an empty or unrecognisable stream and releases the source', async () => {

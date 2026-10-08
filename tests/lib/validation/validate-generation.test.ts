@@ -217,6 +217,36 @@ describe('validateGenerationRequest', () => {
       ).toEqual([{ path: 'prompt', code: 'required' }]);
     });
 
+    it.each([
+      ['zero-width spaces', '\u200b\u200b'],
+      ['a zero-width joiner and a word joiner', '\u200d\u2060'],
+      ['a byte-order mark', '\ufeff'],
+      ['a soft hyphen', '\u00ad'],
+      ['bidi controls', '\u202e\u200f'],
+      ['a Hangul filler and a blank Braille cell', '\u3164\u2800'],
+      ['variation selectors', '\ufe0f\ufe0e'],
+      ['invisible characters between spaces', ' \u200b \n \u200c '],
+    ])('rejects a prompt made only of %s as empty', (_label, prompt) => {
+      expect(
+        issuesOf(
+          validateForModel(
+            { tool: 'text-to-image', modelId: fullImageModel.id, prompt },
+            fullImageModel,
+          ),
+        ),
+      ).toEqual([{ path: 'prompt', code: 'required' }]);
+    });
+
+    it('keeps zero-width characters that sit inside real text', () => {
+      // The Persian/Arabic zero-width non-joiner and emoji joiners are part of the writing.
+      const prompt = 'می\u200cخواهم یک گربه';
+      const result = validateForModel(
+        { tool: 'text-to-image', modelId: fullImageModel.id, prompt },
+        fullImageModel,
+      );
+      expect(result.ok && result.prompt).toBe(prompt);
+    });
+
     it('accepts exactly the model limit and rejects one more, counting trimmed characters', () => {
       const limit = minimalImageModel.limits.maxPromptChars;
       const at = validateForModel(
@@ -270,6 +300,20 @@ describe('validateGenerationRequest', () => {
       );
       expect(issuesOf(result)).toEqual([{ path: 'negativePrompt', code: 'unsupported' }]);
     });
+
+    it.each(['', '   ', '\u200b\u200b', ' \u200d \n'])(
+      'treats %j as no negative prompt at all',
+      (negativePrompt) => {
+        for (const model of [minimalImageModel, fullImageModel]) {
+          const result = validateForModel(
+            { tool: 'text-to-image', modelId: model.id, prompt: 'p', negativePrompt },
+            model,
+          );
+          expect(result.ok).toBe(true);
+          expect(result.ok && 'negativePrompt' in result).toBe(false);
+        }
+      },
+    );
 
     it('is limited to the model prompt length when supported', () => {
       const result = validateForModel(

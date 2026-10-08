@@ -15,6 +15,7 @@ export {
   CardHeader,
   CardTitle,
   type CardProps,
+  type CardTitleProps,
   type CardVariant,
 } from './card';
 export { Checkbox, type CheckboxProps } from './checkbox';

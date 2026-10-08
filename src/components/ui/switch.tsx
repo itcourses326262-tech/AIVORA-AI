@@ -66,7 +66,7 @@ export function Switch({
         if (!event.defaultPrevented) setOn(!isOn);
       }}
       className={cn(
-        'group relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-field bg-surface-raised transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-transparent data-[state=checked]:bg-primary',
+        'group hit-area relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-field bg-surface-raised transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-transparent data-[state=checked]:bg-primary',
         className,
       )}
     >

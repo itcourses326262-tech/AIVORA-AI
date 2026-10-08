@@ -19,7 +19,11 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
     <div className="relative isolate flex min-h-dvh flex-col overflow-hidden bg-aurora">
       <div aria-hidden="true" className="absolute inset-0 -z-10 bg-dots opacity-70" />
       <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8 sm:py-6">
-        <Link href="/" aria-label={t('common.a11y.home')} className="rounded-lg text-foreground">
+        <Link
+          href="/"
+          aria-label={t('common.a11y.home')}
+          className="hit-area rounded-lg text-foreground"
+        >
           <Logo label={null} className="h-7" />
         </Link>
         <div className="flex items-center gap-1">

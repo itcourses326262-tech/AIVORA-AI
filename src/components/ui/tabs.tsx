@@ -128,7 +128,7 @@ export function TabsTrigger({ value, className, onClick, children, ...props }: T
         'relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 text-sm font-medium whitespace-nowrap text-muted transition-colors duration-150 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 data-[state=active]:text-foreground [&_svg]:size-4',
         tabs.appearance === 'underline'
           ? 'h-11 px-3 after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:scale-x-0 after:rounded-full after:bg-brand-gradient after:transition-transform after:duration-200 data-[state=active]:after:scale-x-100'
-          : 'h-8 rounded-lg px-3.5 data-[state=active]:bg-surface-overlay data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-field',
+          : 'h-8 rounded-lg px-3.5 data-[state=active]:bg-surface-overlay data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-field pointer-coarse:h-11',
         className,
       )}
     >

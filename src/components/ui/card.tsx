@@ -46,8 +46,13 @@ export function CardHeader({ className, ...props }: ComponentProps<'div'>) {
   return <div className={cn('grid gap-1.5 p-5 pb-0', className)} {...props} />;
 }
 
-export function CardTitle({ className, ...props }: ComponentProps<'h3'>) {
-  return <h3 className={cn('text-base leading-6 font-semibold', className)} {...props} />;
+export interface CardTitleProps extends ComponentProps<'h3'> {
+  /** The heading level; pick the one that follows the heading above the card. Defaults to `h3`. */
+  as?: 'h2' | 'h3' | 'h4';
+}
+
+export function CardTitle({ as: Heading = 'h3', className, ...props }: CardTitleProps) {
+  return <Heading className={cn('text-base leading-6 font-semibold', className)} {...props} />;
 }
 
 export function CardDescription({ className, ...props }: ComponentProps<'p'>) {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getBalance } from '@/server/credits';
 import { generations } from '@/server/db/schema';
+import type * as IdempotencyModule from '@/server/generations/idempotency';
 import { findByIdempotencyKey } from '@/server/generations/idempotency';
 import { createGeneration } from '@/server/generations/service';
 import { freshDb } from '../../helpers/db';
@@ -8,7 +9,7 @@ import { createUser } from '../../helpers/factories';
 
 // Both lookups before the insert are blinded, so only the unique index can notice the duplicate.
 vi.mock('@/server/generations/idempotency', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/server/generations/idempotency')>();
+  const original = await importOriginal<typeof IdempotencyModule>();
   return { ...original, findByIdempotencyKey: vi.fn(original.findByIdempotencyKey) };
 });
 

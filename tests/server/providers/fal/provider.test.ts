@@ -168,13 +168,94 @@ describe('submit', () => {
     expect((error as Error).name).toBe('AbortError');
   });
 
-  it('reports a network failure as retryable unavailable', async () => {
-    const h = falHarness(() => {
-      throw new TypeError('fetch failed');
+  // fal has no idempotency key: a submit that ends without an HTTP answer may be queued and billed
+  // already, so retrying it would create (and pay for) a second request nobody can find or cancel.
+  describe('when the outcome of the submit is unknown', () => {
+    const submitError = async (h: ReturnType<typeof falHarness>) => {
+      const error = await falProvider
+        .submit(inputFor('fal-flux-schnell'), h.ctx)
+        .catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(ProviderError);
+      return error as ProviderError;
+    };
+
+    it('does not retry a network failure, but still reports it as unavailable', async () => {
+      const cause = new TypeError('fetch failed');
+      const h = falHarness(() => {
+        throw cause;
+      });
+      const error = await submitError(h);
+      expect(error.code).toBe('unavailable');
+      expect(error.retryable).toBe(false);
+      expect(error.httpStatus).toBeUndefined();
+      expect(error.cause).toBe(cause);
+      expect(error.userMessage).toMatch(/unavailable/i);
+      expect(h.fetchMock).toHaveBeenCalledTimes(1);
     });
-    await expect(falProvider.submit(inputFor('fal-flux-schnell'), h.ctx)).rejects.toMatchObject({
-      code: 'unavailable',
-      retryable: true,
+
+    it('does not retry a timeout, but still reports it as a timeout', async () => {
+      vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+      const h = falHarness(() => {
+        throw new DOMException('timed out', 'TimeoutError');
+      });
+      const error = await submitError(h);
+      expect(error.code).toBe('timeout');
+      expect(error.retryable).toBe(false);
+      expect(error.userMessage).toMatch(/too long/i);
+    });
+
+    it('does not retry when the answer was lost while its body was being read', async () => {
+      const h = falHarness(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new TypeError('terminated'));
+              },
+            }),
+            { status: 200 },
+          ),
+      );
+      const error = await submitError(h);
+      expect(error.code).toBe('unavailable');
+      expect(error.retryable).toBe(false);
+    });
+
+    it.each([
+      [429, 'rate_limited'],
+      [500, 'unavailable'],
+      [502, 'unavailable'],
+      [503, 'unavailable'],
+      [504, 'unavailable'],
+    ])(
+      'keeps retrying when fal answered with HTTP %i, because it did not accept the job',
+      async (status, code) => {
+        const h = falHarness(() => jsonResponse({ detail: 'try later' }, { status }));
+        const error = await submitError(h);
+        expect(error.code).toBe(code);
+        expect(error.retryable).toBe(true);
+        expect(error.httpStatus).toBe(status);
+      },
+    );
+
+    it('keeps a request_timeout answered by fal (HTTP 504) retryable', async () => {
+      const h = falHarness(() =>
+        jsonResponse({ detail: 'slow', error_type: 'request_timeout' }, { status: 504 }),
+      );
+      const error = await submitError(h);
+      expect(error.code).toBe('timeout');
+      expect(error.retryable).toBe(true);
+    });
+
+    it('does not turn a cancellation into a provider error', async () => {
+      const h = falHarness(() => {
+        h.controller.abort(new DOMException('canceled', 'AbortError'));
+        throw new DOMException('canceled', 'AbortError');
+      });
+      const error = await falProvider
+        .submit(inputFor('fal-flux-schnell'), h.ctx)
+        .catch((thrown: unknown) => thrown);
+      expect(error).not.toBeInstanceOf(ProviderError);
     });
   });
 });
@@ -229,6 +310,38 @@ describe('poll: status transitions', () => {
       },
       { kind: 'image', url: 'https://v3.fal.media/files/b.png', mimeType: 'image/png', seed: 1234 },
     ]);
+  });
+
+  it('follows the status and response URLs fal returned instead of rebuilding them', async () => {
+    const custom = {
+      v: 1,
+      requestId: 'req_123',
+      statusUrl: `${QUEUE}/custom/abc/status`,
+      responseUrl: 'https://eu.queue.fal.run/some/other/layout/result',
+      cancelUrl: `${QUEUE}/custom/abc/cancel`,
+    };
+    const h = falHarness((url) => {
+      if (url === custom.statusUrl) return jsonResponse({ status: 'COMPLETED' });
+      if (url === custom.responseUrl) return jsonResponse({ images: [IMAGE] });
+      return new Response('the canonical URL must not be used', { status: 404 });
+    });
+    expect(outputsOf(await falProvider.poll('req_123', input, h.ctx, custom))).toHaveLength(1);
+    expect(h.fetchMock).toHaveBeenCalledTimes(2);
+    expect(h.call(0).url).toBe(custom.statusUrl);
+    expect(h.call(1).url).toBe(custom.responseUrl);
+  });
+
+  it('rebuilds only the URL that is unusable and keeps the other stored ones', async () => {
+    const stored = { ...META, statusUrl: 'https://evil.example.net/s' };
+    const h = falHarness((url) =>
+      url.endsWith('/status')
+        ? jsonResponse({ status: 'COMPLETED' })
+        : jsonResponse({ images: [IMAGE] }),
+    );
+    const responseUrl = `${QUEUE}/stored/layout/result`;
+    await falProvider.poll('req_123', input, h.ctx, { ...stored, responseUrl });
+    expect(h.call(0).url).toBe(`${QUEUE}/fal-ai/flux/requests/req_123/status`);
+    expect(h.call(1).url).toBe(responseUrl);
   });
 
   it('rebuilds the URLs from the endpoint when the meta is missing or damaged', async () => {
@@ -359,6 +472,65 @@ describe('poll: failures', () => {
       expect(error).toBeInstanceOf(ProviderError);
     },
   );
+
+  // A result that fal already generated (and billed) must survive a hiccup of the gateway in front
+  // of it: the engine treats `failed` as final but retries a thrown retryable error.
+  it.each([
+    [500, 'Internal Server Error'],
+    [502, 'Bad Gateway'],
+    [503, 'Service Unavailable'],
+    [504, 'Gateway Timeout'],
+    [408, 'Request Timeout'],
+  ])(
+    'throws a retryable error, and the next poll still gets the image, after %i with only a detail string',
+    async (status, detail) => {
+      let resultCalls = 0;
+      const h = falHarness((url) => {
+        if (url.endsWith('/status')) return jsonResponse({ status: 'COMPLETED' });
+        resultCalls += 1;
+        return resultCalls === 1
+          ? jsonResponse({ detail }, { status })
+          : jsonResponse({ images: [IMAGE] });
+      });
+
+      const error = await falProvider
+        .poll('req_123', input, h.ctx, META)
+        .catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).retryable).toBe(true);
+      expect((error as ProviderError).httpStatus).toBe(status);
+
+      expect(outputsOf(await falProvider.poll('req_123', input, h.ctx, META))).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    [404, 'unknown'],
+    [400, 'invalid_input'],
+    [422, 'invalid_input'],
+  ])(
+    'returns failed when fetching the result answers %i with a plain detail string',
+    async (status, code) => {
+      const h = falHarness((url) =>
+        url.endsWith('/status')
+          ? jsonResponse({ status: 'COMPLETED' })
+          : jsonResponse({ detail: 'refused' }, { status }),
+      );
+      const error = failedOf(await falProvider.poll('req_123', input, h.ctx, META));
+      expect(error.code).toBe(code);
+      expect(error.retryable).toBe(false);
+    },
+  );
+
+  it('keeps a network failure while polling retryable', async () => {
+    const h = falHarness(() => {
+      throw new TypeError('fetch failed');
+    });
+    await expect(falProvider.poll('req_123', input, h.ctx, META)).rejects.toMatchObject({
+      code: 'unavailable',
+      retryable: true,
+    });
+  });
 
   it('throws a retryable error when the status call itself is unavailable', async () => {
     const h = falHarness(() => new Response('upstream down', { status: 503 }));

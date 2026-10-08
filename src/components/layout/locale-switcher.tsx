@@ -23,7 +23,7 @@ export function LocaleSwitcher({ className }: { className?: string }) {
           aria-busy={pending || undefined}
           className={cn(
             buttonVariants({ variant: 'ghost', size: 'md' }),
-            'gap-2 px-2.5 sm:px-3 [&_svg]:size-[1.125rem]',
+            'gap-2 px-2.5 sm:px-3 pointer-coarse:min-w-11 [&_svg]:size-[1.125rem]',
             className,
           )}
         >

@@ -13,6 +13,7 @@ import {
   isMediaMimeType,
   normalizeMimeType,
   sniffMediaType,
+  startsWithQuickTimeAtom,
   type MediaMimeType,
 } from './sniff';
 import { putObjects, sha256Hex, type ObjectToStore } from './store';
@@ -59,12 +60,19 @@ async function collect(stream: AsyncIterable<unknown>, limit: number): Promise<U
 const isVideoType = (type: string): type is MediaMimeType =>
   isMediaMimeType(type) && type.startsWith('video/');
 
-/** The detected type wins over the claimed one; a claim is only believed for video containers. */
+/**
+ * The type of a "video" output, from its first bytes. Bytes that show a recognised signature
+ * decide (an animated GIF, MP4, QuickTime or WebM); bytes that are another media type (a PNG, an
+ * AVIF) are refused whatever the provider claims. A claim is only believed for an MP4/QuickTime
+ * file that opens with a known atom instead of `ftyp`, so an HTML or JSON error page served as
+ * `video/mp4` is never stored as a finished video (the engine fails and refunds instead).
+ */
 function videoType(head: Uint8Array, claimed: string): MediaMimeType | null {
   const sniffed = sniffMediaType(head);
-  if (sniffed === 'image/gif' || (sniffed && isVideoType(sniffed))) return sniffed;
+  if (sniffed) return sniffed === 'image/gif' || isVideoType(sniffed) ? sniffed : null;
   const normalized = normalizeMimeType(claimed);
-  return isVideoType(normalized) ? normalized : null;
+  const isQuickTimeFamily = normalized === 'video/mp4' || normalized === 'video/quicktime';
+  return isQuickTimeFamily && startsWithQuickTimeAtom(head) ? normalized : null;
 }
 
 async function describeImage(bytes: Uint8Array): Promise<Described> {
@@ -212,23 +220,31 @@ async function persistStream(
     return persistBuffered(storage, input, bytes);
   }
 
-  const described = await describeContainer(mimeType, input);
-  const { assetId, keys, thumbObject } = plan(input, described);
-  const hash = createHash('sha256');
-  let size = 0;
-  async function* measured(): AsyncGenerator<Buffer> {
-    for await (const chunk of whole()) {
-      size += chunk.byteLength;
-      if (size > MAX_STREAMED_OUTPUT_BYTES) throw tooLarge(MAX_STREAMED_OUTPUT_BYTES);
-      hash.update(chunk);
-      yield chunk;
+  try {
+    const described = await describeContainer(mimeType, input);
+    const { assetId, keys, thumbObject } = plan(input, described);
+    const hash = createHash('sha256');
+    let size = 0;
+    async function* measured(): AsyncGenerator<Buffer> {
+      for await (const chunk of whole()) {
+        size += chunk.byteLength;
+        if (size > MAX_STREAMED_OUTPUT_BYTES) throw tooLarge(MAX_STREAMED_OUTPUT_BYTES);
+        hash.update(chunk);
+        yield chunk;
+      }
     }
+    await putObjects(storage, [
+      { key: keys.storageKey, body: Readable.from(measured(), { objectMode: false }), mimeType },
+      ...thumbObject,
+    ]);
+    return toPersisted(input, described, { assetId, keys, size, sha256: hash.digest('hex') });
+  } catch (error) {
+    // A write that fails before it reads (disk full, bad key) never starts `whole()`, whose
+    // `finally` is the only other place the provider's download stream is released. Not awaited:
+    // if a read is still pending on a stalled download, closing must not delay the failure.
+    void close().catch(() => undefined);
+    throw error;
   }
-  await putObjects(storage, [
-    { key: keys.storageKey, body: Readable.from(measured(), { objectMode: false }), mimeType },
-    ...thumbObject,
-  ]);
-  return toPersisted(input, described, { assetId, keys, size, sha256: hash.digest('hex') });
 }
 
 /**

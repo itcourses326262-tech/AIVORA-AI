@@ -43,6 +43,60 @@ export async function makeTestImage(
   return new Uint8Array(encoded);
 }
 
+/**
+ * Opaque RGBA made of unrelated random colours (xorshift32, so it is the same on every run): the
+ * worst case for building a colour palette, like a photo of static or fine grain.
+ */
+export function noiseRgba(width: number, height: number, seed: number): Uint8Array {
+  let state = (seed * 2_654_435_761) >>> 0 || 1;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < rgba.length; i++) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    rgba[i] = i % 4 === 3 ? 255 : (state >>> 8) & 255;
+  }
+  return rgba;
+}
+
+/** A PNG of `noiseRgba`: lossless, so every pixel keeps its own colour through decoding. */
+export async function makeNoiseImage(width: number, height: number): Promise<Uint8Array> {
+  const png = await sharp(noiseRgba(width, height, 1), {
+    raw: { width, height, channels: 4 },
+  })
+    .removeAlpha()
+    .png()
+    .toBuffer();
+  return new Uint8Array(png);
+}
+
+export interface WorkCost {
+  /** CPU time of the whole process (all threads, sharp's included), in milliseconds. */
+  cpuMs: number;
+  /** The longest stretch the event loop went without running a 5 ms timer, in milliseconds. */
+  longestStallMs: number;
+}
+
+/** Runs `work` and reports what it cost and how long it kept everything else from running. */
+export async function measureWork(work: () => Promise<unknown>): Promise<WorkCost> {
+  let longestStallMs = 0;
+  let last = performance.now();
+  const probe = setInterval(() => {
+    const now = performance.now();
+    longestStallMs = Math.max(longestStallMs, now - last);
+    last = now;
+  }, 5);
+  const before = process.cpuUsage();
+  try {
+    await work();
+  } finally {
+    clearInterval(probe);
+  }
+  const used = process.cpuUsage(before);
+  return { cpuMs: (used.user + used.system) / 1000, longestStallMs };
+}
+
 export function mockInput(tool: Tool, overrides: Partial<ProviderInput> = {}): ProviderInput {
   const model = tool.endsWith('video') ? VIDEO_MODEL : IMAGE_MODEL;
   const params: GenerationParams = tool.endsWith('video')

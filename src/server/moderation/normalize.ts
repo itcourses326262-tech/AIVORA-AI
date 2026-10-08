@@ -1,4 +1,6 @@
 import 'server-only';
+import { INVISIBLE_CHARS } from '@/lib/validation/visible-text';
+import { markMinorAges } from './age';
 
 /**
  * Text normalization for moderation and for the prompt enhancer's language checks. Moderation
@@ -7,9 +9,6 @@ import 'server-only';
  * tatweel, Cyrillic or Greek look-alikes, repeated letters, `l33t`) is folded away here first.
  */
 
-// Invisible characters that split a word without showing: zero-width and bidi controls, soft
-// hyphen, grapheme joiner, variation selectors, Hangul and Khmer fillers, Unicode tag characters.
-const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠋-᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ\u{E0000}-\u{E01EF}]/gu;
 // Combining marks: Latin accents, Arabic harakat, and the hamza/madda marks that NFKD splits off
 // أ إ آ ؤ ئ (which also unifies those letters with their plain forms).
 const COMBINING_MARKS = /\p{Mn}/gu;
@@ -155,7 +154,7 @@ export function foldText(text: string): string {
   return text
     .normalize('NFKD')
     .toLowerCase()
-    .replace(INVISIBLE, '')
+    .replace(INVISIBLE_CHARS, '')
     .replace(COMBINING_MARKS, '')
     .replace(TATWEEL, '')
     .replace(REGIONAL_INDICATORS, (char) =>
@@ -191,25 +190,14 @@ export function tokenize(folded: string): string[] {
     .map(collapseRepeats);
 }
 
-// "12 year old", "12yo", "aged 12", "عمرها 12": adds a minor marker the rules can match, so a
-// stated age under 18 counts like the word "minor". Both markers are added, one per language.
-const AGE_BEFORE =
-  /(?<![\p{L}\p{N}])(\d{1,2})[^\p{L}\p{N}]*(?:years?[^\p{L}\p{N}]*old|years?|yrs?|y[^\p{L}\p{N}]?o|yo|سنه|سنوات|عاما|عام)(?![\p{L}\p{N}])/gu;
-const AGE_AFTER = /(?<![\p{L}\p{N}])(?:aged?|عمرها|عمره|عمر|بعمر)[^\p{L}\p{N}]*(\d{1,2})(?!\d)/gu;
-const MINOR_MARKERS = ' minor قاصر ';
-
-function markMinorAges(folded: string): string {
-  const mark = (match: string, digits: string) =>
-    Number(digits) < 18 ? match + MINOR_MARKERS : match;
-  return folded.replace(AGE_BEFORE, mark).replace(AGE_AFTER, mark);
-}
-
 /** The token streams a text is matched as: as written, and with leetspeak read as letters. */
 export function tokenViews(text: string): string[][] {
   const folded = markMinorAges(foldText(text));
   const plain = tokenize(folded);
   const leetFolded = foldLeet(folded);
-  return leetFolded === folded ? [plain] : [plain, tokenize(leetFolded)];
+  if (leetFolded === folded) return [plain];
+  // An age spelled in leetspeak ("th1rteen year old") only reads as one in this second view.
+  return [plain, tokenize(markMinorAges(leetFolded))];
 }
 
 const ARABIC_LETTER = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;

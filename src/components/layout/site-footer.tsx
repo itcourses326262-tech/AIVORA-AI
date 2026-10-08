@@ -5,7 +5,7 @@ import { LocaleSwitcher } from './locale-switcher';
 import { ThemeToggle } from './theme-toggle';
 
 const linkClass =
-  'rounded-sm text-sm text-muted transition-colors duration-150 hover:text-foreground';
+  'inline-flex w-fit items-center rounded-sm py-1.5 text-sm text-muted transition-colors duration-150 hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:py-0';
 
 /** The public site footer. `signedIn` swaps the account column's sign-in links for the account ones. */
 export async function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
@@ -18,14 +18,16 @@ export async function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
           <Link
             href="/"
             aria-label={t('common.a11y.home')}
-            className="w-fit rounded-lg text-foreground"
+            className="hit-area w-fit rounded-lg text-foreground"
           >
             <Logo label={null} className="h-7" />
           </Link>
           <p className="max-w-xs text-sm text-muted">{t('landing.footer.tagline')}</p>
         </div>
-        <nav aria-label={t('landing.footer.product')} className="grid content-start gap-3">
-          <h2 className="text-sm font-semibold text-foreground">{t('landing.footer.product')}</h2>
+        <nav aria-label={t('landing.footer.product')} className="grid content-start gap-1">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">
+            {t('landing.footer.product')}
+          </h2>
           <Link href="/studio" className={linkClass}>
             {t('common.nav.studio')}
           </Link>
@@ -36,8 +38,10 @@ export async function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             {t('common.nav.docs')}
           </Link>
         </nav>
-        <nav aria-label={t('landing.footer.account')} className="grid content-start gap-3">
-          <h2 className="text-sm font-semibold text-foreground">{t('landing.footer.account')}</h2>
+        <nav aria-label={t('landing.footer.account')} className="grid content-start gap-1">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">
+            {t('landing.footer.account')}
+          </h2>
           {signedIn ? (
             <>
               <Link href="/gallery" className={linkClass}>

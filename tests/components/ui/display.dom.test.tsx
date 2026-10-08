@@ -129,6 +129,19 @@ describe('Card', () => {
     expect(screen.getByText('Describe a scene')).toBeInTheDocument();
   });
 
+  it('is an h3 unless told otherwise, so a page can keep its heading order', () => {
+    renderUi(
+      <>
+        <CardTitle>Default</CardTitle>
+        <CardTitle as="h2">Under the page title</CardTitle>
+      </>,
+    );
+    expect(screen.getByRole('heading', { name: 'Default', level: 3 })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Under the page title', level: 2 }),
+    ).toBeInTheDocument();
+  });
+
   it('with href the whole card is one link', () => {
     renderUi(
       <Card href="/explore">

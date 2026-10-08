@@ -84,6 +84,54 @@ describe('a whole generation against a fake queue', () => {
     ]);
   });
 
+  it('follows the URLs fal returned when they do not have the canonical layout', async () => {
+    const base = `${QUEUE}/v2/jobs/life_2`;
+    const seen: string[] = [];
+    let polls = 0;
+    const h = falHarness((url, init) => {
+      seen.push(`${init.method ?? 'GET'} ${url}`);
+      if (url === `${QUEUE}/fal-ai/flux/schnell`) {
+        return jsonResponse({
+          request_id: 'life_2',
+          status_url: `${base}/state`,
+          response_url: `${base}/output`,
+          cancel_url: `${base}/abort`,
+        });
+      }
+      if (url === `${base}/state`) {
+        polls += 1;
+        return jsonResponse({ status: polls === 1 ? 'IN_PROGRESS' : 'COMPLETED' });
+      }
+      if (url === `${base}/output`) {
+        return jsonResponse({
+          images: [{ url: 'https://v3.fal.media/files/two.png', content_type: 'image/png' }],
+        });
+      }
+      if (url === `${base}/abort`) {
+        return jsonResponse({ status: 'CANCELLATION_REQUESTED' }, { status: 202 });
+      }
+      return new Response('the canonical layout must not be used', { status: 404 });
+    });
+    const input = inputFor('fal-flux-schnell');
+
+    const submitted = await falProvider.submit(input, h.ctx);
+    if (submitted.mode !== 'async') throw new Error('expected an async job');
+    const results: PollResult[] = [];
+    for (const _ of [1, 2]) {
+      results.push(await falProvider.poll(submitted.providerJobId, input, h.ctx, submitted.meta));
+    }
+    await falProvider.cancel?.(submitted.providerJobId, h.ctx, submitted.meta);
+
+    expect(results.map((result) => result.status)).toEqual(['running', 'succeeded']);
+    expect(seen).toEqual([
+      `POST ${QUEUE}/fal-ai/flux/schnell`,
+      `GET ${base}/state`,
+      `GET ${base}/state`,
+      `GET ${base}/output`,
+      `PUT ${base}/abort`,
+    ]);
+  });
+
   it('can be canceled with the URL that submit stored', async () => {
     const queue = fakeFalQueue(await pngImage(8, 8));
     const h = falHarness((url, init) =>

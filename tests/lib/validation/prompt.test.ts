@@ -31,6 +31,17 @@ describe('enhancePromptRequestSchema', () => {
     expect(schema.safeParse({ prompt: '   ', kind: 'image' }).success).toBe(false);
   });
 
+  it.each(['\u200b\u200b', '\u200d\u2060', '\ufeff', ' \u200b \n', '\u3164', '\u2800'])(
+    'rejects a draft with nothing visible in it: %j',
+    (prompt) => {
+      expect(schema.safeParse({ prompt, kind: 'image' }).success).toBe(false);
+    },
+  );
+
+  it('keeps a zero-width character inside a real draft', () => {
+    expect(schema.parse({ prompt: 'می\u200cخواهم', kind: 'image' }).prompt).toBe('می\u200cخواهم');
+  });
+
   it.each([
     { prompt: 'a cat' },
     { prompt: 'a cat', kind: 'audio' },

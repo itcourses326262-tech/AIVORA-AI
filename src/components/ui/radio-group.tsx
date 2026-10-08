@@ -235,7 +235,9 @@ export function SegmentedControl({
             }}
             className={cn(
               'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap text-muted transition-[background-color,color,box-shadow] duration-150 hover:text-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-[state=checked]:bg-surface-overlay data-[state=checked]:text-foreground data-[state=checked]:shadow-sm data-[state=checked]:ring-1 data-[state=checked]:ring-field [&_svg]:size-4',
-              size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3.5 text-sm',
+              size === 'sm'
+                ? 'h-7 px-2.5 text-xs pointer-coarse:h-10'
+                : 'h-8 px-3.5 text-sm pointer-coarse:h-11 pointer-coarse:min-w-11',
               fullWidth && 'flex-1',
             )}
           >

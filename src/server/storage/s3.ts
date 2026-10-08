@@ -40,9 +40,14 @@ function statusOf(error: unknown): number | undefined {
   return (error as ErrorLike | null)?.$metadata?.httpStatusCode;
 }
 
+/**
+ * A missing OBJECT only. Not every 404 qualifies: `NoSuchBucket` (a mistyped or deleted bucket) is
+ * also a 404 and must surface as an error, not as "no such file" on every request. The SDK names a
+ * bodiless 404 (HEAD) `NotFound` and a `NoSuchKey` XML body after its code.
+ */
 function isNotFound(error: unknown): boolean {
   const { name } = (error as ErrorLike | null) ?? {};
-  return name === 'NoSuchKey' || name === 'NotFound' || statusOf(error) === 404;
+  return name === 'NoSuchKey' || name === 'NotFound';
 }
 
 function isInvalidRange(error: unknown): boolean {

@@ -43,6 +43,10 @@ describe('createGenerationRequestSchema', () => {
     expect(parsed.prompt).toBe('hello');
   });
 
+  it('keeps a prompt with a zero-width character inside real text', () => {
+    expect(schema.parse({ ...minimal, prompt: 'می\u200cخواهم' }).prompt).toBe('می\u200cخواهم');
+  });
+
   it('accepts partial params', () => {
     expect(schema.parse({ ...minimal, params: { seed: 0 } }).params).toEqual({ seed: 0 });
     expect(schema.parse({ ...minimal, params: {} }).params).toEqual({});
@@ -54,6 +58,8 @@ describe('createGenerationRequestSchema', () => {
     ['empty model id', { ...minimal, modelId: '  ' }],
     ['missing prompt', { tool: 'text-to-image', modelId: 'm' }],
     ['blank prompt', { ...minimal, prompt: '   ' }],
+    ['prompt of zero-width characters', { ...minimal, prompt: '\u200b\u200b' }],
+    ['prompt of invisible characters and spaces', { ...minimal, prompt: ' \u2060\ufeff \u200d ' }],
     ['prompt too long', { ...minimal, prompt: 'x'.repeat(MAX_PROMPT_CHARS_HARD + 1) }],
     [
       'negative prompt too long',

@@ -198,7 +198,13 @@ describe('fallback', () => {
   it.each([
     ['a network error', () => Promise.reject(new TypeError('fetch failed')), 'network'],
     ['an empty answer', async () => openAiReply('   '), 'empty_output'],
-    ['a refusal', async () => openAiReply(null), 'empty_output'],
+    ['a null answer', async () => openAiReply(null), 'empty_output'],
+    [
+      'a spoken refusal',
+      async () => openAiReply("I'm sorry, but I can't help with that request."),
+      'refusal',
+    ],
+    ['an Arabic apology', async () => openAiReply('عذرا، لا يمكنني مساعدتك في ذلك'), 'refusal'],
     ['an unexpected body', async () => Response.json({ nope: 1 }), 'invalid_response'],
     [
       'an answer that leaks the markers',
@@ -217,6 +223,40 @@ describe('fallback', () => {
       engine: 'openai',
       reason,
     });
+  });
+
+  it('never hands a refusal to the user as their improved prompt', async () => {
+    const refusal = "I'm sorry, but I can't help with that request.";
+    const result = await enhancePrompt(
+      { prompt: 'a red fox', kind: 'image' },
+      { env: onlyOpenAi, fetch: async () => openAiReply(refusal) },
+    );
+    expect(result.engine).toBe('heuristic');
+    expect(result.prompt).not.toContain('sorry');
+    expect(result.prompt.startsWith('a red fox, ')).toBe(true);
+  });
+
+  it('tries the next LLM engine after a refusal', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes('openai.com')
+        ? openAiReply('As an AI language model, I cannot do that.')
+        : anthropicReply('A red fox in snow'),
+    );
+    const result = await enhancePrompt(
+      { prompt: 'a red fox', kind: 'image' },
+      { env: both, fetch: fetchMock as unknown as typeof fetch },
+    );
+    expect(result).toEqual({ prompt: 'A red fox in snow', engine: 'anthropic', translated: false });
+  });
+
+  it('does not ask an LLM to improve a draft with nothing visible in it', async () => {
+    const fetchMock = vi.fn();
+    const result = await enhancePrompt(
+      { prompt: '\u200b\u200d\u2060', kind: 'image' },
+      { env: onlyOpenAi, fetch: fetchMock },
+    );
+    expect(result.engine).toBe('heuristic');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('falls back after the 8 second timeout (shortened here)', async () => {

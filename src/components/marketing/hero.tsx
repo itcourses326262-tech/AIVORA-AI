@@ -70,12 +70,12 @@ export function Hero({ i18n, bonus }: HeroProps) {
         </p>
 
         <nav aria-label={t('landing.nav.label')} className="mt-10 w-full sm:w-auto">
-          <ul className="-mx-4 no-scrollbar flex items-center gap-2 overflow-x-auto px-4 py-1 sm:mx-0 sm:gap-1 sm:rounded-full sm:border sm:border-border sm:bg-surface/60 sm:p-1 sm:backdrop-blur">
+          <ul className="-mx-4 no-scrollbar flex items-center gap-2 overflow-x-auto edge-fade px-4 py-1 sm:mx-0 sm:gap-1 sm:rounded-full sm:border sm:border-border sm:bg-surface/60 sm:p-1 sm:backdrop-blur">
             {JUMP_LINKS.map((link) => (
               <li key={link.href} className="shrink-0">
                 <a
                   href={link.href}
-                  className="inline-flex h-9 items-center rounded-full border border-border bg-surface/60 px-3.5 text-sm font-medium text-muted transition-colors duration-150 hover:bg-foreground/[0.07] hover:text-foreground sm:border-transparent sm:bg-transparent"
+                  className="inline-flex h-9 items-center rounded-full border border-border bg-surface/60 px-3.5 text-sm font-medium text-muted transition-colors duration-150 hover:bg-foreground/[0.07] hover:text-foreground sm:border-transparent sm:bg-transparent pointer-coarse:h-11"
                 >
                   {t(link.label)}
                 </a>

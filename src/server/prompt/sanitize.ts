@@ -18,6 +18,21 @@ const PREAMBLE =
 const TRAILING_NOTE = /^\(?\s*(?:note|notes|explanation|translation|ملاحظة|ملاحظات)\b/iu;
 const LABEL =
   /^(?:(?:improved|enhanced|rewritten|optimi[sz]ed|final|new)\s+)?(?:(?:image|video)\s+)?(?:prompt|description)\s*[:：\-–—]\s*|^(?:الوصف المحسن|الوصف|النص المحسن|البرومبت)\s*[:：]\s*/iu;
+// The opening of a model declining or apologising instead of answering ("I'm sorry, but I can't
+// help with that"). Such a reply must never replace the user's draft.
+const REFUSAL = new RegExp(
+  [
+    String.raw`^(?:i['’]?m|i am)\s+(?:so\s+|very\s+|really\s+)?(?:sorry|afraid|unable|not able)\b`,
+    String.raw`^(?:sorry|apologies|my apologies|i apologi[sz]e|unfortunately)\b`,
+    String.raw`^i\s+(?:can(?:['’]?t|not)|can\s+not|won['’]?t|will\s+not|am\s+unable\s+to|do\s+not|don['’]?t)\s+(?:help|assist|provide|create|generate|write|fulfil+|comply|continue|do\s+that|produce|enhance|improve|rewrite|process|support)\b`,
+    String.raw`^i['’]?d\s+(?:rather|prefer)\s+not\b`,
+    String.raw`^as an ai\b`,
+    String.raw`^this (?:request|prompt|content) (?:violates|goes against|is against)\b`,
+    // No `\b` for Arabic: "اسفل" (below) must not read as "اسف" (sorry).
+    String.raw`^(?:آسف|اسف|أسف|عذرا|عذراً|المعذرة|أعتذر|اعتذر|لا\s+(?:يمكنني|استطيع|أستطيع)|بصفتي\s+(?:نموذج|ذكاء))(?![\p{L}\p{N}])`,
+  ].join('|'),
+  'iu',
+);
 const BULLET = /^(?:[-*•>]+|\d{1,2}[.)])\s+/u;
 const QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['"', '"'],
@@ -29,10 +44,19 @@ const QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['„', '“'],
 ];
 
+// An apostrophe between letters ("dog's") is not a quote mark.
+const WORD_APOSTROPHE = /(?<=\p{L})['’](?=\p{L})/gu;
+
+/**
+ * Removes one pair of quotes that wraps the whole text. A text that merely starts and ends with
+ * two different quoted passages (`"a" and "b"`) is left alone.
+ */
 function stripWrappingQuotes(text: string): string {
   for (const [open, close] of QUOTE_PAIRS) {
     if (text.length > 1 && text.startsWith(open) && text.endsWith(close)) {
-      return text.slice(open.length, text.length - close.length).trim();
+      const inner = text.slice(open.length, text.length - close.length);
+      const marks = inner.replace(WORD_APOSTROPHE, '');
+      if (!marks.includes(open) && !marks.includes(close)) return inner.trim();
     }
   }
   return text;
@@ -60,8 +84,8 @@ function cap(text: string, maxChars: number): string {
 /**
  * Turns raw model output into a bare prompt: no code fences, preamble ("Here is the improved
  * prompt:"), label, markdown, bullets or wrapping quotes, one paragraph, at most `maxChars`
- * characters. Throws {@link EnhancerFailure} when nothing usable is left or the model leaked the
- * system prompt's draft markers.
+ * characters. Throws {@link EnhancerFailure} when nothing usable is left, the model refused or
+ * apologised instead of answering, or it leaked the system prompt's draft markers.
  */
 export function sanitizeEnhancedPrompt(raw: string, maxChars: number = MAX_ENHANCED_CHARS): string {
   if (/<\/?draft\b/iu.test(raw)) throw new EnhancerFailure('leaked_markers');
@@ -86,6 +110,7 @@ export function sanitizeEnhancedPrompt(raw: string, maxChars: number = MAX_ENHAN
     if (text === before) break;
   }
 
+  if (REFUSAL.test(text)) throw new EnhancerFailure('refusal');
   text = cap(text, maxChars);
   if (Array.from(text).length < 3) throw new EnhancerFailure('empty_output');
   return text;

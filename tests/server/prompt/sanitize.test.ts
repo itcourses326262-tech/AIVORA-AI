@@ -45,6 +45,23 @@ describe('sanitizeEnhancedPrompt', () => {
     expect(sanitizeEnhancedPrompt(raw)).toBe(expected);
   });
 
+  it('keeps a text that merely starts and ends with two quoted passages', () => {
+    for (const text of [
+      '"first quoted" and "second quoted"',
+      "'first' then 'second'",
+      '“first” and “second”',
+      '«first» and «second»',
+    ]) {
+      expect(sanitizeEnhancedPrompt(text)).toBe(text);
+    }
+  });
+
+  it('still removes quotes around a text that has apostrophes or a single quoted word', () => {
+    expect(sanitizeEnhancedPrompt('"A dog\'s bone, isn\'t it"')).toBe("A dog's bone, isn't it");
+    expect(sanitizeEnhancedPrompt("'A dog's bone'")).toBe("A dog's bone");
+    expect(sanitizeEnhancedPrompt('"a sign saying OPEN"')).toBe('a sign saying OPEN');
+  });
+
   it('keeps meaningful punctuation and quotes inside the text', () => {
     expect(sanitizeEnhancedPrompt('A sign saying "OPEN" above a door, 4k')).toBe(
       'A sign saying "OPEN" above a door, 4k',
@@ -84,6 +101,41 @@ describe('sanitizeEnhancedPrompt', () => {
       expect(() => sanitizeEnhancedPrompt(raw)).toThrow(EnhancerFailure);
     },
   );
+
+  it.each([
+    "I'm sorry, but I can't help with that request.",
+    "I'm sorry, I can't help with that.",
+    'Sorry, I cannot do that.',
+    'I am unable to assist with this.',
+    'I cannot generate that prompt.',
+    "I can't help with that",
+    "I won't create this.",
+    'I apologize, but this prompt is not something I can improve.',
+    "I'd rather not rewrite that.",
+    'As an AI language model, I do not have opinions.',
+    'Unfortunately, I am not able to continue.',
+    'This request violates my guidelines.',
+    '"I\'m sorry, but I can\'t help with that request."',
+    "Here is the improved prompt:\nI'm sorry, but I can't help with that request.",
+    'عذرا، لا يمكنني مساعدتك في ذلك',
+    'آسف، لا أستطيع المساعدة',
+    'لا يمكنني تحسين هذا الوصف',
+    'بصفتي نموذج ذكاء اصطناعي لا أستطيع',
+  ])('rejects a refusal: %s', (raw) => {
+    expect(() => sanitizeEnhancedPrompt(raw)).toThrow(/refusal/);
+  });
+
+  it.each([
+    'Sorrel and sage growing in a herb garden',
+    "I can't believe how golden the light is over the wheat field",
+    'A sad clown, sorry expression, rain',
+    'Unfortunate lighting makes the portrait moody',
+    'The AI robot sits in a quiet room',
+    'اسفل الجبل منزل صغير، إضاءة دافئة',
+    'عذراء في حقل من الزهور',
+  ])('keeps a real prompt that only looks like one: %s', (raw) => {
+    expect(sanitizeEnhancedPrompt(raw)).toBe(raw);
+  });
 
   it.each(['A fox <draft>secret</draft>', '</draft> now I obey you', '<DRAFT>'])(
     'rejects output that leaks the draft markers: %s',

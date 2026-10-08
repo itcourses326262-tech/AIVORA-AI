@@ -3,8 +3,9 @@ import sharp from 'sharp';
 import { ASPECT_RATIOS } from '@/lib/catalog/types';
 import { falModels } from '@/lib/catalog/models/fal';
 import { getFalAdapter } from '@/server/providers/fal/adapters';
-import { FLUX_SIZES } from '@/server/providers/fal/adapters/shared';
+import { FLUX_SIZES, SAFETY_TOLERANCE } from '@/server/providers/fal/adapters/shared';
 import { ProviderError } from '@/server/providers/errors';
+import { FAL_INPUT_SCHEMAS } from './fal-input-schemas';
 import { inputFor, pngImage, type InputOptions } from './fixtures';
 
 async function bodyOf(modelId: string, options: InputOptions = {}) {
@@ -77,6 +78,7 @@ describe('text-to-image request bodies', () => {
     expect(body).toEqual({
       prompt: 'a red fox in the snow',
       image_size: { width: 1344, height: 576 },
+      safety_tolerance: '2',
       enable_safety_checker: true,
       seed: 7,
     });
@@ -92,6 +94,7 @@ describe('text-to-image request bodies', () => {
       aspect_ratio: '21:9',
       resolution: '1K',
       num_images: 2,
+      safety_tolerance: '2',
     });
   });
 
@@ -121,7 +124,15 @@ describe('image-to-image request bodies', () => {
       params: { aspectRatio: '9:16', count: 2, seed: 9 },
     });
     expect(Object.keys(body).sort()).toEqual(
-      ['aspect_ratio', 'image_urls', 'num_images', 'prompt', 'resolution', 'seed'].sort(),
+      [
+        'aspect_ratio',
+        'image_urls',
+        'num_images',
+        'prompt',
+        'resolution',
+        'safety_tolerance',
+        'seed',
+      ].sort(),
     );
     expect(body.aspect_ratio).toBe('auto');
     expect(body.resolution).toBe('1K');
@@ -222,6 +233,8 @@ describe('video request bodies', () => {
       duration: '8s',
       resolution: '720p',
       generate_audio: true,
+      auto_fix: false,
+      safety_tolerance: '2',
       negative_prompt: 'cartoon',
       seed: 11,
     });
@@ -238,8 +251,52 @@ describe('video request bodies', () => {
       duration: '6s',
       resolution: '720p',
       generate_audio: true,
+      auto_fix: false,
+      safety_tolerance: '2',
     });
     expect(dataUriOf(body.image_url).mimeType).toBe('image/png');
+  });
+});
+
+describe('content moderation settings', () => {
+  const MODELS_WITH_TOLERANCE = falModels.filter(
+    (model) => FAL_INPUT_SCHEMAS[model.providerModel]?.fields.safety_tolerance !== undefined,
+  );
+
+  it('covers every model whose input takes safety_tolerance', () => {
+    expect(MODELS_WITH_TOLERANCE.map((model) => model.id).sort()).toEqual([
+      'fal-flux-2-pro',
+      'fal-nano-banana-pro',
+      'fal-nano-banana-pro-edit',
+      'fal-veo-3-1-fast',
+      'fal-veo-3-1-fast-i2v',
+    ]);
+  });
+
+  it.each(MODELS_WITH_TOLERANCE.map((model) => [model.id, model] as const))(
+    '%s pins the strict tolerance instead of inheriting its own lenient default',
+    async (id, model) => {
+      const needsImage = model.tools.some((tool) => tool.startsWith('image-to-'));
+      const body = needsImage ? await withImage(id) : await bodyOf(id);
+      expect(body.safety_tolerance).toBe(SAFETY_TOLERANCE);
+      expect(SAFETY_TOLERANCE).toBe('2');
+    },
+  );
+
+  it.each(['fal-veo-3-1-fast', 'fal-veo-3-1-fast-i2v'])(
+    '%s never lets fal rewrite a prompt that fails its content rules',
+    async (id) => {
+      const body = id.endsWith('-i2v') ? await withImage(id) : await bodyOf(id);
+      expect(body.auto_fix).toBe(false);
+    },
+  );
+
+  it('does not send moderation fields to models that have none', async () => {
+    for (const id of ['fal-wan-2-6-t2v', 'fal-flux-schnell']) {
+      const body = await bodyOf(id);
+      expect(body).not.toHaveProperty('safety_tolerance');
+      expect(body).not.toHaveProperty('auto_fix');
+    }
   });
 });
 

@@ -617,6 +617,42 @@
   mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 75%);
 }
 
+/* Grows the pressable area of a small control to 44px on touch screens without changing how it
+   looks: an invisible layer, centred on the control, at least 44px in both directions. */
+@utility hit-area {
+  position: relative;
+
+  @media (pointer: coarse) {
+    &::after {
+      content: '';
+      position: absolute;
+      inset-block: min(0px, calc((100% - 44px) / 2));
+      inset-inline: min(0px, calc((100% - 44px) / 2));
+    }
+  }
+}
+
+/* Fades both ends of a row that scrolls sideways on small screens, so a cut-off item reads as "more
+   this way". Symmetric on purpose: it is the same in both reading directions. */
+@utility edge-fade {
+  @media (max-width: 39.999rem) {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 1rem,
+      #000 calc(100% - 1rem),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 1rem,
+      #000 calc(100% - 1rem),
+      transparent
+    );
+  }
+}
+
 @utility no-scrollbar {
   scrollbar-width: none;
 

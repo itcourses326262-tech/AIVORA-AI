@@ -96,7 +96,7 @@ export class JobRun {
     const background = [this.heartbeat(), this.enforceDeadline()];
 
     try {
-      await this.execute();
+      await this.settle(this.execute());
     } catch (error) {
       await this.handleError(error);
     } finally {
@@ -105,6 +105,23 @@ export class JobRun {
       await Promise.allSettled(background);
     }
     this.log.debug('Job run ended', { durationMs: rt.now() - startedAt, interrupted: this.reason });
+  }
+
+  /**
+   * Waits for the work or for an interruption, whichever comes first. A provider that ignores the
+   * abort signal, or a storage write that hangs, must not hold a worker slot (and, through the
+   * heartbeat, the lease) forever: the run moves on, and whatever the abandoned work still does
+   * is harmless because every state change is a compare-and-set that it has already lost.
+   */
+  private settle(work: Promise<void>): Promise<void> {
+    work.catch(() => undefined);
+    const { signal } = this.guard;
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+    interrupted.catch(() => undefined);
+    return Promise.race([work, interrupted]);
   }
 
   // ---- The happy path ---------------------------------------------------------------------

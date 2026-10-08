@@ -67,7 +67,7 @@ export function UserMenu({ navigation = true, preferences = true }: UserMenuProp
       trigger={
         <button
           type="button"
-          className="inline-flex size-10 items-center justify-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
+          className="inline-flex size-10 items-center justify-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95 pointer-coarse:size-11"
         >
           {/* Named by its content, not by an aria-label: the initials in the avatar are a picture,
               and a label that does not contain the visible text fails "label in name". */}

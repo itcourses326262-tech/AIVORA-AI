@@ -34,7 +34,7 @@ export function AuthSwitch({
       {prompt}{' '}
       <Link
         href={href}
-        className="rounded-sm font-medium text-brand underline-offset-4 hover:underline"
+        className="hit-area rounded-sm font-medium text-brand underline-offset-4 hover:underline"
       >
         {children}
       </Link>

@@ -39,8 +39,13 @@ function buildPalette(frames: readonly Uint8Array[], pixelsPerFrame: number): Pa
       cursor += 4;
     }
   }
-  // gifenc reads the whole ArrayBuffer, so the array must not carry unused capacity.
-  return quantize(sample.slice(0, cursor), 256);
+  // gifenc reads the whole ArrayBuffer, so the array must not carry unused capacity. Its
+  // pairwise-nearest-neighbour merge costs roughly the square of the number of distinct histogram
+  // colours: at the default 16-bit histogram a noisy photo (65k bins) takes seconds in one
+  // synchronous call, while the 12-bit histogram caps the work at 4096 bins whatever the input is.
+  // The palette entries are still the true mean colours of their bins, so quality drops only a
+  // little (about half a colour level of RMS error, well under the dither amplitude).
+  return quantize(sample.slice(0, cursor), 256, { format: 'rgb444' });
 }
 
 /** Palette index for every 15-bit colour, so each pixel costs one table lookup. */
@@ -100,7 +105,9 @@ function indexFrame(
 export async function encodeGif(request: GifRequest): Promise<Uint8Array> {
   const { frames, width, height, delayMs, dither, signal } = request;
   const palette = buildPalette(frames, width * height);
+  await yieldToEventLoop();
   const lookup = buildLookup(palette);
+  await yieldToEventLoop();
   const encoder = GIFEncoder({ initialCapacity: 1 << 20 });
   for (const [index, rgba] of frames.entries()) {
     signal?.throwIfAborted();

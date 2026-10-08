@@ -4,7 +4,7 @@ import type { ProviderId } from '@/lib/catalog/types';
 import { sleep as realSleep } from '@/lib/utils';
 import type { Db } from '@/server/db';
 import type { Env } from '@/server/env';
-import { claimNextJob, requeueStale } from '@/server/generations/lifecycle';
+import { claimNextJob, releaseWorkerJobs, requeueStale } from '@/server/generations/lifecycle';
 import type { Logger } from '@/server/logger';
 import type { GenerationProvider } from '@/server/providers/types';
 import { safeFetch } from '@/server/security/ssrf';
@@ -87,6 +87,15 @@ export class JobRunner {
   wake(): void {
     this.wakePending = true;
     this.idle?.abort();
+  }
+
+  /**
+   * Synchronously hands every job this runner is running back to the queue. For `process.on('exit')`
+   * handlers, where nothing asynchronous can run any more; the next worker then resumes the jobs
+   * at once instead of after their leases run out. Returns how many jobs it released.
+   */
+  abandon(): number {
+    return releaseWorkerJobs(this.deps.db, this.workerId);
   }
 
   /**

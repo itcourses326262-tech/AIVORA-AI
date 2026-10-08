@@ -37,7 +37,8 @@ export interface RequestFingerprint {
 }
 
 function canonical(params: GenerationParams): string {
-  return JSON.stringify(Object.entries(params).sort(([a], [b]) => a.localeCompare(b)));
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined);
+  return JSON.stringify(entries.sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /**

@@ -18,9 +18,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
   link: 'h-auto rounded-sm px-0 text-brand underline-offset-4 hover:underline active:scale-100',
 };
 
+// On a touch screen (`pointer-coarse`) the small sizes grow to 44px, the smallest comfortable target.
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'h-8 rounded-md px-3 text-sm',
-  md: 'h-10 rounded-lg px-4 text-sm',
+  sm: 'h-8 rounded-md px-3 text-sm pointer-coarse:h-11',
+  md: 'h-10 rounded-lg px-4 text-sm pointer-coarse:h-11',
   lg: 'h-12 rounded-xl px-6 text-base',
 };
 

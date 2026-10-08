@@ -46,9 +46,10 @@ export const POST = route(
     const { generation, created: isNew } = await createGeneration(ctx.auth.user.id, body, {
       idempotencyKey,
     });
+    const location = `/api/v1/generations/${generation.id}`;
     return isNew
-      ? created(generation)
-      : ok(generation, { headers: { 'Idempotent-Replayed': 'true' } });
+      ? created(generation, { headers: { Location: location } })
+      : ok(generation, { headers: { Location: location, 'Idempotent-Replayed': 'true' } });
   },
 );
 

@@ -472,6 +472,17 @@ describe('createGeneration: idempotency', () => {
     expect(ledgerInOrder(harness.db, user.id)).toHaveLength(1);
   });
 
+  it('does not mind parameters that were left undefined', async () => {
+    const user = createUser(harness.db);
+    const first = await createGeneration(user.id, IMAGE, { idempotencyKey: 'u' });
+    const again = await createGeneration(
+      user.id,
+      { ...IMAGE, params: { seed: undefined, count: 1, strength: undefined } },
+      { idempotencyKey: 'u' },
+    );
+    expect(again).toMatchObject({ created: false, generation: { id: first.generation.id } });
+  });
+
   it('treats an equivalent request (defaults spelled out, padding) as the same request', async () => {
     const user = createUser(harness.db);
     const first = await createGeneration(user.id, IMAGE, { idempotencyKey: 'same' });

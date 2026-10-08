@@ -62,6 +62,23 @@ const AVIF_BRAND = [0x61, 0x76, 0x69, 0x66];
 const AVIS_BRAND = [0x61, 0x76, 0x69, 0x73];
 const EBML = [0x1a, 0x45, 0xdf, 0xa3];
 
+/** Atoms an ISO/QuickTime file may open with when it has no `ftyp` (old QuickTime movies). */
+const LEADING_ATOMS = ['moov', 'mdat', 'free', 'wide', 'skip', 'pnot'].map((name) =>
+  Array.from(name, (letter) => letter.charCodeAt(0)),
+);
+
+/**
+ * Whether the bytes open like an MP4/QuickTime file that has no `ftyp` box: a 32-bit size
+ * (0 = to the end, 1 = 64-bit size follows, otherwise at least the 8-byte header) and then a known
+ * leading atom. Used to believe a provider's `video/mp4` claim only for plausible containers.
+ */
+export function startsWithQuickTimeAtom(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 8) return false;
+  const size = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
+  if (size !== 0 && size !== 1 && size < 8) return false;
+  return LEADING_ATOMS.some((atom) => startsWith(bytes, atom, 4));
+}
+
 /**
  * Detects the real type from the magic bytes, ignoring the file name and the claimed content type.
  * Null for anything that is not PNG, JPEG or WebP.

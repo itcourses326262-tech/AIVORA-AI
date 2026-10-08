@@ -223,7 +223,37 @@ describe('interpretFailure', () => {
 
   it('marks a typed payload as reported by fal', () => {
     expect(interpretFailure(failure(422, issue('content_policy_violation')))?.reported).toBe(true);
-    expect(interpretFailure(failure(500, { detail: 'x' }))?.reported).toBe(true);
+    expect(interpretFailure(failure(500, issue('downstream_service_error')))?.reported).toBe(true);
+    expect(
+      interpretFailure(failure(500, { detail: 'x', error_type: 'runner_server_error' }))?.reported,
+    ).toBe(true);
+    expect(
+      interpretFailure(failure(504, { detail: 'x' }, { 'x-fal-error-type': 'request_timeout' }))
+        ?.reported,
+    ).toBe(true);
+  });
+
+  it('marks a plain 4xx detail as reported, since fal refused the request itself', () => {
+    for (const status of [400, 404, 422]) {
+      expect(interpretFailure(failure(status, { detail: 'nope' }))?.reported).toBe(true);
+    }
+  });
+
+  it.each([500, 502, 503, 504, 408])(
+    'does not mark a bare %s with only a detail string as reported (a gateway sends the same)',
+    (status) => {
+      const interpreted = interpretFailure(failure(status, { detail: 'Service Unavailable' }));
+      expect(interpreted?.reported).toBe(false);
+      // The mapping itself is unchanged: it is still the retryable one.
+      expect(interpreted?.error.retryable).toBe(true);
+    },
+  );
+
+  it('does not mark a 5xx with untyped issues or an unknown platform code as reported', () => {
+    expect(interpretFailure(failure(503, issue('some_new_type')))?.reported).toBe(false);
+    expect(
+      interpretFailure(failure(503, { detail: 'x', error_type: 'something_new' }))?.reported,
+    ).toBe(false);
   });
 
   it('puts a content policy hit ahead of any platform error type', () => {

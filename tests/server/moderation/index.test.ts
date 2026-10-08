@@ -13,7 +13,8 @@ vi.mock('@/server/logger', async (importOriginal) => ({
 }));
 
 import { parseEnv, type Env } from '@/server/env';
-import { moderatePrompt } from '@/server/moderation';
+import { AppError } from '@/lib/errors';
+import { MAX_MODERATED_CHARS, moderatePrompt } from '@/server/moderation';
 import { OPENAI_MODERATION_MODEL, OPENAI_MODERATION_URL } from '@/server/moderation/remote';
 import { CATEGORY_REASONS } from '@/server/moderation/terms';
 
@@ -106,6 +107,134 @@ describe('moderatePrompt: local rules', () => {
   it('reads the environment lazily when no env is passed', async () => {
     const result = await moderatePrompt('naked woman');
     expect(result.allowed).toBe(false);
+  });
+});
+
+describe('moderatePrompt: negative prompt', () => {
+  const env = envWith();
+  const prompt = 'portrait of a woman on a beach';
+
+  it('lets people write the usual negative prompt', async () => {
+    for (const negativePrompt of [
+      'nsfw, nude, naked, lowres, bad anatomy, watermark',
+      'child, loli, shota, underage, nsfw',
+      'text, extra fingers, blurry, wrinkled clothes',
+    ]) {
+      await expect(moderatePrompt(prompt, { env, negativePrompt })).resolves.toEqual({
+        allowed: true,
+      });
+    }
+  });
+
+  it('blocks excluding clothing to steer a portrait toward nudity', async () => {
+    const result = await moderatePrompt(prompt, {
+      env,
+      negativePrompt: 'clothes, clothing, dressed, bikini, swimsuit, underwear',
+    });
+    expect(result).toEqual({
+      allowed: false,
+      category: 'sexual_explicit',
+      reason: CATEGORY_REASONS.sexual_explicit,
+    });
+    expect(logs.info).toHaveBeenCalledWith('Prompt blocked by moderation', {
+      category: 'sexual_explicit',
+      source: 'negative_prompt',
+    });
+  });
+
+  it('does not log or return the negative prompt', async () => {
+    const negativePrompt = 'clothes, clothing, zorpish';
+    const result = await moderatePrompt(prompt, { env, negativePrompt });
+    expect(result.allowed).toBe(false);
+    const visible = JSON.stringify([result, logs.info.mock.calls, logs.warn.mock.calls]);
+    expect(visible).not.toContain('zorpish');
+    expect(visible).not.toContain('clothing');
+  });
+
+  it('ignores the same negative prompt when the request is not about a person', async () => {
+    await expect(
+      moderatePrompt('a red fox in the snow', {
+        env,
+        negativePrompt: 'clothes, clothing, dressed',
+      }),
+    ).resolves.toEqual({ allowed: true });
+  });
+
+  it('assumes a person when an uploaded photo is edited', async () => {
+    const result = await moderatePrompt('a red fox in the snow', {
+      env,
+      negativePrompt: 'clothes, clothing, dressed',
+      hasInputImage: true,
+    });
+    expect(result.allowed).toBe(false);
+  });
+
+  it('still blocks the prompt itself first', async () => {
+    const result = await moderatePrompt('naked child', {
+      env,
+      negativePrompt: 'clothes, clothing',
+    });
+    expect(result.category).toBe('sexual_minors');
+  });
+
+  it('does not call the network for the negative prompt', async () => {
+    const fetchMock = vi.fn(async () => moderationResponse([]));
+    await moderatePrompt(prompt, {
+      env: remoteEnv,
+      fetch: fetchMock,
+      negativePrompt: 'clothes, clothing',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('moderatePrompt: uploaded photo', () => {
+  const env = envWith();
+
+  it('blocks a bare nudity word only when a photo is being edited', async () => {
+    await expect(moderatePrompt('nude', { env })).resolves.toEqual({ allowed: true });
+    const edit = await moderatePrompt('nude', { env, hasInputImage: true });
+    expect(edit).toEqual({
+      allowed: false,
+      category: 'non_consensual_sexual',
+      reason: CATEGORY_REASONS.non_consensual_sexual,
+    });
+  });
+
+  it('allows ordinary edits of a photo', async () => {
+    await expect(
+      moderatePrompt('turn this photo into a watercolor painting', { env, hasInputImage: true }),
+    ).resolves.toEqual({ allowed: true });
+  });
+});
+
+describe('moderatePrompt: length guard', () => {
+  const env = envWith();
+
+  it('scans text up to the limit', async () => {
+    const text = 'a red fox '.repeat(MAX_MODERATED_CHARS / 10);
+    expect(text.length).toBe(MAX_MODERATED_CHARS);
+    await expect(moderatePrompt(text, { env })).resolves.toEqual({ allowed: true });
+  });
+
+  it('rejects longer text with a validation error instead of scanning it', async () => {
+    const attempt = moderatePrompt('x'.repeat(MAX_MODERATED_CHARS + 1), { env });
+    await expect(attempt).rejects.toBeInstanceOf(AppError);
+    await expect(attempt).rejects.toMatchObject({ code: 'validation_failed', status: 422 });
+  });
+
+  it('applies the same limit to the negative prompt', async () => {
+    await expect(
+      moderatePrompt('a red fox', { env, negativePrompt: 'x'.repeat(MAX_MODERATED_CHARS + 1) }),
+    ).rejects.toMatchObject({ code: 'validation_failed' });
+  });
+
+  it('does not reach the network for oversized text', async () => {
+    const fetchMock = vi.fn(async () => moderationResponse([]));
+    await expect(
+      moderatePrompt('x'.repeat(MAX_MODERATED_CHARS + 1), { env: remoteEnv, fetch: fetchMock }),
+    ).rejects.toBeInstanceOf(AppError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

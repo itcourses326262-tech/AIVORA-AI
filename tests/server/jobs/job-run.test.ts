@@ -11,7 +11,7 @@ import { ProviderError } from '@/server/providers/errors';
 import type { PollResult, ProviderInput, SubmitResult } from '@/server/providers/types';
 import { expectConsistentLedger, ledgerInOrder } from '../../helpers/credits';
 import { createAsset } from '../../helpers/factories';
-import { TINY_GIF, TINY_PNG, fakeProvider, tinyOutput } from '../../helpers/fakes';
+import { TINY_PNG, fakeProvider, tinyOutput } from '../../helpers/fakes';
 import { createHarness, deferred, type Harness, type HarnessOptions } from './support';
 
 const open: Harness[] = [];
@@ -472,7 +472,7 @@ describe('asynchronous providers', () => {
       const row = await runOne(h, job.id);
       expect(row).toMatchObject({ status: 'failed', errorCode: stored });
       expect(JSON.stringify(row)).not.toContain('sk-live-123');
-        expect(h.balance()).toBe(50);
+      expect(h.balance()).toBe(50);
     },
   );
 });
@@ -607,6 +607,35 @@ describe('timeouts', () => {
     });
     const row = await runOne(h, h.enqueue().id);
     expect(row.status).toBe('succeeded');
+  });
+
+  it('does not let a provider that ignores the abort and never answers hold the worker', async () => {
+    const h = harness({
+      provider: fakeProvider({ submit: () => new Promise(() => undefined) }),
+      env: { GENERATION_TIMEOUT_SEC_IMAGE: '10' },
+    });
+    const job = h.enqueue({ cost: 2 });
+    const row = await runOne(h, job.id);
+    expect(row).toMatchObject({ status: 'failed', errorCode: 'timeout' });
+    expect(h.balance()).toBe(50);
+    expect(h.clock.pending()).toEqual([]);
+    // The slot is free again for the next job.
+    h.provider.submit.mockImplementation(async (input) => ({
+      mode: 'sync',
+      outputs: [tinyOutput(input.model.kind)],
+    }));
+    const next = h.enqueue();
+    await h.runner.tick();
+    expect(h.row(next.id).status).toBe('succeeded');
+  });
+
+  it('does not let a storage write that hangs hold the worker either', async () => {
+    const h = harness({ env: { GENERATION_TIMEOUT_SEC_IMAGE: '10' } });
+    h.persist.mockImplementation(() => new Promise(() => undefined));
+    const job = h.enqueue();
+    const row = await runOne(h, job.id);
+    expect(row).toMatchObject({ status: 'failed', errorCode: 'timeout' });
+    expect(h.balance()).toBe(50);
   });
 
   it('tolerates a provider that ignores the abort and answers late', async () => {
@@ -784,9 +813,7 @@ describe('unexpected failures', () => {
     });
     expect(JSON.stringify(row)).not.toContain('secretField');
     expect(h.balance()).toBe(50);
-    expect(h.logs.lines.some((line) => line.level === 'error' && line.text !== undefined)).toBe(
-      false,
-    );
+    expect(h.logs.lines.some((line) => line.level === 'error')).toBe(true);
     expect(h.logs.text()).toContain('secretField');
   });
 
@@ -944,30 +971,32 @@ describe('canceling while a job runs', () => {
 
 describe('lease and heartbeat', () => {
   it('extends the lease every 15 seconds while the job runs and stops afterwards', async () => {
-    const leases: number[] = [];
-    let polls = 0;
+    const seen: Array<{ at: number; lease: number }> = [];
+    let startedAt = 0;
     const h = harness({
       provider: fakeProvider({
         submit: () => asyncSubmit(),
         poll: () => {
-          polls += 1;
-          leases.push(h.row(job.id).leaseUntil ?? 0);
-          return polls < 9 ? running() : done();
+          startedAt ||= h.clock.now();
+          seen.push({ at: h.clock.now() - startedAt, lease: h.row(job.id).leaseUntil ?? 0 });
+          return h.clock.now() - startedAt < 46_000 ? running() : done();
         },
       }),
-      random: () => 0.5,
     });
     const job = h.enqueue();
-    // Slow polls: each wait is stretched so that ~45 s of virtual time pass.
-    const finished = h.runner.tick();
-    await h.clock.advance(46_000);
-    await h.clock.runUntil(finished);
+    await runOne(h, job.id);
 
-    const startedAt = h.clock.now();
-    expect(h.row(job.id).status).toBe('succeeded');
+    // Beats at 15, 30 and 45 s: three extensions, each exactly one heartbeat after the last.
+    const leases = [...new Set(seen.map((entry) => entry.lease))];
+    expect(leases).toHaveLength(4);
+    expect(leases.slice(1).map((lease, index) => lease - (leases[index] ?? 0))).toEqual([
+      15_000, 15_000, 15_000,
+    ]);
+    // The lease is never allowed to run out while the job is alive.
+    expect(seen.every((entry, index) => entry.lease > startedAt + entry.at || index === 0)).toBe(
+      true,
+    );
     expect(h.row(job.id).leaseUntil).toBeNull();
-    expect(Math.max(...leases)).toBeGreaterThan(Math.min(...leases));
-    expect(startedAt).toBeGreaterThan(0);
     expect(h.clock.pending()).toEqual([]);
   });
 
@@ -1076,14 +1105,6 @@ describe('input images', () => {
 
   it.each([
     [
-      'the asset row is gone',
-      async (h: Harness) => {
-        const asset = await withInput(h);
-        h.db.$client.prepare('delete from assets where id = ?').run(asset.id);
-        return asset.id;
-      },
-    ],
-    [
       'the file is gone from storage',
       async (h: Harness) => {
         const asset = await withInput(h);
@@ -1112,6 +1133,16 @@ describe('input images', () => {
       errorMessage: 'The input image is no longer available.',
     });
     expect(h.provider.submit).not.toHaveBeenCalled();
+    expect(h.balance()).toBe(50);
+  });
+
+  it('fails when the upload was deleted after the generation was queued', async () => {
+    const h = harness();
+    const asset = await withInput(h);
+    const job = h.enqueue({ tool: 'image-to-image', inputAssetId: asset.id, cost: 2 });
+    h.db.delete(assets).where(eq(assets.id, asset.id)).run();
+    await h.runner.tick();
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'invalid_input' });
     expect(h.balance()).toBe(50);
   });
 

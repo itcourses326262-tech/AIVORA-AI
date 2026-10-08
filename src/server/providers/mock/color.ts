@@ -57,11 +57,6 @@ export function toHex(rgb: Rgb): string {
     .join('')}`;
 }
 
-export function toRgba(rgb: Rgb, alpha: number): string {
-  const [r, g, b] = rgb.map((channel) => Math.round(Math.min(255, Math.max(0, channel))));
-  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
-}
-
 export interface Palette {
   /** Five stops from the darkest to the lightest, the colour ramp of the flowing background. */
   ramp: [Rgb, Rgb, Rgb, Rgb, Rgb];

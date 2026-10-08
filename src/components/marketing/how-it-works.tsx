@@ -42,7 +42,10 @@ export function HowItWorks({ i18n }: { i18n: Translator }) {
         />
         <ol className="relative grid gap-10 md:grid-cols-3 md:gap-8">
           {STEPS.map((step, index) => (
-            <li key={step.title} className="grid justify-items-center gap-4 text-center">
+            <li
+              key={step.title}
+              className="grid content-start justify-items-center gap-4 text-center"
+            >
               <span className="relative flex size-14 items-center justify-center rounded-2xl shadow-md border-gradient-brand">
                 <step.icon aria-hidden="true" className="size-6 text-brand" />
                 <span

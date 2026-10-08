@@ -172,12 +172,15 @@ export function interpretFailure(failure: HttpFailure): InterpretedFailure | und
     };
   }
 
+  // Neither a typed model error nor a known platform code. A bare `detail` string is also what a
+  // gateway or proxy in front of fal answers with, so only a definite client-side rejection counts
+  // as fal reporting the failure; a 5xx or 408 may clear up on the next request.
   return {
     error: providerErrorFromStatus(status, {
       ...(detail === undefined ? {} : { message: shorten(detail) }),
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     }),
-    reported: true,
+    reported: status >= 400 && status < 500 && status !== 408,
   };
 }
 

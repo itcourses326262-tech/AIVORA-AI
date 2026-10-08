@@ -1,5 +1,6 @@
 import 'server-only';
 import type { EnhancePromptRequest, EnhancePromptResponse } from '@/lib/api-types';
+import { hasVisibleText } from '@/lib/validation/visible-text';
 import { getEnv, type Env } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { enhanceHeuristically, MAX_ENHANCED_CHARS } from './heuristic';
@@ -57,7 +58,7 @@ export async function enhancePrompt(
   const env = deps.env ?? getEnv();
   const log = getLogger();
   const request = { ...input, prompt: input.prompt.trim() };
-  if (request.prompt === '') return enhanceHeuristically(request);
+  if (!hasVisibleText(request.prompt)) return enhanceHeuristically(request);
 
   const engines = enginesFor(env);
   if (

@@ -2,6 +2,7 @@ import 'server-only';
 import type { EnhancePromptRequest, EnhancePromptResponse } from '@/lib/api-types';
 import type { Kind } from '@/lib/catalog/types';
 import type { Locale } from '@/lib/i18n/locales';
+import { hasVisibleText } from '@/lib/validation/visible-text';
 import { foldText } from '@/server/moderation/normalize';
 import { arabicLetterRatio } from './text';
 
@@ -17,28 +18,32 @@ export interface Descriptor {
 
 // Each phrase must satisfy its own `present` pattern, which is what makes enhancing idempotent:
 // a second pass finds every aspect covered and changes nothing (tests assert this per phrase).
+// The English words end at a word boundary, so "lit" does not match "little" nor "hd" "hdmi"; a
+// stem that should take endings says so with `\w*`.
+const LIGHTING =
+  /\b(?:light\w*|lit|glow\w*|sunlight|sunset\w*|sunrise\w*|golden hour|backlit|neon\w*|shadow\w*|illuminat\w*|ambient)\b|اضاء|ضوء|اضواء|نور|وهج|غروب|شروق|ظلال/;
+
 const IMAGE_DESCRIPTORS: readonly Descriptor[] = [
   {
-    present:
-      /\b(?:light|lighting|lit|glow\w*|sunlight|sunset|sunrise|golden hour|backlit|neon|shadows?|illuminat\w*|ambient)|اضاء|ضوء|اضواء|نور|وهج|غروب|شروق|ظلال/,
+    present: LIGHTING,
     en: 'soft cinematic lighting',
     ar: 'إضاءة سينمائية ناعمة',
   },
   {
     present:
-      /\b(?:composition|framing|close[- ]?up|wide[- ]?angle|bird'?s[- ]?eye|symmetr\w*|centered|depth of field|bokeh|macro|panoramic|aerial view|overhead|low angle|high angle)|تكوين|زاويه|لقطه|مقرب|منظور|عمق الميدان/,
+      /\b(?:composition\w*|framing|close[- ]?ups?|wide[- ]?angle|bird'?s[- ]?eye|symmetr\w*|cent(?:er|re)d|depth of field|bokeh|macro\w*|panoramic|aerial view|overhead|low angle|high angle)\b|تكوين|زاويه|لقطه|مقرب|منظور|عمق الميدان/,
     en: 'balanced composition',
     ar: 'تكوين متوازن',
   },
   {
     present:
-      /\b(?:colou?rs?|colou?rful|palette|vibrant|vivid|pastel|monochrome|muted|warm tones?|cool tones?|black and white)|لون|الوان|زاهي|باستيل|دافئ/,
+      /\b(?:colou?r\w*|palettes?|vibrant|vivid|pastel\w*|monochrom\w*|muted|warm tones?|cool tones?|black and white)\b|لون|الوان|زاهي|باستيل|دافئ/,
     en: 'harmonious color palette',
     ar: 'ألوان متناسقة',
   },
   {
     present:
-      /\b(?:details?|detailed|sharp|focus|high[- ]?quality|high[- ]?resolution|\d+k|hd|uhd|ultra|photorealistic|hyper[- ]?realistic|intricate)|تفاصيل|تفصيل|دقيق|حاد|جوده عاليه|دقه عاليه|واقعي/,
+      /\b(?:detail\w*|sharp\w*|focus\w*|high[- ]?quality|high[- ]?resolution|\d+k|hd|uhd|ultra\w*|photoreal\w*|hyper[- ]?realistic|intricate\w*)\b|تفاصيل|تفصيل|دقيق|حاد|جوده عاليه|دقه عاليه|واقعي/,
     en: 'highly detailed, sharp focus',
     ar: 'تفاصيل دقيقة وتركيز حاد',
   },
@@ -47,25 +52,24 @@ const IMAGE_DESCRIPTORS: readonly Descriptor[] = [
 const VIDEO_DESCRIPTORS: readonly Descriptor[] = [
   {
     present:
-      /\b(?:camera|pan|panning|tilt|zoom\w*|dolly|tracking|drone|aerial|handheld|steadicam|orbit\w*|push[- ]?in|pull[- ]?out|crane|travelling|traveling|rotat\w*)|كاميرا|عدسه|تقريب|بانوراما|درون|طائره مسيره|تتبع|دوران/,
+      /\b(?:camera\w*|pan|panning|tilt\w*|zoom\w*|dolly|tracking|drone\w*|aerial|handheld|steadicam|orbit\w*|push[- ]?in|pull[- ]?out|crane|travelling|traveling|rotat\w*)\b|كاميرا|عدسه|تقريب|بانوراما|درون|طائره مسيره|تتبع|دوران/,
     en: 'slow cinematic camera movement',
     ar: 'حركة كاميرا سينمائية بطيئة',
   },
   {
     present:
-      /\b(?:motion|moving|slow[- ]?motion|time[- ]?lapse|pacing|fluid|smooth\w*|speed|steady|gentle\w*)|حركه|يتحرك|متحرك|بطيء|سلس|ايقاع|انسيابي|تدفق/,
+      /\b(?:motion\w*|moving|slow[- ]?motion|time[- ]?lapse|pacing|fluid\w*|smooth\w*|speed\w*|steady|gentle\w*)\b|حركه|يتحرك|متحرك|بطيء|سلس|ايقاع|انسيابي|تدفق/,
     en: 'smooth, natural motion',
     ar: 'حركة سلسة وطبيعية',
   },
   {
-    present:
-      /\b(?:light|lighting|lit|glow\w*|sunlight|sunset|sunrise|golden hour|backlit|neon|shadows?|illuminat\w*|ambient)|اضاء|ضوء|اضواء|نور|وهج|غروب|شروق|ظلال/,
+    present: LIGHTING,
     en: 'soft cinematic lighting',
     ar: 'إضاءة سينمائية ناعمة',
   },
   {
     present:
-      /\b(?:details?|detailed|sharp|high[- ]?quality|high[- ]?resolution|\d+k|hd|uhd|stable|consistent|photorealistic|hyper[- ]?realistic)|تفاصيل|تفصيل|دقيق|حاد|جوده عاليه|دقه عاليه|ثابت|متسق|واقعي/,
+      /\b(?:detail\w*|sharp\w*|high[- ]?quality|high[- ]?resolution|\d+k|hd|uhd|stable\w*|consistent\w*|photoreal\w*|hyper[- ]?realistic)\b|تفاصيل|تفصيل|دقيق|حاد|جوده عاليه|دقه عاليه|ثابت|متسق|واقعي/,
     en: 'rich detail, stable frames',
     ar: 'تفاصيل غنية وإطارات ثابتة',
   },
@@ -103,7 +107,7 @@ export function enhanceHeuristically(input: EnhancePromptRequest): EnhancePrompt
   });
 
   const base = text.replace(TRAILING_PUNCTUATION, '');
-  if (base === '') return result(text);
+  if (!hasVisibleText(base)) return result(text);
 
   const folded = foldText(text);
   const language = languageOf(text, input.locale);

@@ -1,10 +1,11 @@
 import 'server-only';
 import { inputImageDataUri } from '../image-input';
-import { compact, seedOf, type FalAdapter } from './shared';
+import { compact, SAFETY_TOLERANCE, seedOf, type FalAdapter } from './shared';
 
 /**
  * Nano Banana Pro: fal-ai/nano-banana-pro. The documented aspect_ratio enum covers every ratio of
- * our catalog. Always 1K (4K costs double). No negative prompt field exists.
+ * our catalog. Always 1K (4K costs double). No negative prompt field exists. safety_tolerance is
+ * pinned (fal's own default is the lenient "4").
  */
 export const nanoBananaPro: FalAdapter = {
   async buildInput(input) {
@@ -13,6 +14,7 @@ export const nanoBananaPro: FalAdapter = {
       aspect_ratio: input.params.aspectRatio,
       resolution: '1K',
       num_images: input.params.count,
+      safety_tolerance: SAFETY_TOLERANCE,
       seed: seedOf(input),
     });
   },
@@ -30,6 +32,7 @@ export const nanoBananaProEdit: FalAdapter = {
       aspect_ratio: 'auto',
       resolution: '1K',
       num_images: input.params.count,
+      safety_tolerance: SAFETY_TOLERANCE,
       seed: seedOf(input),
     });
   },

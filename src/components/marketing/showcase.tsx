@@ -57,19 +57,19 @@ function SampleCard({ item, i18n }: { item: ShowcaseItem; i18n: Translator }) {
       />
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-linear-to-t from-black/80 via-black/15 to-transparent"
+        className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent"
       />
 
-      <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 py-1 ps-2 pe-2.5 text-xs font-medium text-white backdrop-blur-md">
-          <ToolIcon aria-hidden="true" className="size-3.5 shrink-0" />
+      <div className="absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-1.5">
+        <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/65 py-1 ps-2 pe-2.5 text-xs font-medium text-white backdrop-blur-md">
+          <ToolIcon aria-hidden="true" className="hidden size-3.5 shrink-0 sm:block" />
           <span className="sr-only">{t(TOOL_NAME[item.tool])}: </span>
           <span dir="ltr" className="truncate">
             {item.model}
           </span>
         </span>
         {isVideo && item.seconds !== undefined ? (
-          <span className="shrink-0 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-xs font-medium whitespace-nowrap text-white backdrop-blur-md">
+          <span className="shrink-0 rounded-full border border-white/20 bg-black/65 px-2 py-1 text-xs font-medium whitespace-nowrap text-white backdrop-blur-md">
             {formatSeconds(item.seconds, locale)}
           </span>
         ) : null}
@@ -79,7 +79,7 @@ function SampleCard({ item, i18n }: { item: ShowcaseItem; i18n: Translator }) {
         <span
           aria-hidden="true"
           className={cn(
-            'absolute inset-0 m-auto flex items-center justify-center rounded-full border border-white/30 bg-black/45 text-white shadow-lg backdrop-blur-md transition-transform duration-300 group-hover:scale-110',
+            'absolute inset-0 m-auto flex items-center justify-center rounded-full border border-white/30 bg-black/55 text-white shadow-lg backdrop-blur-md transition-transform duration-300 group-hover:scale-110',
             featured ? 'size-16' : 'size-12',
           )}
         >
@@ -87,7 +87,9 @@ function SampleCard({ item, i18n }: { item: ShowcaseItem; i18n: Translator }) {
         </span>
       ) : null}
 
-      <figcaption className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
+      {/* The caption carries its own scrim, as tall as the text: a caption of three lines on a small
+          card would otherwise sit above the gradient and over the brightest part of the artwork. */}
+      <figcaption className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/85 via-black/60 to-transparent px-3.5 pt-10 pb-3.5 sm:px-4 sm:pb-4">
         <span className="sr-only">{t('landing.showcase.promptLabel')}: </span>
         <p
           className={cn(

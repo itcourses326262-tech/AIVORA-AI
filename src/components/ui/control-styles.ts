@@ -12,8 +12,8 @@ export const CONTROL_DISABLED =
   'has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:disabled]:hover:border-field';
 
 export const CONTROL_SIZES = {
-  sm: 'min-h-8 text-sm',
-  md: 'min-h-10 text-sm',
+  sm: 'min-h-8 text-sm pointer-coarse:min-h-11',
+  md: 'min-h-10 text-sm pointer-coarse:min-h-11',
   lg: 'min-h-12 text-base',
 } as const;
 

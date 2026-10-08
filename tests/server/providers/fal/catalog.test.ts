@@ -16,7 +16,8 @@ const UPSTREAM_USD: Record<string, number | Record<string, number>> = {
   'fal-flux-2-pro': 0.03,
   'fal-nano-banana-pro': 0.15,
   'fal-nano-banana-pro-edit': 0.15,
-  'fal-flux-dev-img2img': 0.03,
+  // The page says 0.03 but another fal page quotes 0.04: we charge the higher one (see the catalog).
+  'fal-flux-dev-img2img': 0.04,
   'fal-wan-2-6-t2v': { '720p': 0.1, '1080p': 0.15 },
   'fal-wan-2-6-i2v': { '720p': 0.1, '1080p': 0.15 },
   'fal-veo-3-1-fast': { '720p': 0.15 },
@@ -103,6 +104,11 @@ describe('fal catalog', () => {
     expect(cost('fal-flux-schnell')).toBe(1);
     expect(cost('fal-flux-schnell', { count: 4 })).toBe(4);
     expect(cost('fal-nano-banana-pro')).toBe(38);
+    // Priced at the higher of two conflicting upstream quotes: 4 images are USD 0.16, not 0.12.
+    expect(cost('fal-flux-dev-img2img')).toBe(10);
+    expect(cost('fal-flux-dev-img2img', { count: 4 }) * USD_PER_CREDIT).toBeGreaterThanOrEqual(
+      0.16,
+    );
     expect(cost('fal-wan-2-6-t2v')).toBe(125); // 5 s at 25 credits
     expect(cost('fal-wan-2-6-t2v', { durationSec: 10, resolution: '1080p' })).toBe(380);
     expect(cost('fal-veo-3-1-fast')).toBe(152); // 4 s at 38 credits

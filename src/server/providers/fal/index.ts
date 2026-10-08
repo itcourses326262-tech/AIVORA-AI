@@ -24,7 +24,9 @@ import { metaSchema, type FalMeta } from './schemas';
  * `poll` makes one status call, plus a result call once the status is COMPLETED. It returns
  * `failed` when fal reports that the request failed (a failed status, an error on a completed one,
  * or an error payload when fetching the result) and throws only when the state could not be read
- * (network, 429, 5xx without a fal error payload, bad credentials), so the caller may poll again.
+ * (network, 429, a 5xx or 408 that fal did not type, bad credentials), so the caller may poll
+ * again. `submit` is the opposite for an outcome it cannot know: a lost response or timeout is
+ * final, because a retry would queue a second paid request (see `submitJob`).
  */
 
 function readMeta(value: Record<string, unknown> | undefined): FalMeta | undefined {

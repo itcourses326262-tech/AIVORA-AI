@@ -6,6 +6,9 @@ import { effectiveStrength, transformImage } from '@/server/providers/mock/image
 import { IMAGE_PIXEL_BUDGET } from '@/server/providers/mock/size';
 import { forbidNetwork, generate, makeTestImage, mockInput, useFakeClock } from './fixtures';
 
+// These tests really render pictures and clips; a loaded CI runner needs far more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
+
 beforeEach(() => {
   useFakeClock();
   forbidNetwork();

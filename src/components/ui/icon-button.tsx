@@ -10,8 +10,8 @@ import type { Side } from './floating';
 export type IconButtonSize = 'sm' | 'md' | 'lg';
 
 const SIZES: Record<IconButtonSize, string> = {
-  sm: 'size-8 rounded-md px-0 [&_svg:not([class*=size-])]:size-4',
-  md: 'size-10 rounded-lg px-0 [&_svg:not([class*=size-])]:size-5',
+  sm: 'size-8 rounded-md px-0 pointer-coarse:size-11 [&_svg:not([class*=size-])]:size-4',
+  md: 'size-10 rounded-lg px-0 pointer-coarse:size-11 [&_svg:not([class*=size-])]:size-5',
   lg: 'size-12 rounded-xl px-0 [&_svg:not([class*=size-])]:size-6',
 };
 

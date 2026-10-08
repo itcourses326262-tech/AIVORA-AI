@@ -97,6 +97,7 @@ describe('POST /api/v1/prompt/enhance: access and input', () => {
   it.each([
     ['an empty prompt', { prompt: '', kind: 'image' }],
     ['a blank prompt', { prompt: '   ', kind: 'image' }],
+    ['a prompt of zero-width characters', { prompt: '\u200b\u200b\u2060', kind: 'image' }],
     ['a missing prompt', { kind: 'image' }],
     ['a prompt over 2000 characters', { prompt: 'x'.repeat(2001), kind: 'image' }],
     ['a missing kind', { prompt: 'a cat' }],
@@ -254,6 +255,16 @@ describe('POST /api/v1/prompt/enhance: engines', () => {
       engine: 'openai',
       translated: true,
     });
+  });
+
+  it('does not return a refusal as the improved prompt', async () => {
+    configure({ OPENAI_API_KEY: OPENAI_KEY });
+    fetchMock.mockResolvedValueOnce(openAiReply("I'm sorry, but I can't help with that request."));
+    const result = await enhance({ prompt: 'a red fox in the snow', kind: 'image' });
+    expect(result.status).toBe(200);
+    expect(result.json.data?.engine).toBe('heuristic');
+    expect(result.json.data?.prompt.startsWith('a red fox in the snow, ')).toBe(true);
+    expect(result.text).not.toMatch(/sorry/i);
   });
 
   it('falls back to the heuristic engine when the LLM fails', async () => {

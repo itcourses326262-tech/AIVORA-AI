@@ -87,6 +87,51 @@ describe('enhanceHeuristically', () => {
   });
 });
 
+describe('aspects already covered', () => {
+  it('is not fooled by a word that merely starts like a covered aspect', () => {
+    // "lit", "pan", "hd" and "\d+k" used to match the start of "little", "panda", "hdmi", "5km".
+    expect(image('a little cat').prompt).toContain('soft cinematic lighting');
+    expect(video('a panda eating bamboo').prompt).toContain('slow cinematic camera movement');
+    expect(image('a hdmi cable on a desk').prompt).toContain('highly detailed, sharp focus');
+    expect(image('a 5km race').prompt).toContain('highly detailed, sharp focus');
+    expect(video('a 5km race').prompt).toContain('rich detail, stable frames');
+    expect(image('a crane bird by the lake').prompt).toContain('soft cinematic lighting');
+  });
+
+  it('still sees the aspects the user covered, in the forms people write them', () => {
+    for (const [prompt, absent] of [
+      ['a cat, lit by candles', 'lighting'],
+      ['a cat, lights glowing', 'lighting'],
+      ['a cat, sunsets and shadows', 'lighting'],
+      ['a cat in a close-up', 'balanced composition'],
+      ['a cat, compositions in thirds', 'balanced composition'],
+      ['a colourful cat', 'color palette'],
+      ['a cat in pastel shades', 'color palette'],
+      ['a cat, 8K', 'highly detailed'],
+      ['a cat, HD', 'highly detailed'],
+      ['a cat, ultrawide', 'highly detailed'],
+      ['a cat, focused eyes', 'highly detailed'],
+      ['a cat, sharper than life', 'highly detailed'],
+    ] as const) {
+      expect(image(prompt).prompt, prompt).not.toContain(absent);
+    }
+    for (const [prompt, absent] of [
+      ['a cat, the camera pans left', 'camera movement'],
+      ['a cat, zooming in', 'camera movement'],
+      ['a cat in slow motion', 'smooth, natural motion'],
+      ['a cat, smoothly walking', 'smooth, natural motion'],
+      ['a cat, speedy', 'smooth, natural motion'],
+      ['a cat, stable footage', 'stable frames'],
+    ] as const) {
+      expect(video(prompt).prompt, prompt).not.toContain(absent);
+    }
+  });
+
+  it('returns a prompt with nothing visible in it unchanged', () => {
+    expect(image('\u200b\u200d').prompt).toBe('\u200b\u200d');
+  });
+});
+
 describe('language', () => {
   it('keeps Arabic prompts in Arabic, with Arabic descriptors and the Arabic comma', () => {
     expect(image('قطة تجلس على الاريكة').prompt).toBe(

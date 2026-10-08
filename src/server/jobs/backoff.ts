@@ -1,3 +1,4 @@
+import 'server-only';
 import type { Kind } from '@/lib/catalog/types';
 
 const POLL_GROWTH = 1.5;

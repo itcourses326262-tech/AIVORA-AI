@@ -69,7 +69,7 @@ function BottomTab({ item }: { item: NavItem }) {
       href={item.href}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'relative flex min-w-0 flex-col items-center justify-center gap-1 px-1 pt-2 pb-1.5 text-[0.6875rem] font-medium transition-colors duration-150',
+        'relative flex min-w-0 flex-col items-center justify-center gap-1 px-1 pt-2 pb-1.5 text-xs font-medium transition-colors duration-150',
         active ? 'text-foreground' : 'text-muted active:text-foreground',
       )}
     >
@@ -130,7 +130,7 @@ export function AppShell({ initialUser, defaultCollapsed = false, children }: Ap
             <Link
               href="/"
               aria-label={t('common.a11y.home')}
-              className="rounded-lg text-foreground"
+              className="hit-area rounded-lg text-foreground"
             >
               {collapsed ? (
                 <Logo variant="glyph" label={null} />
@@ -174,7 +174,7 @@ export function AppShell({ initialUser, defaultCollapsed = false, children }: Ap
             <Link
               href="/"
               aria-label={t('common.a11y.home')}
-              className="rounded-lg text-foreground lg:hidden"
+              className="hit-area rounded-lg text-foreground lg:hidden"
             >
               <Logo variant="glyph" label={null} />
             </Link>

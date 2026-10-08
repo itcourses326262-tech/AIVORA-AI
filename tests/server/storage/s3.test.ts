@@ -345,6 +345,58 @@ describe('head and delete', () => {
   });
 });
 
+describe('a missing bucket is not a missing object', () => {
+  /** The real SDK pipeline (so error naming is the SDK's own) over a canned HTTP response. */
+  function sdkReplying(statusCode: number, xml: string) {
+    const client = new S3Client({
+      region: 'us-east-1',
+      endpoint: 'http://minio.test:9000',
+      forcePathStyle: true,
+      credentials: { accessKeyId: 'test-access-key', secretAccessKey: 'test-secret-key' },
+      maxAttempts: 1,
+      requestHandler: {
+        handle: async () => ({
+          response: {
+            statusCode,
+            headers: xml ? { 'content-type': 'application/xml' } : {},
+            body: Readable.from(xml ? [Buffer.from(xml)] : []),
+          },
+        }),
+        updateHttpClientConfig: () => undefined,
+        httpHandlerConfigs: () => ({}),
+      } as never,
+    });
+    return createS3Storage(env, { client });
+  }
+
+  const errorXml = (code: string) =>
+    `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>m</Message></Error>`;
+
+  it('surfaces NoSuchBucket from get, head and delete instead of reporting missing files', async () => {
+    const driver = sdkReplying(404, errorXml('NoSuchBucket'));
+    expect(await rejection(driver.get(KEY))).toMatchObject({ name: 'NoSuchBucket' });
+    expect(await rejection(driver.head(KEY))).toMatchObject({ name: 'NoSuchBucket' });
+    expect(await rejection(driver.delete(KEY))).toMatchObject({ name: 'NoSuchBucket' });
+  });
+
+  it('does not treat other 404 codes as a missing object either', async () => {
+    const { driver } = setup(() => {
+      throw new FakeS3Error('NoSuchUpload', 404);
+    });
+    expect(await rejection(driver.head(KEY))).toMatchObject({ name: 'NoSuchUpload' });
+  });
+
+  it('still maps what the real SDK reports for a missing object', async () => {
+    const withBody = sdkReplying(404, errorXml('NoSuchKey'));
+    const thrown = await rejection(withBody.get(KEY));
+    expect(isAppError(thrown) && thrown.code).toBe('not_found');
+    // A HEAD 404 has no body: the SDK names it NotFound.
+    const bodiless = sdkReplying(404, '');
+    expect(await bodiless.head(KEY)).toBeNull();
+    await expect(bodiless.delete(KEY)).resolves.toBeUndefined();
+  });
+});
+
 describe('signedUrl', () => {
   it('presigns a GET for the key without any network call', async () => {
     const { driver, send } = setup();

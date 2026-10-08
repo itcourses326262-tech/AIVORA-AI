@@ -11,10 +11,12 @@ import {
   markCanceled,
   recordSubmitted,
   releaseJob,
+  releaseWorkerJobs,
   requeueStale,
   updateProgress,
 } from '@/server/generations/lifecycle';
 import { expectConsistentLedger, ledgerInOrder } from '../../helpers/credits';
+import { createDb } from '@/server/db';
 import { createTestDb, seedUser } from '../../helpers/db';
 import { createGeneration } from '../../helpers/factories';
 import { persisted, queue } from './support';
@@ -649,5 +651,77 @@ describe('credit accounting across a whole life', () => {
     expect(getBalance(db, user.id)).toBe(100 - 3 - 11);
     expectConsistentLedger(db, user.id, 100);
     close();
+  });
+});
+
+describe('releaseWorkerJobs', () => {
+  it('hands back everything one worker owns and nothing else', () => {
+    const { db, user, close, row } = setup();
+    const mine = [queue(db, user), queue(db, user)];
+    const theirs = queue(db, user);
+    claimNextJob(db, 'w1', LEASE, NOW);
+    claimNextJob(db, 'w1', LEASE, NOW);
+    claimNextJob(db, 'w2', LEASE, NOW);
+    recordSubmitted(db, mine[0]?.id ?? '', 'w1', 'prov_1', { v: 1 });
+    const queued = queue(db, user);
+
+    expect(releaseWorkerJobs(db, 'w1')).toBe(2);
+    for (const job of mine) {
+      expect(row(job.id)).toMatchObject({
+        status: 'queued',
+        workerId: null,
+        leaseUntil: null,
+        attempts: 0,
+      });
+    }
+    expect(row(mine[0]?.id ?? '').providerJobId).toBe('prov_1');
+    expect(row(theirs.id)).toMatchObject({ status: 'processing', workerId: 'w2' });
+    expect(row(queued.id).status).toBe('queued');
+    expect(releaseWorkerJobs(db, 'w1')).toBe(0);
+    close();
+  });
+
+  it('leaves finished jobs alone', () => {
+    const { db, user, close, row } = setup();
+    const job = queue(db, user);
+    claimNextJob(db, 'w1', LEASE, NOW);
+    completeGeneration(db, job.id, 'w1', [persisted()]);
+    expect(releaseWorkerJobs(db, 'w1')).toBe(0);
+    expect(row(job.id).status).toBe('succeeded');
+    close();
+  });
+});
+
+describe('an idle poll does not take the write lock', () => {
+  it('claimNextJob and requeueStale answer "nothing to do" while another connection holds the lock', () => {
+    const test = createTestDb({ file: true });
+    const other = createDb(test.path);
+    try {
+      test.db.$client.pragma('busy_timeout = 0');
+      other.$client.exec('BEGIN IMMEDIATE');
+      // A write transaction would fail at once with SQLITE_BUSY here.
+      expect(claimNextJob(test.db, 'w1', LEASE, NOW)).toBeNull();
+      expect(requeueStale(test.db, NOW)).toBe(0);
+    } finally {
+      other.$client.exec('ROLLBACK');
+      other.$client.close();
+      test.close();
+    }
+  });
+
+  it('still takes the lock, and waits for it, when there is work', () => {
+    const test = createTestDb({ file: true });
+    const user = seedUser(test.db);
+    queue(test.db, user);
+    const other = createDb(test.path);
+    try {
+      test.db.$client.pragma('busy_timeout = 0');
+      other.$client.exec('BEGIN IMMEDIATE');
+      expect(() => claimNextJob(test.db, 'w1', LEASE, NOW)).toThrow(/database is locked/);
+    } finally {
+      other.$client.exec('ROLLBACK');
+      other.$client.close();
+      test.close();
+    }
   });
 });

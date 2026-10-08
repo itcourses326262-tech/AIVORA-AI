@@ -60,6 +60,11 @@ export function claimNextJob(
       lt(generations.attempts, maxAttempts),
     ),
   );
+  // An idle runner asks every second. A plain read answers "nothing to do" without taking the
+  // write lock that every claim needs.
+  if (!db.select({ id: generations.id }).from(generations).where(claimable).limit(1).get()) {
+    return null;
+  }
   return withTx(db, (tx) => {
     const candidate = tx
       .select({ id: generations.id })
@@ -297,6 +302,26 @@ export function releaseJob(db: Db, id: string, workerId: string): boolean {
   return row !== undefined;
 }
 
+/**
+ * Hands back every job `workerId` still owns, in one statement: what a process does as it exits,
+ * when nothing asynchronous can run any more, so the next worker resumes at once instead of after
+ * the lease runs out. Returns how many jobs it released.
+ */
+export function releaseWorkerJobs(db: Db, workerId: string): number {
+  return db
+    .update(generations)
+    .set({
+      status: 'queued',
+      workerId: null,
+      leaseUntil: null,
+      attempts: sql`max(${generations.attempts} - 1, 0)`,
+      updatedAt: Date.now(),
+    })
+    .where(ownedBy(workerId))
+    .returning({ id: generations.id })
+    .all().length;
+}
+
 export interface RequeueOptions {
   /** Default `MAX_ATTEMPTS`. */
   maxAttempts?: number;
@@ -312,16 +337,16 @@ export function requeueStale(
   options: RequeueOptions = {},
 ): number {
   const maxAttempts = options.maxAttempts ?? getEnv().MAX_ATTEMPTS;
+  const expired = and(
+    eq(generations.status, 'processing'),
+    or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
+  );
+  if (!db.select({ id: generations.id }).from(generations).where(expired).limit(1).get()) return 0;
   return withTx(db, (tx) => {
     const stale = tx
       .select({ id: generations.id, attempts: generations.attempts })
       .from(generations)
-      .where(
-        and(
-          eq(generations.status, 'processing'),
-          or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
-        ),
-      )
+      .where(expired)
       .all();
     let touched = 0;
     for (const job of stale) {
@@ -332,13 +357,7 @@ export function requeueStale(
       const row = tx
         .update(generations)
         .set({ status: 'queued', workerId: null, leaseUntil: null, updatedAt: now })
-        .where(
-          and(
-            eq(generations.id, job.id),
-            eq(generations.status, 'processing'),
-            or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
-          ),
-        )
+        .where(and(eq(generations.id, job.id), expired))
         .returning({ id: generations.id })
         .get();
       if (row) touched += 1;

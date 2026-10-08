@@ -31,6 +31,15 @@ export const FLUX_SIZES: Readonly<Record<AspectRatio, PixelSize>> = {
   '21:9': { width: 1344, height: 576 },
 };
 
+/**
+ * Moderation strictness (`safety_tolerance`, 1 strictest) for every model that takes the field.
+ * Results can be shared on the public Explore feed, so we pin the same level on all of them
+ * instead of inheriting each model's own default (Nano Banana and Veo default to "4", FLUX.2 to
+ * "2"). "2" is valid on every scale in use (1-5 for FLUX.2, 1-6 for the others). Raising it is a
+ * product decision: change this one constant.
+ */
+export const SAFETY_TOLERANCE = '2';
+
 /** Drops undefined entries so that an unset option is simply not sent. */
 export function compact(body: Record<string, unknown>): FalBody {
   return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
