@@ -69,7 +69,9 @@ function buildUrl(baseUrl: string, path: string, query: RequestOptions['query'])
   }
   const search = params.toString();
   const separator = path.startsWith('/') ? '' : '/';
-  return `${baseUrl}${separator}${path}${search ? `?${search}` : ''}`;
+  // A path may already carry its own query string (`/models?kind=image`).
+  const joiner = path.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${path}${search ? `${joiner}${search}` : ''}`;
 }
 
 function parseErrorBody(status: number, body: unknown, requestId: string | undefined): ApiError {
@@ -121,7 +123,16 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
     }
 
     const requestId = response.headers.get('x-request-id') ?? undefined;
-    const text = await response.text();
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (cause) {
+      // The connection can drop after the headers arrived, while the body is still streaming.
+      if (options?.signal?.aborted) throw cause;
+      throw new ApiError('network_error', 0, 'Network request failed', undefined, requestId, {
+        cause,
+      });
+    }
     const body = text.length > 0 ? safeJson(text) : undefined;
 
     if (!response.ok) throw parseErrorBody(response.status, body, requestId);

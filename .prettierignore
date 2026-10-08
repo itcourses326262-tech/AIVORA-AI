@@ -8,3 +8,5 @@ test-results
 package-lock.json
 next-env.d.ts
 public/openapi.json
+# The architecture contract is edited by hand by every agent; its tables are not worth re-aligning.
+docs/ARCHITECTURE.md

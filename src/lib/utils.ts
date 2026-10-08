@@ -7,8 +7,10 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/** Limits `value` to `min..max`. `NaN` has no position in the range, so it becomes `min`. */
 export function clamp(value: number, min: number, max: number): number {
   if (min > max) throw new RangeError(`clamp: min (${min}) is greater than max (${max})`);
+  if (Number.isNaN(value)) return min;
   return Math.min(max, Math.max(min, value));
 }
 

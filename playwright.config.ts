@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { ISOLATED_ENV_KEYS } from './tests/helpers/isolated-env';
 
 const PORT = Number(process.env.PW_PORT ?? 3200);
 const BASE_URL = `http://localhost:${PORT}`;
@@ -73,6 +74,14 @@ export default defineConfig({
       SIGNUP_ENABLED: 'true',
       SIGNUP_BONUS_CREDITS: '50',
       LOG_LEVEL: 'warn',
+      // `next start` loads `.env.local` and `.env` even in production mode, so a developer's
+      // provider keys would be picked up and e2e runs would call (and bill) real APIs. A variable
+      // that is already defined, even as '', is never overwritten by dotenv, and server/env.ts
+      // treats a blank as unset. The same keys are deleted for unit tests in tests/setup.ts.
+      ...Object.fromEntries(ISOLATED_ENV_KEYS.map((key) => [key, ''])),
+      MODERATION_PROVIDER: 'none',
+      PROMPT_ENHANCER: 'heuristic',
+      TRUST_PROXY: 'false',
     },
   },
 });

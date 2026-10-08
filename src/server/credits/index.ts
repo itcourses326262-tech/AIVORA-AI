@@ -322,7 +322,11 @@ export function listLedger(
   userId: string,
   opts: { limit?: number; cursor?: string } = {},
 ): Page<LedgerEntryDTO> {
-  const limit = clamp(Math.trunc(opts.limit ?? DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
+  // A non-finite limit (NaN would otherwise turn `limit + 1` into an unbounded query) is "not given".
+  const limit =
+    typeof opts.limit === 'number' && Number.isFinite(opts.limit)
+      ? clamp(Math.trunc(opts.limit), 1, MAX_PAGE_SIZE)
+      : DEFAULT_PAGE_SIZE;
 
   let after: SQLCursor | undefined;
   if (opts.cursor !== undefined) {

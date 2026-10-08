@@ -19,6 +19,13 @@ vi.mock('@/server/db', async (importOriginal) => {
   };
 });
 
+// Probes must never be throttled: a limiter that fails loudly proves the route does not use it.
+vi.mock('@/server/security/rate-limit', () => ({
+  getRateLimiter: () => {
+    throw new Error('the health route must not consult the rate limiter');
+  },
+}));
+
 import { GET } from '@/app/api/health/route';
 
 freshDb();
@@ -49,6 +56,12 @@ describe('GET /api/health', () => {
   it('is not wrapped in the { data } envelope', async () => {
     const { json } = await invokeRoute<Record<string, unknown>>(GET);
     expect(json).not.toHaveProperty('data');
+  });
+
+  it('is exempt from the general rate limit, however often it is probed', async () => {
+    for (let probe = 0; probe < 3; probe += 1) {
+      expect((await invokeRoute(GET)).status).toBe(200);
+    }
   });
 
   it('answers anonymous probes that carry no credentials', async () => {

@@ -12,6 +12,11 @@ export type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[
 /**
  * Declares both languages of one namespace. `ar` must have exactly the keys of `en`, at every depth;
  * a missing or extra key is a compile error.
+ *
+ * Pass both dictionaries as inline object literals: TypeScript only reports *extra* keys for fresh
+ * literals, so `ar: someVariable` with a surplus key compiles. `tests/lib/i18n/messages.test.ts`
+ * closes that gap at runtime (identical key sets and identical `{placeholder}` names per key), and
+ * types cannot express placeholder parity at all.
  */
 export function defineMessages<T extends MessageTree>(messages: {
   en: T;

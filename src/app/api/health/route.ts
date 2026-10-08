@@ -10,8 +10,9 @@ import { getLogger } from '@/server/logger';
 /**
  * Liveness and readiness probe for load balancers and Docker. The body is deliberately not
  * enveloped: `{ status, db, worker, version }`. A database that cannot answer `SELECT 1` is HTTP 503.
+ * Probes arrive every few seconds from one address, so the general rate limit is switched off.
  */
-export const GET = route({ auth: 'none' }, async () => {
+export const GET = route({ auth: 'none', rateLimit: false }, async () => {
   let db = true;
   try {
     getDb().get(sql`select 1`);

@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   DEFAULT_PAGE_LIMIT,
+  capRequestBody,
   hasCredentials,
   isMutatingMethod,
   pageQuerySchema,
   parseOrThrow,
   queryObject,
+  readFormBody,
   readJsonBody,
   requestIdOf,
 } from '@/server/http/request';
@@ -131,6 +133,141 @@ describe('queryObject', () => {
 
   it('is empty without a query string', () => {
     expect(queryObject(new Request(URL_BASE))).toEqual({});
+  });
+
+  it('cannot be used to replace the prototype of the result via ?__proto__', () => {
+    const query = queryObject(new Request(`${URL_BASE}?__proto__=1&__proto__=2&ok=yes`));
+    expect(Object.getPrototypeOf(query)).toBeNull();
+    expect(Array.isArray(query)).toBe(false);
+    expect(Object.keys(query)).toEqual(['ok']);
+    expect(query.ok).toBe('yes');
+  });
+
+  it('does not mistake inherited members for earlier values', () => {
+    const query = queryObject(
+      new Request(`${URL_BASE}?constructor=a&toString=b&hasOwnProperty=c&hasOwnProperty=d`),
+    );
+    expect(query).toEqual({ constructor: 'a', toString: 'b', hasOwnProperty: ['c', 'd'] });
+    expect(queryObject(new Request(URL_BASE)).constructor).toBeUndefined();
+  });
+});
+
+describe('capRequestBody', () => {
+  function chunkedPost(chunkBytes: number, chunks: number, onCancel?: () => void): Request {
+    let sent = 0;
+    return new Request(URL_BASE, {
+      method: 'POST',
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent++ >= chunks) controller.close();
+          else controller.enqueue(new Uint8Array(chunkBytes));
+        },
+        cancel: onCancel,
+      }),
+      headers: { 'content-type': 'application/octet-stream' },
+      duplex: 'half',
+    } as RequestInit);
+  }
+
+  it('returns bodiless requests untouched', () => {
+    const request = new Request(URL_BASE);
+    expect(capRequestBody(request, 10)).toBe(request);
+  });
+
+  it('keeps method, url, headers and the body bytes of requests within the cap', async () => {
+    const original = post('{"a":1}', { 'content-type': 'application/json', 'x-trace': 't1' });
+    const capped = capRequestBody(original, 100);
+    expect(capped.method).toBe('POST');
+    expect(capped.url).toBe(URL_BASE);
+    expect(capped.headers.get('x-trace')).toBe('t1');
+    expect(await capped.json()).toEqual({ a: 1 });
+  });
+
+  it('rejects an announced length above the cap before touching the body', () => {
+    const request = post('x'.repeat(100), {
+      'content-type': 'text/plain',
+      'content-length': '100',
+    });
+    expect(() => capRequestBody(request, 50)).toThrowError(
+      expect.objectContaining({ code: 'payload_too_large', status: 413 }),
+    );
+    expect(request.bodyUsed).toBe(false);
+  });
+
+  it.each(['text', 'arrayBuffer', 'blob', 'formData'] as const)(
+    'fails %s() with payload_too_large when the stream outgrows the cap',
+    async (method) => {
+      const cancelled = vi.fn();
+      const capped = capRequestBody(chunkedPost(512, 1000, cancelled), 2048);
+      expect(await codeOf(capped[method]())).toBe('payload_too_large');
+      expect(cancelled).toHaveBeenCalled(); // the source is released, not drained
+    },
+  );
+
+  it('fails the raw stream too', async () => {
+    const reader = capRequestBody(chunkedPost(512, 1000), 2048).body!.getReader();
+    let failure: unknown;
+    try {
+      for (;;) if ((await reader.read()).done) break;
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: 'payload_too_large' });
+  });
+
+  it('allows a body of exactly the cap', async () => {
+    const capped = capRequestBody(chunkedPost(512, 4), 2048);
+    expect((await capped.arrayBuffer()).byteLength).toBe(2048);
+  });
+
+  it('propagates the abort signal of the original request', () => {
+    const controller = new AbortController();
+    const original = new Request(URL_BASE, {
+      method: 'POST',
+      body: 'x',
+      signal: controller.signal,
+    });
+    const capped = capRequestBody(original, 10);
+    expect(capped.signal.aborted).toBe(false);
+    controller.abort();
+    expect(capped.signal.aborted).toBe(true);
+  });
+});
+
+describe('readFormBody', () => {
+  it('parses multipart bodies, including Arabic text and files', async () => {
+    const form = new FormData();
+    form.append('prompt', 'قطة');
+    form.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'a.bin');
+    const parsed = await readFormBody(new Request(URL_BASE, { method: 'POST', body: form }));
+    expect(parsed.get('prompt')).toBe('قطة');
+    expect((parsed.get('file') as File).size).toBe(3);
+  });
+
+  it('answers 415 for other content types, including url-encoded forms', async () => {
+    expect(await codeOf(readFormBody(post('{}')))).toBe('unsupported_media_type');
+    expect(
+      await codeOf(
+        readFormBody(post('a=b', { 'content-type': 'application/x-www-form-urlencoded' })),
+      ),
+    ).toBe('unsupported_media_type');
+    expect(await codeOf(readFormBody(new Request(URL_BASE, { method: 'POST' })))).toBe(
+      'unsupported_media_type',
+    );
+  });
+
+  it('answers 400 for a body that is not valid multipart', async () => {
+    const broken = post('garbage', { 'content-type': 'multipart/form-data; boundary=nope' });
+    expect(await codeOf(readFormBody(broken))).toBe('bad_request');
+    const noBoundary = post('garbage', { 'content-type': 'multipart/form-data' });
+    expect(await codeOf(readFormBody(noBoundary))).toBe('bad_request');
+  });
+
+  it('lets payload_too_large from a capped body through instead of masking it as 400', async () => {
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(10_000)]), 'big.bin');
+    const capped = capRequestBody(new Request(URL_BASE, { method: 'POST', body: form }), 1000);
+    expect(await codeOf(readFormBody(capped))).toBe('payload_too_large');
   });
 });
 

@@ -69,6 +69,68 @@ describe('modelSpecProblems (the checker itself)', () => {
     expect(modelSpecProblems(sound)).toEqual([]);
   });
 
+  const soundImage: ModelSpec = {
+    ...sound,
+    id: 'sample-image',
+    kind: 'image',
+    tools: ['text-to-image'],
+    limits: {
+      ...sound.limits,
+      maxCount: 4,
+      defaultCount: 1,
+      durations: undefined,
+      defaultDuration: undefined,
+      resolutions: undefined,
+      defaultResolution: undefined,
+    },
+    pricing: { type: 'image', perImage: 2 },
+  };
+
+  it('accepts a sound image spec', () => {
+    expect(modelSpecProblems(soundImage)).toEqual([]);
+  });
+
+  it('prices every duration at every resolution a video model allows, not only the default', () => {
+    // 1080p is selectable but unpriced: validation would accept it and computeCost would throw.
+    const unpricedTier: ModelSpec = {
+      ...sound,
+      limits: { ...sound.limits, resolutions: ['480p', '720p', '1080p'] },
+      pricing: { type: 'video', perSecond: { '480p': 2 } },
+    };
+    const problems = modelSpecProblems(unpricedTier);
+    expect(problems).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/3s 720p request cannot be priced.*720p/),
+        expect.stringMatching(/5s 1080p request cannot be priced.*1080p/),
+      ]),
+    );
+    expect(problems.some((problem) => problem.includes('480p'))).toBe(false);
+    // The default request (3s, 480p) is priced, which is all the old check looked at.
+    expect(problems.some((problem) => problem.startsWith('default request'))).toBe(false);
+  });
+
+  it('requires video models to list durations and resolutions', () => {
+    const problems = modelSpecProblems({
+      ...sound,
+      limits: { ...sound.limits, durations: [], resolutions: undefined },
+    });
+    expect(problems.join('\n')).toMatch(/must list durations/);
+    expect(problems.join('\n')).toMatch(/must list resolutions/);
+  });
+
+  it.each([5, 9, 0, 2.5])(
+    'flags an image model with maxCount %s (the contract is 1-4)',
+    (maxCount) => {
+      const model: ModelSpec = { ...soundImage, limits: { ...soundImage.limits, maxCount } };
+      expect(modelSpecProblems(model).join('\n')).toMatch(/maxCount from 1 to 4/);
+    },
+  );
+
+  it('flags an image price that rounds to nothing usable', () => {
+    const model: ModelSpec = { ...soundImage, pricing: { type: 'image', perImage: Number.NaN } };
+    expect(modelSpecProblems(model).join('\n')).toMatch(/costs NaN/);
+  });
+
   it.each([
     ['bad id', { ...sound, id: 'Sample Video' }, /kebab-case/],
     ['wrong-kind tool', { ...sound, tools: ['text-to-image' as const] }, /not of kind video/],

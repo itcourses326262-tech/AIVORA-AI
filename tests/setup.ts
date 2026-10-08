@@ -1,6 +1,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
+import { ISOLATED_ENV_KEYS } from './helpers/isolated-env';
 
 // Isolation-critical values are forced so a developer's shell or .env can never make a test
 // touch a real database, real media or a paid provider.
@@ -14,18 +15,7 @@ const forced: Record<string, string> = {
 };
 Object.assign(process.env, forced);
 
-for (const key of [
-  'OPENAI_API_KEY',
-  'FAL_KEY',
-  'REPLICATE_API_TOKEN',
-  'ANTHROPIC_API_KEY',
-  'ADMIN_EMAILS',
-  'MODERATION_BLOCKLIST',
-  'S3_ENDPOINT',
-  'S3_BUCKET',
-  'S3_ACCESS_KEY_ID',
-  'S3_SECRET_ACCESS_KEY',
-]) {
+for (const key of ISOLATED_ENV_KEYS) {
   delete process.env[key];
 }
 

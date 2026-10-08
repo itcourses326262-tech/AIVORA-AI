@@ -40,6 +40,16 @@ describe('clamp', () => {
   it('rejects an inverted range', () => {
     expect(() => clamp(1, 3, 1)).toThrow(RangeError);
   });
+
+  it('maps NaN to the minimum instead of propagating it', () => {
+    expect(clamp(Number.NaN, 1, 100)).toBe(1);
+    expect(clamp(Number.NaN, -5, 5)).toBe(-5);
+  });
+
+  it('pins infinities to the ends of the range', () => {
+    expect(clamp(Infinity, 1, 100)).toBe(100);
+    expect(clamp(-Infinity, 1, 100)).toBe(1);
+  });
 });
 
 describe('sleep', () => {

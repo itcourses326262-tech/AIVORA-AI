@@ -47,7 +47,7 @@ via env keys.
   storage keys; strictly increasing within a process). Prefixes: `usr ses key gen ast led`.
 - Timestamps: integer **milliseconds since epoch** everywhere (DB, DTOs, JSON).
 - Style: small files, named exports, early returns, no `any` (use `unknown` + narrowing),
-  comments only for non-obvious *why*. Prettier + ESLint clean.
+  comments only for non-obvious *why*. Prettier + ESLint clean (`docs/ARCHITECTURE.md` itself is in `.prettierignore`: it is hand-edited by every agent).
 
 ### Environment (parsed lazily by `getEnv()` in `src/server/env.ts`, zod, documented in `.env.example`)
 
@@ -255,7 +255,7 @@ interface CreateGenerationRequest { tool; modelId; prompt; negativePrompt?; para
 never leaks to console. `createApiClient({ baseUrl = '/api/v1', fetch? })` and the shared `api` expose
 `get<T>(path, {query?, headers?, signal?})`, `page<T>(path, opts)` (list endpoints → `Page<T>`), `post/patch<T>(path, body?, opts)`,
 `delete<T = void>(path, opts)` and `upload<T>(path, file, {fieldName='file', filename?})`. `query` arrays are comma-joined
-(`ids=a,b`); aborts are rethrown untouched; a dropped connection is `ApiError('network_error', status 0)`; a body that is not the
+(`ids=a,b`); aborts are rethrown untouched; a dropped connection (before the headers or while the body streams) is `ApiError('network_error', status 0)`; a `path` that already has a `?query` gets `options.query` appended with `&`; a body that is not the
 expected envelope is `invalid_response`; unknown server codes are replaced by `codeForStatus(status)`. `ApiError.code` is always an
 `AnyErrorCode`, so ``t(`errors.${error.code}`)`` is type-safe.
 
@@ -275,7 +275,7 @@ live in the same file; the `errors` message namespace must contain every `AnyErr
 
 - Locales `'ar' | 'en'`; `dir = ar ? 'rtl' : 'ltr'`. Resolution: cookie `aivore_locale` → `Accept-Language` → **`ar`** fallback.
 - Dictionaries are split per namespace in `messages/<ns>.ts`, each `export default defineMessages({ en: {...}, ar: {...} })`
-  where the type system **forces identical key shapes** for both languages. Nested objects, dotted `t('studio.generate')`,
+  where the type system **forces identical key shapes** for both languages (pass inline object literals: excess keys are only a compile error for fresh literals, and `tests/lib/i18n/messages.test.ts` additionally checks, per namespace, identical key sets and identical `{placeholder}` names at runtime). Nested objects, dotted `t('studio.generate')`,
   `{name}` interpolation, simple plural helper `plural(count, {one, other})` honoring Arabic categories (zero/one/two/few/many/other via `Intl.PluralRules`).
 - Server: `const { locale, dir, t, plural } = await getI18n()`. Client: `useI18n()` (`{ locale, dir, t, plural, setLocale }`) from
   `<I18nProvider locale onLocaleChange?>`; `setLocale` writes the cookie then calls `onLocaleChange` (e.g. `router.refresh`) or reloads.
@@ -296,12 +296,13 @@ live in the same file; the `errors` message namespace must contain every `AnyErr
 ### 6.1 `server/http` (foundation)
 
 ```ts
-route<P = Record<string, never>>(opts: { auth: 'required'|'optional'|'none'; rateLimit?: { name: string; limit: number; windowSec: number; by?: 'ip'|'user' };
-                 admin?: boolean; csrf?: boolean /* default: true for non-GET with cookie auth */; maxBodyBytes?: number /* default 1 MiB */ },
+route<P = Record<string, never>>(opts: { auth: 'required'|'optional'|'none'; rateLimit?: { name: string; limit: number; windowSec: number; by?: 'ip'|'user' } | false /* default: GENERAL_RATE_LIMIT; false opts out */;
+                 admin?: boolean; csrf?: boolean /* default: true for non-GET with cookie auth */; maxBodyBytes?: number | (() => number) /* default 1 MiB; covers EVERY way of reading the body */ },
          handler: (ctx: RouteCtx<P>) => Promise<Response | unknown>): (req: Request, nextCtx?: { params: Promise<P> }) => Promise<Response>
 // Overloaded: with auth:'required' the handler receives AuthedRouteCtx<P> (auth: AuthContext, never null).
 // RouteCtx: { req; params: P; auth: AuthContext | null (non-null when 'required'); ip: string; requestId: string;
 //             body<T>(schema: ZodType<T>): Promise<T>  /* size-limited JSON, ValidationError → 422 with details */;
+//             formData(): Promise<FormData>            /* size-limited multipart/form-data: 415 other types, 400 malformed, 413 too large */;
 //             query<T>(schema: ZodType<T>): T }
 // Handler may return a Response, or a plain value (→ 200 {data}). Helpers: ok(data, init?), created(data), page(rows, nextCursor), noContent().
 // Wrapper: request-id header, catches AppError/ZodError/unknown → envelope, logs 5xx, applies rate limit & origin check via security/*,
@@ -314,8 +315,20 @@ route<P = Record<string, never>>(opts: { auth: 'required'|'optional'|'none'; rat
 // limit applies. `admin: true` without `auth: 'required'` throws when the route module loads. 5xx are logged at error (with the error,
 // never the query string or credentials), everything else at debug. Unknown errors and `internal` AppErrors reach the client as
 // `{ error: { code: 'internal', message: 'Internal server error' } }`.
+// Rate limiting: a route that omits `rateLimit` gets `GENERAL_RATE_LIMIT` (`{ name: 'general', limit: 300, windowSec: 60 }`, by user for
+// `required` routes, by IP otherwise; one shared bucket per user/IP across all such routes), so a forgotten option can never leave an endpoint
+// unthrottled. A route with its own `rateLimit` uses only that one. `rateLimit: false` is the explicit opt-out (used by `/api/health`; consider
+// it for high-frequency routes such as media streaming). Every route therefore calls `getRateLimiter()`; tests that exercise `route()` for real use
+// the in-memory limiter (see §6.2) or mock `@/server/security/rate-limit`.
+// Body size: `maxBodyBytes` (default 1 MiB, or a function evaluated per request for limits that come from `getEnv()`, since modules must not
+// read the environment at import) is enforced on the request itself, not only inside `ctx.body()`. A declared `Content-Length` above it is 413
+// before the handler runs, and `ctx.req` is a request whose body stream fails with `payload_too_large` the moment more than the cap has been
+// read, so `ctx.req.formData()/text()/arrayBuffer()/blob()/body` and chunked uploads without a Content-Length are all capped (Next.js applies no
+// limit of its own). The upload route should set `maxBodyBytes: () => (getEnv().MAX_UPLOAD_MB + 1) * 1024 * 1024` (multipart overhead) and read the
+// file with `ctx.formData()`.
 // Helpers (server/http): respond.ts `ok/created/accepted/page/noContent/json`; errors.ts `validationError/normalizeError/errorResponse`;
-// request.ts `readJsonBody/queryObject/parseOrThrow/pageQuerySchema ({limit 1-100 default 20, cursor})/hasCredentials/requestIdOf`.
+// request.ts `readJsonBody/readFormBody/capRequestBody/queryObject/parseOrThrow/pageQuerySchema ({limit 1-100 default 20, cursor})/hasCredentials/requestIdOf`.
+// `queryObject` returns a prototype-less object and drops `__proto__`.
 // Cursors for keyset pagination: `encodeCursor([createdAt, id])` / `decodeCursor(cursor)` in lib/utils.ts (opaque base64url JSON).
 ```
 
@@ -333,6 +346,7 @@ createApiKey(userId, name): Promise<{ key: string /* shown ONCE: avk_<prefix>_<s
 sessionCookie(token, expiresAt): string; clearSessionCookie(): string      // HttpOnly; SameSite=Lax; Path=/; Secure in production
 password policy: ≥ 8 chars, ≤ 128, reject top-common passwords list (small built-in set); email normalized lowercase+trim
 security/rate-limit.ts: interface RateLimiter { hit(key, limit, windowSec): { allowed; remaining; resetAt } }  sliding/fixed window, in-memory Map with periodic sweep, swappable
+   (the foundation ships a working fixed-window `InMemoryRateLimiter`, `getRateLimiter()` (singleton on globalThis) and `setRateLimiter(limiter | null)`; auth-security keeps the interface and may harden or swap it)
 security/origin.ts: assertSameOrigin(req) for cookie-authenticated mutating requests (Origin/Referer vs APP_URL/host; API-key requests exempt)
 security/ssrf.ts: assertPublicHttpsUrl(url): resolves DNS, blocks private/loopback/link-local/metadata ranges, blocks redirects to them; safeFetch(url, {maxBytes, timeoutMs, allowedContentTypes})
 security/ip.ts: getClientIp(req) (X-Forwarded-For only when TRUST_PROXY=true)
@@ -362,7 +376,7 @@ getBalance(dbOrTx, userId): number                                             /
 grantCredits(dbOrTx, { userId; amount; reason: GrantReason; note?; generationId?; idempotencyKey? }): LedgerEntry     // idempotent on key
 debitCredits(dbOrTx, { userId; amount; generationId; idempotencyKey? }): LedgerEntry                     // throws AppError insufficient_credits (balance CHECK ≥ 0 is the last line of defence)
 refundGeneration(dbOrTx, generationId, opts?: { amount?: number; note?: string; idempotencyKey?: string }): LedgerEntry | null  // idempotent: total refunds ≤ debit; null if nothing left to refund
-listLedger(dbOrTx, userId, { limit?; cursor? }): Page<LedgerEntryDTO>           // newest first; limit 1-100 (default 20)
+listLedger(dbOrTx, userId, { limit?; cursor? }): Page<LedgerEntryDTO>           // newest first; limit 1-100 (default 20; a non-finite limit counts as not given)
 toLedgerEntryDTO(row): LedgerEntryDTO
 ```
 As built: every function is synchronous and runs in `withTx` (`BEGIN IMMEDIATE` on a `Db`, a savepoint when given a `Tx`), so call
@@ -545,7 +559,7 @@ idempotent. A succeeded job never gets refunded (except proportional partial out
 - CSRF: SameSite=Lax cookie + Origin check on mutating cookie-auth requests.
 - No user-supplied URLs fetched server-side except provider output URLs through `safeFetch`; uploads only via multipart.
 - Secrets never reach the client bundle or logs; API keys & session tokens only stored hashed.
-- Rate limits (defaults): login 10/min per IP+email, register 5/h per IP, create generation 30/min per user, uploads 20/min, enhance 20/min, general 300/min.
+- Rate limits (defaults): login 10/min per IP+email, register 5/h per IP, create generation 30/min per user, uploads 20/min, enhance 20/min, general 300/min (`route()` applies this one to every route that declares no `rateLimit`, see §6.1).
 - Input limits everywhere (body size, prompt length, upload size/pixels). Output encoding handled by React; no `dangerouslySetInnerHTML` with user data.
 - Security headers via `next.config.ts` (from `security/headers.ts`); media served with `nosniff`.
 
@@ -585,8 +599,8 @@ All seven items are done; §13 to §15 record what was built.
 - **`typecheck`** runs `next typegen` first (generates `next-env.d.ts` and typed-route helpers, both git-ignored).
 - **`gifenc`** is CommonJS with no types and exposes a different module shape per runtime (bundlers/Vitest: named
   exports; Node's native ESM loader used by `tsx`: only `default`). Import it **only** through `@/lib/gifenc`
-  (ESLint forbids importing `gifenc` anywhere else); types live in `src/types/gifenc.d.ts`. `applyPalette` /
-  `prequantize` need an RGBA array that owns its `ArrayBuffer` (`new Uint8Array(buffer)`, not a pooled `Buffer`).
+  (ESLint forbids importing `gifenc` anywhere else); types live in `src/types/gifenc.d.ts`. `quantize` /
+  `applyPalette` / `prequantize` view `rgba.buffer` as a whole `Uint32Array` and ignore `byteOffset`/`byteLength`; the `@/lib/gifenc` wrappers copy the pixels first whenever the view is not the whole buffer (pooled Node `Buffer`, subarray), so any `Uint8Array` / `Uint8ClampedArray` is safe (`prequantize` still rounds in place).
 - **Vitest**: `globals` are off (import `describe/it/expect` from `vitest`); node environment by default, files named
   `*.dom.test.tsx` run under jsdom with `@testing-library/jest-dom` matchers and automatic cleanup. `tests/setup.ts`
   forces `DATABASE_PATH=:memory:`, `WORKER_MODE=off`, local storage in the OS temp dir and removes provider keys.
@@ -595,7 +609,7 @@ All seven items are done; §13 to §15 record what was built.
   `src/types/**/*.d.ts`; `import type` is enforced; unused names must start with `_`.
 - **Playwright**: the pre-installed Chromium (`/opt/pw-browsers/chromium-*`) is older than the one Playwright pins, so
   the config launches it via `executablePath` (override with `PW_CHROMIUM_PATH`, port with `PW_PORT`, default 3200).
-  The web server is production mode with a scratch DB/media dir under the OS temp dir.
+  The web server is production mode with a scratch DB/media dir under the OS temp dir. Next loads `.env.local`/`.env` even in production mode, so the config blanks every key in `tests/helpers/isolated-env.ts` (provider keys, S3, `ADMIN_EMAILS`, `MODERATION_BLOCKLIST`) and pins `MODERATION_PROVIDER=none`, `PROMPT_ENHANCER=heuristic`, `TRUST_PROXY=false`; `tests/setup.ts` deletes the same keys for Vitest. E2E never reaches a real provider.
 - **Standalone output**: `next build` emits `.next/standalone/server.js`; `better-sqlite3`, `sharp` and `gifenc` are
   traced into it once imported by server code. `next start` still works but prints a warning; Docker should run
   `node server.js` and copy `.next/static` and `public/` next to it.
@@ -627,10 +641,10 @@ All seven items are done; §13 to §15 record what was built.
   `server.js`. `npm run db:migrate` (`scripts/migrate.ts`) runs the same code. A test fails when `schema.ts` and `drizzle/` drift.
 - **Stubs created by the kernel step** (owner `auth-security`, replace fully, keep these exports because `route()` imports them):
   `server/auth` (`SessionUser`, `AuthContext`, `authenticate(req)`, still exported from the `@/server/auth` barrel); `server/security/rate-limit.ts` →
-  `RateLimitResult`, `RateLimiter`, `getRateLimiter()`; `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
+  `RateLimitResult`, `RateLimiter`, `InMemoryRateLimiter`, `getRateLimiter()`, `setRateLimiter()` (a working in-memory baseline, not a throwing stub); `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
   `getClientIp(req): string` (the stub always returns `'unknown'`). `SESSION_COOKIE_NAME` is exported by `server/http/request.ts`. The rest of the stubs are listed in §15.
 - **Test helpers** (`tests/helpers`; the HTTP, factory and fake helpers are described in §15): `db.ts` (`createTestDb({ file? })` → `{ db, path, close }`, fully migrated; `seedUser`; `freshDb()`),
-  `credits.ts` (`ledgerInOrder`, `expectConsistentLedger` — the balance/chain invariants), `model-spec.ts` (`modelSpecProblems(model)`;
+  `credits.ts` (`ledgerInOrder`, `expectConsistentLedger` — the balance/chain invariants), `isolated-env.ts` (`ISOLATED_ENV_KEYS`), `model-spec.ts` (`modelSpecProblems(model)`: besides identity, tools, limits and the default request it prices EVERY request validation would accept — each count of an image model, each duration at each resolution of a video model — and enforces image `maxCount` 1-4;
   provider owners should assert it is `[]` for the models they add), and two child-process workers (`credits-race-worker.ts`,
   `migrate-worker.ts`) run with `node --import tsx --conditions=react-server`. better-sqlite3 is synchronous, so only separate
   processes can race; see `tests/server/credits/race.test.ts` for the pattern. Route tests mock `@/server/auth` and
@@ -644,7 +658,7 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
 
 | Owner | Files |
 | ----- | ----- |
-| `auth-security` | `server/auth/{context,users,sessions,api-keys,cookies,password}.ts`, `server/security/ssrf.ts`, `scripts/admin.ts` (stubs); `server/auth/tokens.ts` (*real*, storage contract); `server/auth/index.ts` (*real* barrel); `server/security/{rate-limit,origin,ip}.ts` (kernel stubs) |
+| `auth-security` | `server/auth/{context,users,sessions,api-keys,cookies,password}.ts`, `server/security/ssrf.ts`, `scripts/admin.ts` (stubs); `server/auth/tokens.ts` (*real*, storage contract); `server/auth/index.ts` (*real* barrel); `server/security/{origin,ip}.ts` (kernel stubs); `server/security/rate-limit.ts` (working in-memory baseline, see §6.2) |
 | `providers-mock` | `server/providers/{types,errors,http,registry}.ts` (*real*), `server/providers/mock/index.ts` (stub, exports `mockProvider`; `isConfigured` is `env.ENABLE_MOCK_PROVIDER`) |
 | `provider-openai`, `provider-fal`, `provider-replicate` | `server/providers/{openai,fal,replicate}/index.ts` (stubs exporting `openaiProvider`, `falProvider`, `replicateProvider`; `isConfigured` is always false) |
 | `storage` | `server/storage/{local,s3}.ts`, `server/uploads/{index,sniff,image}.ts` (stubs); `server/storage/{types,index}.ts` (*real*) |
@@ -671,9 +685,12 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
   `<main id="main-content">`**, the skip link's target. Theme and locale switchers write the cookies and refresh.
 - `app/globals.css` (ui-kit extends it): imports Tailwind and the self-hosted `@fontsource-variable/{inter,cairo}` (families `Inter Variable`, `Cairo Variable`; the build emits woff2 per unicode-range
   subset, including `cairo-arabic`), defines `--background/--foreground/--muted/--ring` for `:root[data-theme=dark|light]` and `data-theme=system` (via `prefers-color-scheme`) and maps them to
-  Tailwind colors (`bg-background`, `text-foreground`, `text-muted`). Arabic pages get Cairo first.
+  Tailwind colors (`bg-background`, `text-foreground`, `text-muted`). Arabic pages get Cairo first: the font stack is the custom property `--font-family-base` (Inter first; Cairo first under `:root[lang='ar']`), `--font-sans` points at it and
+  Tailwind's preflight uses it for `html`, so `body` and the `font-sans` utility inherit the right order (never put a literal font list on `body`: a class there would shadow the `html` rule and mix two fonts in Arabic text).
+  The `dark:` variant is redefined with `@custom-variant dark` to follow `<html data-theme>` (`dark`: always, `system`: under `prefers-color-scheme: dark`, `light`: never) instead of Tailwind's OS-only default; prefer the token classes where possible.
+  `tests/app/globals-css.test.ts` compiles the real stylesheet and asserts both.
 - `app/(marketing)/page.tsx` is the placeholder landing page (name and tagline in the active locale). `src/app/page.tsx` no longer exists; ui-kit replaces the placeholder in place.
-- `app/api/health/route.ts` (real): bare `HealthDTO`, `SELECT 1` against the database, `worker` = `WORKER_MODE`, `version` from `lib/version.ts` (package.json inlined at build time). 503 when the database fails.
+- `app/api/health/route.ts` (real): bare `HealthDTO`, `SELECT 1` against the database, `worker` = `WORKER_MODE`, `version` from `lib/version.ts` (package.json inlined at build time). 503 when the database fails. Opted out of the general rate limit (`rateLimit: false`): probes must never be throttled.
 - `instrumentation.ts` (real): in the Node.js runtime with `WORKER_MODE=inline` it dynamic-imports `server/jobs/start` and calls `startWorker()`; any failure (bad env, stub runner) is logged at error
   and swallowed, so the app always boots. Verified: with the stub runner and `WORKER_MODE=inline` the server logged the `NotImplementedError` and still served `/` and `/api/health`.
 - Verified on the production build: `/api/health` returns `{"status":"ok","db":true,"worker":"off","version":"0.1.0"}`; `/` renders `<html lang="ar" dir="rtl">` for `Accept-Language: ar` or no header,

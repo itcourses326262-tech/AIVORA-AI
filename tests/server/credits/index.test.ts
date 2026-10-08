@@ -608,6 +608,15 @@ describe('listLedger', () => {
     expect(listLedger(db, user.id, { limit: 1.9 }).data).toHaveLength(1);
   });
 
+  it('treats a non-finite limit as not given instead of removing the cap', () => {
+    const user = seedLedger(25);
+    for (const limit of [Number.NaN, Infinity, -Infinity]) {
+      const page = listLedger(db, user.id, { limit });
+      expect(page.data, String(limit)).toHaveLength(20);
+      expect(page.nextCursor, String(limit)).not.toBeNull();
+    }
+  });
+
   it('rejects cursors it did not issue', () => {
     const user = seedLedger(1);
     for (const cursor of ['garbage', '', 'W10', 'WyJ4IiwxXQ']) {

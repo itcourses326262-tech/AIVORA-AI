@@ -63,6 +63,18 @@ describe('success responses', () => {
     expect(calls[0]?.url).toBe('/api/v1/generations?ids=a%2Cb&limit=20&favorite=true&kind=image');
   });
 
+  it('appends query parameters with & when the path already has a query string', async () => {
+    const { api, calls } = clientWith(() => jsonResponse({ data: [] }));
+    await api.get('/models?kind=image', { query: { available: true } });
+    await api.get('/models?kind=image');
+    await api.get('/models?kind=image', { query: { q: undefined } });
+    expect(calls.map((call) => call.url)).toEqual([
+      '/api/v1/models?kind=image&available=true',
+      '/api/v1/models?kind=image',
+      '/api/v1/models?kind=image',
+    ]);
+  });
+
   it('sends JSON bodies with a JSON content type on POST and PATCH', async () => {
     const { api, calls } = clientWith(() => jsonResponse({ data: { ok: true } }));
     await api.post('/generations', { prompt: 'a cat' }, { headers: { 'Idempotency-Key': 'k1' } });
@@ -183,6 +195,50 @@ describe('failures', () => {
     expect(error.code).toBe('network_error');
     expect(error.status).toBe(0);
     expect(error.cause).toBe(cause);
+  });
+
+  it('reports a connection that drops while the body streams as network_error too', async () => {
+    const cause = new TypeError('terminated');
+    const broken = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"data":'));
+      },
+      pull() {
+        throw cause;
+      },
+    });
+    const { api } = clientWith(
+      () => new Response(broken, { status: 200, headers: { 'x-request-id': 'req_123456789' } }),
+    );
+    const error = (await api.get('/x').catch((e: unknown) => e)) as ApiError;
+    expect(isApiError(error)).toBe(true);
+    expect(error.code).toBe('network_error');
+    expect(error.status).toBe(0);
+    expect(error.requestId).toBe('req_123456789');
+    expect(error.cause).toBe(cause);
+  });
+
+  it('also converts a body that fails on an error status', async () => {
+    const broken = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new TypeError('terminated');
+      },
+    });
+    const { api } = clientWith(() => new Response(broken, { status: 500 }));
+    await expect(api.get('/x')).rejects.toMatchObject({ code: 'network_error', status: 0 });
+  });
+
+  it('rethrows an abort that happens while the body streams, untouched', async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+    const stalled = new ReadableStream<Uint8Array>({
+      pull() {
+        controller.abort();
+        throw abortError;
+      },
+    });
+    const { api } = clientWith(() => new Response(stalled, { status: 200 }));
+    await expect(api.get('/x', { signal: controller.signal })).rejects.toBe(abortError);
   });
 
   it('rethrows aborts untouched so callers can tell cancellation from failure', async () => {
