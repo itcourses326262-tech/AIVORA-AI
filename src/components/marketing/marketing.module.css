@@ -1,0 +1,144 @@
+/*
+ * Motion for the landing page: the hero's gradient mesh, the slow drift of the video samples and
+ * the reveal of sections as they scroll into view. Colours come from the theme tokens, so both
+ * themes work; direction comes from `--flow` (+1 LTR, -1 RTL). Every animation is a flourish:
+ * the global reduced-motion rule in globals.css collapses them, and the scroll reveal is only
+ * declared for users who have not asked for less motion.
+ */
+
+.mesh {
+  --mesh-boost: 1;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+
+:global(:root[data-theme='light']) .mesh {
+  --mesh-boost: 0.62;
+}
+
+@media (prefers-color-scheme: light) {
+  :global(:root[data-theme='system']) .mesh {
+    --mesh-boost: 0.62;
+  }
+}
+
+.blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(72px);
+  will-change: transform;
+}
+
+.violet {
+  width: 44rem;
+  height: 44rem;
+  inset-block-start: -20rem;
+  inset-inline-start: calc(50% - 38rem);
+  background: radial-gradient(circle, var(--brand-from), transparent 66%);
+  opacity: calc(0.55 * var(--mesh-boost));
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+
+.cyan {
+  width: 36rem;
+  height: 36rem;
+  inset-block-start: -14rem;
+  inset-inline-end: calc(50% - 36rem);
+  background: radial-gradient(circle, var(--brand-to), transparent 66%);
+  opacity: calc(0.4 * var(--mesh-boost));
+  animation: drift-b 30s ease-in-out infinite alternate;
+}
+
+.indigo {
+  width: 32rem;
+  height: 22rem;
+  inset-block-start: 3rem;
+  inset-inline-start: calc(50% - 16rem);
+  background: radial-gradient(ellipse, var(--primary), transparent 70%);
+  opacity: calc(0.34 * var(--mesh-boost));
+  animation: drift-c 34s ease-in-out infinite alternate;
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  opacity: 0.4;
+  -webkit-mask-image: radial-gradient(ellipse 55% 60% at 50% 0%, #000, transparent 78%);
+  mask-image: radial-gradient(ellipse 55% 60% at 50% 0%, #000, transparent 78%);
+}
+
+@keyframes drift-a {
+  to {
+    transform: translate3d(calc(var(--flow) * 7rem), 3rem, 0) scale(1.14);
+  }
+}
+
+@keyframes drift-b {
+  to {
+    transform: translate3d(calc(var(--flow) * -6rem), 4rem, 0) scale(1.1);
+  }
+}
+
+@keyframes drift-c {
+  to {
+    transform: translate3d(calc(var(--flow) * -3rem), -2rem, 0) scale(1.2);
+  }
+}
+
+/* A video sample is a motion preview: its artwork drifts slowly inside the card. */
+.pan {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: pan 16s ease-in-out infinite alternate;
+}
+
+@keyframes pan {
+  to {
+    transform: translate3d(calc(var(--flow) * -14px), -8px, 0) scale(1.06);
+  }
+}
+
+.twinkle {
+  animation: twinkle 4.5s ease-in-out infinite alternate;
+}
+
+@keyframes twinkle {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Sections fade up as they enter the viewport. Browsers without scroll-driven animations simply
+   show them. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 38%;
+    }
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

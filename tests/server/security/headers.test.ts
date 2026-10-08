@@ -32,6 +32,45 @@ describe('securityHeaders', () => {
     expect(dev.get('Content-Security-Policy')).toContain("'unsafe-eval'");
   });
 
+  it('switches off every powerful browser feature the app does not use', () => {
+    const policy = headerMap(true).get('Permissions-Policy') ?? '';
+    for (const feature of [
+      'camera',
+      'microphone',
+      'geolocation',
+      'payment',
+      'usb',
+      'serial',
+      'bluetooth',
+      'hid',
+      'display-capture',
+      'browsing-topics',
+    ]) {
+      expect(policy).toContain(`${feature}=()`);
+    }
+    // Muted autoplaying previews in the gallery must keep working.
+    expect(policy).not.toContain('autoplay');
+  });
+
+  it('allows no frames, no plugins and no foreign base or form targets', () => {
+    const csp = headerMap(true).get('Content-Security-Policy') ?? '';
+    expect(csp).toContain("frame-src 'none'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("base-uri 'self'");
+    expect(csp).toContain("form-action 'self'");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("connect-src 'self'");
+  });
+
+  it('does not import server-only code, so next.config.ts can load it', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(
+      new URL('../../../src/server/security/headers.ts', import.meta.url),
+      'utf8',
+    );
+    expect(source).not.toMatch(/^\s*import\s/m);
+  });
+
   it('emits each header once', () => {
     const keys = securityHeaders(true).map((header) => header.key);
     expect(new Set(keys).size).toBe(keys.length);

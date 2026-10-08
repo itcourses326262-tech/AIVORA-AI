@@ -97,6 +97,7 @@ export function UserProvider({ initialUser, children }: UserProviderProps) {
   const signedIn = state.user !== null;
   useEffect(() => {
     if (!signedIn) return;
+    lastRefresh.current = Date.now();
     const onVisible = () => {
       if (
         document.visibilityState === 'visible' &&

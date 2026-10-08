@@ -27,12 +27,29 @@ export interface TooltipProps {
   children: ReactElement<HTMLAttributes<HTMLElement> & { ref?: Ref<HTMLElement> }>;
 }
 
-function isFocusVisible(element: HTMLElement): boolean {
-  try {
-    return element.matches(':focus-visible');
-  } catch {
-    return true;
-  }
+// Whether the last thing the user did was press a key. A tooltip opens on focus only then: focus
+// that follows a click, or that a script moved (a dialog picking its first control), stays quiet.
+// Tracked here instead of asking `:focus-visible`, which not every environment answers alike.
+let keyboardModality = true;
+let trackingModality = false;
+
+function trackModality(): void {
+  if (trackingModality) return;
+  trackingModality = true;
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      if (!event.metaKey && !event.altKey && !event.ctrlKey) keyboardModality = true;
+    },
+    true,
+  );
+  document.addEventListener(
+    'pointerdown',
+    () => {
+      keyboardModality = false;
+    },
+    true,
+  );
 }
 
 const HIDE_DELAY_MS = 90;
@@ -58,7 +75,6 @@ export function Tooltip({
   const floatingRef = useRef<HTMLDivElement | null>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pointerFocus = useRef(false);
 
   const show = useCallback(
     (immediately: boolean) => {
@@ -91,6 +107,8 @@ export function Tooltip({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, hide]);
 
+  useEffect(trackModality, []);
+
   useEffect(
     () => () => {
       clearTimeout(showTimer.current);
@@ -113,15 +131,9 @@ export function Tooltip({
           if (event.pointerType !== 'touch') show(false);
         }}
         onPointerLeave={() => hide(false)}
-        onPointerDown={() => {
-          pointerFocus.current = true;
-          hide(true);
-        }}
-        onFocus={(event) => {
-          // A click focuses the control too, but the pointer already had its say; focus moved by a
-          // script (a dialog picking its first control) is not the keyboard user's doing either.
-          if (!pointerFocus.current && isFocusVisible(event.currentTarget)) show(true);
-          pointerFocus.current = false;
+        onPointerDown={() => hide(true)}
+        onFocus={() => {
+          if (keyboardModality) show(true);
         }}
         onBlur={() => hide(true)}
       >

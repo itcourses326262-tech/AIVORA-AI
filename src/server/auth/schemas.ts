@@ -1,0 +1,43 @@
+import 'server-only';
+import { z } from 'zod';
+import { LOCALES } from '@/lib/i18n/locales';
+import { PASSWORD_MAX_LENGTH } from './password';
+
+/*
+ * Request bodies of the auth, account and key endpoints. They only gate type and size (so huge
+ * inputs never reach scrypt or the database); the meaning (email syntax, password policy, name
+ * rules) is checked by the services, which report field errors in the same shape.
+ */
+
+const locale = z.enum(LOCALES);
+
+// UTF-16 units, not characters: the exact 128-character rule lives in `assertPasswordPolicy`.
+const newPassword = z.string().max(PASSWORD_MAX_LENGTH * 2);
+
+export const registerSchema = z.object({
+  email: z.string().max(320),
+  password: newPassword,
+  name: z.string().max(400),
+  locale: locale.optional(),
+});
+
+export const loginSchema = z.object({
+  email: z.string().max(320),
+  password: z.string().min(1).max(1024),
+});
+
+export const updateAccountSchema = z
+  .object({ name: z.string().max(400).optional(), locale: locale.optional() })
+  .refine((value) => value.name !== undefined || value.locale !== undefined, {
+    message: 'Provide a name or a locale to update',
+  });
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword,
+});
+
+export const createApiKeySchema = z.object({ name: z.string().max(400) });
+
+/** Small JSON bodies: nothing in these endpoints needs more. */
+export const AUTH_BODY_LIMIT = 8 * 1024;

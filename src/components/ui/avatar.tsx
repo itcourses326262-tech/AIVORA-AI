@@ -23,6 +23,13 @@ function hash(value: string): number {
   return result;
 }
 
+/** The letter that stands for a word: Arabic names skip the article "ال" (العلي is ع). */
+function initialOf(word: string): string {
+  const letters = Array.from(word);
+  const start = letters[0] === 'ا' && letters[1] === 'ل' && letters.length > 3 ? 2 : 0;
+  return letters[start]?.toUpperCase() ?? '';
+}
+
 /** Up to two initials from the first and last word; works for Arabic and Latin names. */
 export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -31,7 +38,7 @@ export function initialsOf(name: string): string {
   const last = words.length > 1 ? words[words.length - 1] : undefined;
   return [first, last]
     .filter((word): word is string => word !== undefined)
-    .map((word) => Array.from(word)[0]?.toUpperCase() ?? '')
+    .map(initialOf)
     .join('');
 }
 

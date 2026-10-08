@@ -59,6 +59,8 @@ describe('parseEnv defaults', () => {
       MODERATION_PROVIDER: 'none',
       LOG_LEVEL: 'info',
       TRUST_PROXY: false,
+      TRUSTED_PROXY_HOPS: 1,
+      RATE_LIMIT_DISABLED: false,
     });
   });
 

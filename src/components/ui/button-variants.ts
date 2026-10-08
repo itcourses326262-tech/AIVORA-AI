@@ -8,7 +8,7 @@ const BASE =
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    'bg-primary-gradient text-primary-foreground shadow-[var(--highlight),var(--elev-sm)] hover:shadow-glow hover:brightness-110 active:brightness-95',
+    'bg-primary-gradient text-primary-foreground shadow-[var(--highlight),var(--elev-sm)] hover:-translate-y-px hover:shadow-glow active:translate-y-0 active:brightness-95',
   secondary:
     'border border-border bg-surface-raised text-foreground shadow-xs hover:border-border-strong hover:bg-surface-overlay',
   ghost: 'text-foreground hover:bg-foreground/[0.07] active:bg-foreground/10',

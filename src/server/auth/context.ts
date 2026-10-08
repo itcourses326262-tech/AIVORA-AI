@@ -1,7 +1,10 @@
-// OWNER: auth-security — replace this stub
 import 'server-only';
-import { NotImplementedError } from '@/lib/errors';
+import { cookies } from 'next/headers';
 import type { Locale } from '@/lib/i18n/locales';
+import { SESSION_COOKIE_NAME, sessionTokenFromCookieHeader } from './cookies';
+import { isApiKeyShape, resolveApiKey } from './api-keys';
+import { toSessionUser } from './dto';
+import { resolveSession } from './sessions';
 
 export interface SessionUser {
   id: string;
@@ -17,14 +20,58 @@ export interface AuthContext {
   via: 'session' | 'api_key';
   sessionId?: string;
   apiKeyId?: string;
+  /** Session only: epoch ms at which the session now ends (slides forward while it is used). */
+  sessionExpiresAt?: number;
+  /** Session only: true when this request extended the session, so the cookie should be re-sent. */
+  sessionRefreshed?: boolean;
 }
 
-/** Bearer `avk_…` -> API key; otherwise the `aivore_session` cookie. Null when unauthenticated. */
-export async function authenticate(_req: Request): Promise<AuthContext | null> {
-  throw new NotImplementedError('auth.authenticate');
+const BEARER = /^Bearer\s+(\S+)\s*$/i;
+
+/** The key in an `Authorization: Bearer avk_…` header, or null for any other credentials. */
+function apiKeyFromHeader(req: Request): string | null {
+  const match = BEARER.exec(req.headers.get('authorization') ?? '');
+  const value = match?.[1];
+  return value?.startsWith('avk_') ? value : null;
 }
 
-/** The signed-in user of the current request, for server components (reads `cookies()`). */
+/**
+ * Bearer `avk_…` -> API key; otherwise the `aivore_session` cookie. Null when unauthenticated.
+ * A presented API key is authoritative: if it is wrong, revoked or its owner is disabled the
+ * request is anonymous, and a cookie sent alongside is not consulted.
+ */
+export async function authenticate(req: Request): Promise<AuthContext | null> {
+  const key = apiKeyFromHeader(req);
+  if (key !== null) {
+    if (!isApiKeyShape(key)) return null;
+    const resolved = resolveApiKey(key);
+    if (!resolved) return null;
+    return { user: toSessionUser(resolved.user), via: 'api_key', apiKeyId: resolved.keyId };
+  }
+
+  const token = sessionTokenFromCookieHeader(req.headers.get('cookie'));
+  if (token === null) return null;
+  const session = resolveSession(token);
+  if (!session) return null;
+  return {
+    user: toSessionUser(session.user),
+    via: 'session',
+    sessionId: session.sessionId,
+    sessionExpiresAt: session.expiresAt,
+    sessionRefreshed: session.refreshed,
+  };
+}
+
+/**
+ * The signed-in user of the current request, for server components (reads `cookies()`). Null for
+ * visitors, expired sessions and disabled accounts. It extends the session in the database like
+ * `authenticate` does, but a server component cannot set cookies: the browser's cookie is
+ * refreshed by the next `GET /api/v1/auth/me`.
+ */
 export async function getCurrentUser(): Promise<SessionUser | null> {
-  throw new NotImplementedError('auth.getCurrentUser');
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return null;
+  const session = resolveSession(token);
+  return session ? toSessionUser(session.user) : null;
 }

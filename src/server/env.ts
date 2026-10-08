@@ -92,6 +92,10 @@ const envSchema = z
     LOG_LEVEL: choice(LOG_LEVELS, 'info'),
     /** Trust `X-Forwarded-For` for client IPs. Enable only behind a proxy you control. */
     TRUST_PROXY: flag(false),
+    /** How many trusted reverse proxies append to `X-Forwarded-For` (only used with TRUST_PROXY). */
+    TRUSTED_PROXY_HOPS: whole(1, 1, 10),
+    /** Turns every rate limit off. For end-to-end and load tests only; see `warnAboutRiskySettings`. */
+    RATE_LIMIT_DISABLED: flag(false),
   })
   .transform((env) => ({
     ...env,
@@ -189,7 +193,33 @@ export function getEnv(): Env {
     );
   }
   cached = env;
+  warnAboutRiskySettings(env);
   return env;
+}
+
+/**
+ * Settings that are legitimate in some setups but dangerous when left on by accident. Logged once
+ * per process, from the first `getEnv()`, which is also what the worker start-up and the first
+ * request call, so the line is in the log right after boot.
+ */
+function warnAboutRiskySettings(env: Env): void {
+  const log = getLogger();
+  if (env.RATE_LIMIT_DISABLED) {
+    log.warn(
+      'RATE_LIMIT_DISABLED=true: ALL rate limits (login, register, API) are OFF. This is meant for end-to-end and load tests only. Never run a public deployment like this.',
+    );
+  }
+  if (env.ADMIN_EMAILS.length > 0 && env.NODE_ENV !== 'test') {
+    log.warn(
+      'ADMIN_EMAILS is set: whoever registers one of these addresses first becomes an admin, and emails are not verified. Register the admin accounts right after deploying, or create them with `npm run admin -- create-user`.',
+      { admins: env.ADMIN_EMAILS.length },
+    );
+  }
+  if (env.NODE_ENV === 'production' && !env.TRUST_PROXY) {
+    log.warn(
+      'TRUST_PROXY=false: the client address is not available to the app, so every visitor shares one rate-limit bucket. Run behind a reverse proxy you control and set TRUST_PROXY=true.',
+    );
+  }
 }
 
 /** Forgets the memoized env so the next `getEnv()` re-reads `process.env`. For tests only. */

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 197 36" fill="none" role="img" aria-label="AIVORE">
+  <title>AIVORE</title>
+  <style>
+    :root { color: #14142b; }
+    @media (prefers-color-scheme: dark) { :root { color: #f4f4fa; } }
+  </style>
+  <defs><linearGradient id="g" x1="3" y1="7" x2="33" y2="33" gradientUnits="userSpaceOnUse"><stop offset="0.3" stop-color="#7c5cff"/><stop offset="1" stop-color="#12b5d6"/></linearGradient></defs>
+  <path d="M16 7C17 15 21 19 29 20C21 21 17 25 16 33C15 25 11 21 3 20C11 19 15 15 16 7Z" fill="url(#g)"/>
+  <path d="M28 3C28.4 6 30 7.6 33 8C30 8.4 28.4 10 28 13C27.6 10 26 8.4 23 8C26 7.6 27.6 6 28 3Z" fill="url(#g)"/>
+  <g transform="translate(46 4)" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1.7 26.3 12 1.7l10.3 24.6M5.6 17.5h12.8"/>
+    <path d="M31.7 1.7v24.6"/>
+    <path d="M41.1 1.7 51.4 26.3 61.7 1.7"/>
+    <path d="M80.1 1.7h0a10.3 10.3 0 0 1 10.3 10.3v4.1a10.3 10.3 0 0 1-10.3 10.3h0A10.3 10.3 0 0 1 69.8 16.1V12A10.3 10.3 0 0 1 80.1 1.7Z"/>
+    <path d="M101.1 26.3V1.7h9.8a6.9 6.9 0 0 1 0 13.8h-9.8M111.2 15.5l9.4 10.8"/>
+    <path d="M149.7 1.7h-18.6v24.6h18.6M131.1 14h15.3"/>
+  </g>
+</svg>

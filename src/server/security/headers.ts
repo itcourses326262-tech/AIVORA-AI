@@ -8,6 +8,26 @@ export interface HeaderEntry {
 
 const HSTS_MAX_AGE_SEC = 60 * 60 * 24 * 365;
 
+// Everything the app does not use is switched off for the page and every frame in it.
+const PERMISSIONS_POLICY = [
+  'accelerometer',
+  'bluetooth',
+  'browsing-topics',
+  'camera',
+  'display-capture',
+  'geolocation',
+  'gyroscope',
+  'hid',
+  'magnetometer',
+  'microphone',
+  'midi',
+  'payment',
+  'serial',
+  'usb',
+]
+  .map((feature) => `${feature}=()`)
+  .join(', ');
+
 function contentSecurityPolicy(isProd: boolean): string {
   const directives: Array<[string, string[]]> = [
     ['default-src', ["'self'"]],
@@ -23,6 +43,7 @@ function contentSecurityPolicy(isProd: boolean): string {
     ['font-src', ["'self'", 'data:']],
     ['connect-src', isProd ? ["'self'"] : ["'self'", 'ws:', 'wss:']],
     ['worker-src', ["'self'", 'blob:']],
+    ['frame-src', ["'none'"]],
     ['manifest-src', ["'self'"]],
     ['object-src', ["'none'"]],
     ['base-uri', ["'self'"]],
@@ -39,10 +60,7 @@ export function securityHeaders(isProd: boolean): HeaderEntry[] {
     { key: 'X-Content-Type-Options', value: 'nosniff' },
     { key: 'X-Frame-Options', value: 'DENY' },
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-    {
-      key: 'Permissions-Policy',
-      value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()',
-    },
+    { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
     { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
     { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
   ];

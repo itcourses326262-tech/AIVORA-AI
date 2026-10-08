@@ -34,6 +34,7 @@ export function Checkbox({
 }: CheckboxProps) {
   const innerRef = useRef<HTMLInputElement | null>(null);
   const descriptionId = useId();
+  const ownId = useId();
   const control = useFieldControl({
     id,
     required,
@@ -56,7 +57,7 @@ export function Checkbox({
       <input
         {...props}
         ref={mergedRef}
-        id={control.id}
+        id={control.id ?? ownId}
         type="checkbox"
         required={control.required}
         disabled={control.disabled}
@@ -88,7 +89,7 @@ export function Checkbox({
       {box}
       <div className="grid gap-0.5">
         <label
-          htmlFor={control.id}
+          htmlFor={control.id ?? ownId}
           className={cn(
             'cursor-pointer text-sm leading-6 font-medium',
             control.disabled && 'opacity-60',

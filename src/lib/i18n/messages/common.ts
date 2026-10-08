@@ -29,7 +29,7 @@ export default defineMessages({
       explore: 'Explore',
       account: 'Account',
       docs: 'API docs',
-      docsShort: 'API',
+      docsShort: 'Docs',
       login: 'Log in',
       register: 'Sign up',
       logout: 'Log out',
@@ -65,7 +65,6 @@ export default defineMessages({
     },
     user: {
       signedInAs: 'Signed in as',
-      admin: 'Admin',
     },
     states: {
       errorTitle: 'Something went wrong',
@@ -126,7 +125,7 @@ export default defineMessages({
       explore: 'استكشاف',
       account: 'حسابي',
       docs: 'توثيق الواجهة البرمجية',
-      docsShort: 'API',
+      docsShort: 'التوثيق',
       login: 'تسجيل الدخول',
       register: 'إنشاء حساب',
       logout: 'تسجيل الخروج',
@@ -162,7 +161,6 @@ export default defineMessages({
     },
     user: {
       signedInAs: 'مسجّل الدخول باسم',
-      admin: 'مشرف',
     },
     states: {
       errorTitle: 'حدث خطأ ما',

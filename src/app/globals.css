@@ -50,7 +50,7 @@
   /* Brand: `--primary` is a fill that carries white text; `--brand` is violet text/icons that
      reads on every surface; the gradient stops are decoration only (never behind text). */
   --primary: #6d4aff;
-  --primary-hover: #7a5bff;
+  --primary-hover: #6340f5;
   --primary-foreground: #ffffff;
   --primary-gradient-from: #7048ff;
   --primary-gradient-to: #3b6cf0;
@@ -67,10 +67,10 @@
   --success-soft: rgb(74 222 128 / 0.14);
   --warning: #fbbf24;
   --warning-soft: rgb(251 191 36 / 0.14);
-  --danger: #f87171;
+  --danger: #fb7d7d;
   --danger-soft: rgb(248 113 113 / 0.15);
   --danger-solid: #dc2626;
-  --danger-solid-hover: #e23a3a;
+  --danger-solid-hover: #c42222;
   --danger-solid-foreground: #ffffff;
   --info: #60a5fa;
   --info-soft: rgb(96 165 250 / 0.15);

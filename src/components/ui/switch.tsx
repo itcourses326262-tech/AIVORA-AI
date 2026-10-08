@@ -41,6 +41,7 @@ export function Switch({
   });
   const labelId = useId();
   const descriptionId = useId();
+  const ownId = useId();
   const control = useFieldControl({
     id,
     disabled,
@@ -52,7 +53,7 @@ export function Switch({
   const track = (
     <button
       {...props}
-      id={control.id}
+      id={control.id ?? ownId}
       type="button"
       role="switch"
       aria-checked={isOn}
@@ -84,7 +85,7 @@ export function Switch({
       <div className="grid gap-0.5 pt-px">
         <label
           id={labelId}
-          htmlFor={control.id}
+          htmlFor={control.id ?? ownId}
           className={cn('cursor-pointer text-sm font-medium', control.disabled && 'opacity-60')}
         >
           {label}
