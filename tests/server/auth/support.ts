@@ -8,7 +8,7 @@ export const GOOD_PASSWORD = 'correct horse battery staple';
 let cachedHash: string | undefined;
 
 /** One real scrypt hash of {@link GOOD_PASSWORD} per test file; hashing is the slow part. */
-export function usePasswordFixture(): { readonly hash: string } {
+export function passwordFixture(): { readonly hash: string } {
   beforeAll(async () => {
     cachedHash = await hashPassword(GOOD_PASSWORD);
   });
@@ -21,8 +21,13 @@ export function usePasswordFixture(): { readonly hash: string } {
 }
 
 /** Fresh rate-limit counters for every test, and env stubs undone afterwards. */
-export function useCleanSecurityState(): void {
+export function cleanSecurityState(): void {
+  // Real scrypt runs (about 200 ms each, several times that under a loaded CI box) add up.
+  vi.setConfig({ testTimeout: 60_000 });
   beforeEach(() => {
+    // A developer's shell may have RATE_LIMIT_DISABLED=true; these tests are about the limits.
+    vi.stubEnv('RATE_LIMIT_DISABLED', 'false');
+    resetEnvForTests();
     setRateLimiter(null);
   });
   afterEach(() => {

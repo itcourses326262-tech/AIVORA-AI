@@ -2,6 +2,7 @@
 
 import { Clapperboard, Gift, Languages } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { FormError } from '@/components/ui/form-error';
 import { creditsLabel } from '@/components/marketing/credits-label';
@@ -23,6 +24,8 @@ export interface RegisterFormProps {
   bonus: number;
   /** False when the server has closed registration. */
   signupOpen: boolean;
+  /** Wide-screen decoration hanging beside the card (see `AuthAside`). */
+  aside?: ReactNode;
 }
 
 function Benefits({ bonus }: { bonus: number }) {
@@ -43,7 +46,7 @@ function Benefits({ bonus }: { bonus: number }) {
   return (
     <ul
       aria-label={t('auth.register.benefitsLabel')}
-      className="grid gap-2.5 rounded-2xl border border-brand/20 bg-brand-soft p-4 text-sm text-foreground"
+      className="grid gap-2.5 rounded-2xl border border-brand/20 bg-brand-soft p-4 text-sm text-foreground xl:hidden"
     >
       {items.map(({ icon: Icon, text }) => (
         <li key={text} className="flex items-center gap-3">
@@ -55,7 +58,7 @@ function Benefits({ bonus }: { bonus: number }) {
   );
 }
 
-export function RegisterForm({ next, bonus, signupOpen }: RegisterFormProps) {
+export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormProps) {
   const { t, locale } = useI18n();
   const form = useAuthForm({
     mode: 'register',
@@ -85,7 +88,7 @@ export function RegisterForm({ next, bonus, signupOpen }: RegisterFormProps) {
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="relative grid gap-6">
       {heading}
       <Benefits bonus={bonus} />
       <FormError>{form.formError}</FormError>
@@ -134,6 +137,7 @@ export function RegisterForm({ next, bonus, signupOpen }: RegisterFormProps) {
         </Button>
       </form>
       {switchToLogin}
+      {aside}
     </div>
   );
 }

@@ -63,3 +63,15 @@ export function toGenerationDTO(row: GenerationRow, parts: GenerationDTOParts): 
     ...(parts.owner ? { owner: { name: parts.owner.name } } : {}),
   };
 }
+
+/**
+ * The shape shown on public feeds and share pages. On top of {@link toGenerationDTO} it drops what
+ * only the owner may see: the input image (input assets are never shared, so its URLs would 404)
+ * and the favorite flag, which is the owner's private bookmark.
+ */
+export function toPublicGenerationDTO(
+  row: GenerationRow,
+  parts: { outputs: readonly AssetRow[]; owner: { name: string } },
+): GenerationDTO {
+  return { ...toGenerationDTO(row, parts), isFavorite: false };
+}

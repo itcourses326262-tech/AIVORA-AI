@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -11,6 +11,9 @@ import {
 } from '@/server/auth/password';
 import { COMMON_PASSWORDS } from '@/server/auth/common-passwords';
 import { AppError } from '@/lib/errors';
+
+// Every test here runs real scrypt (about 200 ms a hash, much more on a loaded machine).
+vi.setConfig({ testTimeout: 60_000 });
 
 /** A hash in the stored format made with explicit (possibly weak) parameters. */
 function legacyHash(password: string, N: number, r = 8, p = 1): string {

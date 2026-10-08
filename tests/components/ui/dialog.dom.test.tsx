@@ -1,10 +1,13 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { Dialog } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Sheet } from '@/components/ui/sheet';
+import { I18nProvider } from '@/lib/i18n/client';
 import { renderUi } from '../render';
 
 function Harness({
@@ -210,5 +213,154 @@ describe('Sheet', () => {
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
     await user.keyboard('{Escape}');
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+/** A detail sheet with a confirmation dialog opened from it, as in "delete this generation?". */
+function Stacked({ confirmDismissible = true }: { confirmDismissible?: boolean }) {
+  const [sheet, setSheet] = useState(true);
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <>
+      <Sheet open={sheet} onOpenChange={setSheet} title="Details">
+        <button onClick={() => setConfirm(true)}>Delete</button>
+      </Sheet>
+      <Dialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        role="alertdialog"
+        dismissible={confirmDismissible}
+        title="Delete it?"
+        footer={<button onClick={() => setConfirm(false)}>Keep</button>}
+      >
+        <button>Really delete</button>
+      </Dialog>
+      <output data-testid="state">
+        {sheet ? 'sheet' : 'no-sheet'}-{confirm ? 'confirm' : 'no-confirm'}
+      </output>
+    </>
+  );
+}
+
+const state = () => screen.getByTestId('state').textContent;
+
+describe('stacked modals', () => {
+  it('Escape closes only the modal on top, then the one below on the next press', async () => {
+    const user = userEvent.setup();
+    renderUi(<Stacked />);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(state()).toBe('sheet-confirm');
+    await user.keyboard('{Escape}');
+    expect(state()).toBe('sheet-no-confirm');
+    await user.keyboard('{Escape}');
+    expect(state()).toBe('no-sheet-no-confirm');
+  });
+
+  it('a modal that cannot be dismissed on top protects itself and the modal below from Escape', async () => {
+    const user = userEvent.setup();
+    renderUi(<Stacked confirmDismissible={false} />);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await user.keyboard('{Escape}');
+    expect(state()).toBe('sheet-confirm');
+    expect(screen.getByRole('alertdialog', { name: 'Delete it?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep' }));
+    expect(state()).toBe('sheet-no-confirm');
+    await user.keyboard('{Escape}');
+    expect(state()).toBe('no-sheet-no-confirm');
+  });
+
+  it('Tab stays inside the top modal while the one below is inert, and the page stays locked until both close', async () => {
+    const user = userEvent.setup();
+    renderUi(<Stacked />);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    const confirm = screen.getByRole('alertdialog', { name: 'Delete it?' });
+    const details = screen.getByRole('dialog', { name: 'Details', hidden: true });
+    expect(details.closest('[inert]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Really delete' })).toHaveFocus();
+    for (let step = 0; step < 6; step += 1) {
+      await user.tab();
+      expect(confirm).toContainElement(document.activeElement as HTMLElement);
+    }
+    await user.click(screen.getByRole('button', { name: 'Keep' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    expect(details.closest('[inert]')).toBeNull();
+    await user.keyboard('{Escape}');
+    await waitUnmounted();
+    expect(document.documentElement.style.overflow).toBe('');
+  });
+});
+
+describe('a modal that is open from the first render', () => {
+  it('locks scrolling, makes the page inert and takes focus once hydrated', async () => {
+    const tree = (
+      <I18nProvider locale="en">
+        <button>Outside</button>
+        <Dialog open onOpenChange={() => {}} title="Low credits">
+          <button>Top up</button>
+        </Dialog>
+      </I18nProvider>
+    );
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    host.innerHTML = renderToString(tree);
+    expect(host.querySelector('[role="dialog"]')).toBeNull(); // the server snapshot has no portal
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(host, tree);
+    });
+    try {
+      expect(screen.getByRole('dialog', { name: 'Low credits' })).toBeInTheDocument();
+      expect(document.documentElement.style.overflow).toBe('hidden');
+      expect(host).toHaveAttribute('inert');
+      expect(screen.getByRole('button', { name: 'Top up' })).toHaveFocus();
+    } finally {
+      await act(async () => root?.unmount());
+      host.remove();
+    }
+    expect(document.documentElement.style.overflow).toBe('');
+  });
+
+  it('is set up the same way when it is simply rendered open on the client', () => {
+    const { container } = renderUi(
+      <Dialog open onOpenChange={() => {}} title="Low credits">
+        <button>Top up</button>
+      </Dialog>,
+    );
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    expect(container).toHaveAttribute('inert');
+    expect(screen.getByRole('button', { name: 'Top up' })).toHaveFocus();
+  });
+});
+
+describe('focus trap with controls the CSS hides', () => {
+  it('wraps Tab and Shift+Tab around the visible controls when the last or first one is hidden', async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <Dialog
+        open
+        onOpenChange={() => {}}
+        title="Share"
+        showClose={false}
+        footer={
+          <>
+            <button>Copy link</button>
+            <button style={{ display: 'none' }}>Desktop only</button>
+          </>
+        }
+      >
+        <button style={{ visibility: 'hidden' }}>Not shown</button>
+        <button>Done</button>
+      </Dialog>,
+    );
+    const done = screen.getByRole('button', { name: 'Done' });
+    const copy = screen.getByRole('button', { name: 'Copy link' });
+    expect(done).toHaveFocus();
+    await user.tab();
+    expect(copy).toHaveFocus();
+    await user.tab(); // the next tabbable would be the hidden button: wrap instead of leaving
+    expect(done).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(copy).toHaveFocus();
   });
 });

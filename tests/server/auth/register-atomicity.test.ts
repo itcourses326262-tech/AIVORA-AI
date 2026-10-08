@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type * as CreditsModule from '@/server/credits';
+import type * as SessionsModule from '@/server/auth/sessions';
 import { freshDb } from '../../helpers/db';
 import { creditLedger, sessions, users } from '@/server/db/schema';
 
@@ -7,7 +9,7 @@ const failure = vi.hoisted(() => ({ after: undefined as 'grant' | 'session' | un
 // The real credits module, except that it can be told to blow up AFTER it has written, which is
 // the nastiest moment: half of the registration is already in the database.
 vi.mock('@/server/credits', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/server/credits')>();
+  const actual = await importOriginal<typeof CreditsModule>();
   return {
     ...actual,
     grantCredits: ((...args: Parameters<typeof actual.grantCredits>) => {
@@ -19,7 +21,7 @@ vi.mock('@/server/credits', async (importOriginal) => {
 });
 
 vi.mock('@/server/auth/sessions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/server/auth/sessions')>();
+  const actual = await importOriginal<typeof SessionsModule>();
   return {
     ...actual,
     openSession: ((...args: Parameters<typeof actual.openSession>) => {
@@ -31,10 +33,10 @@ vi.mock('@/server/auth/sessions', async (importOriginal) => {
 });
 
 import { registerUser } from '@/server/auth/users';
-import { GOOD_PASSWORD, useCleanSecurityState } from './support';
+import { GOOD_PASSWORD, cleanSecurityState } from './support';
 
 const harness = freshDb();
-useCleanSecurityState();
+cleanSecurityState();
 
 function counts() {
   return {

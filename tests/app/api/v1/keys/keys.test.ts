@@ -9,10 +9,10 @@ import type { ApiKeyDTO, CreateApiKeyResponse, Page } from '@/lib/api-types';
 import { freshDb } from '../../../../helpers/db';
 import { createSession, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { browser, stubEnv, useRouteTestState, type ErrorBody } from '../auth/support';
+import { browser, stubEnv, routeTestState, type ErrorBody } from '../auth/support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 function list(headers: Record<string, string>) {
   return invokeRoute<Page<ApiKeyDTO> & ErrorBody>(listKeys, { url: '/api/v1/keys', headers });
@@ -28,7 +28,7 @@ function create(body: unknown, headers: Record<string, string>) {
 }
 
 function revoke(id: string, headers: Record<string, string>) {
-  return invokeRoute<ErrorBody>(deleteKey, {
+  return invokeRoute<ErrorBody, { id: string }>(deleteKey, {
     url: `/api/v1/keys/${id}`,
     method: 'DELETE',
     params: { id },

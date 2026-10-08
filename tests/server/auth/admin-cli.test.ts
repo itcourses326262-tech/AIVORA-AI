@@ -8,11 +8,11 @@ import type { CliIo } from '@/server/auth/admin/io';
 import { creditLedger, sessions, users } from '@/server/db/schema';
 import { loginUser } from '@/server/auth/users';
 import { resolveSession } from '@/server/auth/sessions';
-import { GOOD_PASSWORD, useCleanSecurityState, usePasswordFixture } from './support';
+import { GOOD_PASSWORD, cleanSecurityState, passwordFixture } from './support';
 
 const harness = freshDb();
-const fixture = usePasswordFixture();
-useCleanSecurityState();
+const fixture = passwordFixture();
+cleanSecurityState();
 
 interface Run {
   code: number;

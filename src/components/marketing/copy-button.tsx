@@ -36,23 +36,26 @@ export function CopyButton({ text, label, copiedLabel, failedLabel, className }:
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-2.5 text-xs font-medium whitespace-nowrap text-[#e6e6f5] transition-colors duration-150 hover:bg-white/[0.12] active:scale-[0.98]',
-        className,
-      )}
-    >
-      {copied ? (
-        <Check aria-hidden="true" className="size-3.5 text-[#86efac]" />
-      ) : (
-        <Copy aria-hidden="true" className="size-3.5" />
-      )}
-      <span>{copied ? copiedLabel : label}</span>
+    <>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className={cn(
+          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-2.5 text-xs font-medium whitespace-nowrap text-[#e6e6f5] transition-colors duration-150 hover:bg-white/[0.12] focus-visible:outline-[#a5b4fc] active:scale-[0.98]',
+          className,
+        )}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="size-3.5 text-[#86efac]" />
+        ) : (
+          <Copy aria-hidden="true" className="size-3.5" />
+        )}
+        <span>{copied ? copiedLabel : label}</span>
+      </button>
+      {/* Outside the button, so its name stays one label; present from the start, so a change is announced. */}
       <span role="status" className="sr-only">
         {copied ? copiedLabel : ''}
       </span>
-    </button>
+    </>
   );
 }

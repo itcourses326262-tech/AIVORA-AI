@@ -71,6 +71,8 @@ MODERATION_BLOCKLIST=                      # extra comma-separated terms (in add
 MODERATION_PROVIDER=none                   # none | openai
 LOG_LEVEL=info                             # debug | info | warn | error | silent
 TRUST_PROXY=false                          # honour X-Forwarded-For for the client IP (only behind a proxy you control)
+TRUSTED_PROXY_HOPS=1                       # with TRUST_PROXY: trusted proxies in front of the app; the client is the X-Forwarded-For entry that many hops from the RIGHT
+RATE_LIMIT_DISABLED=false                  # DANGER: switches every rate limit off, for e2e/load tests only (loud warning at start-up)
 ```
 
 ## 3. Repository layout & ownership
@@ -356,7 +358,7 @@ security/headers.ts: baseline security headers object used by next.config.ts (CS
 Routes: `POST /auth/register|login|logout`, `GET /auth/me`, `GET|PATCH /account`, `POST /account/password`,
 `GET /account/ledger`, `GET|POST /keys`, `DELETE /keys/:id`.
 
-As built (stubs, see §15): everything is imported from `@/server/auth` (a barrel over `context.ts` (`SessionUser`, `AuthContext`,
+As built: the auth and security modules are real, see §16 (the paragraph below describes the stub contract they kept). Everything is imported from `@/server/auth` (a barrel over `context.ts` (`SessionUser`, `AuthContext`,
 `authenticate`, `getCurrentUser`), `users.ts` (`registerUser`, `loginUser`, `changePassword`, types `RegisterInput`, `LoginInput`,
 `SessionMeta {ip?, userAgent?}`, `AuthResult`), `sessions.ts` (`logout`, `logoutAll`), `api-keys.ts` (`createApiKey` → `CreateApiKeyResponse`,
 `listApiKeys`, `revokeApiKey`), `cookies.ts`, `password.ts` (`hashPassword`, `verifyPassword`, `assertPasswordPolicy`, `PASSWORD_MIN_LENGTH`,
@@ -763,3 +765,94 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
   `<Logo variant="full|glyph" label={null}>` is the inline version (gradient from the theme tokens, unique ids per instance).
 - **i18n** added keys: `common.{a11y,nav.docsShort,credits,user,states,form,toast}`, `landing.footer`, `auth.{login,register,fields,hints,errors,password,guard,layout}` (the log in / register pages that use most of them are still to come).
 - Tests: `tests/components/**` (jsdom `*.dom.test.tsx` per primitive and layout piece: keyboard, aria, RTL; node tests for tokens, auth guard, next-path, server layouts). `tests/components/render.tsx` (`renderUi(ui, { locale })`) wraps in the i18n provider and sets `<html dir>`.
+
+## 16. Auth & security (as built, owner `auth-security`)
+
+Code: `server/auth/**`, `server/security/**`, `app/api/v1/{auth,account,keys}/**`, `scripts/admin.ts` (logic in `server/auth/admin/**`).
+Everything below is covered by tests under `tests/server/{auth,security}` and `tests/app/api/v1/{auth,account,keys}`.
+
+**Passwords** (`auth/password.ts`). `node:crypto` scrypt, N=2^15, r=8, p=2, 64-byte key, 16-byte salt, stored as `scrypt$N$r$p$<salt>$<hash>` (base64url). The parameters travel inside the
+hash, so `verifyPassword` uses the ones stored (bounded: N a power of two in 2^14..2^20, so a damaged row cannot exhaust memory), `needsRehash(hash)` flags weaker or unreadable hashes and
+`loginUser` upgrades them after a successful login. Input is NFKC-normalized before hashing (Arabic presentation forms, full-width Latin), compared with `timingSafeEqual`, and anything over
+1024 characters is refused unhashed. scrypt runs on libuv's pool, so at most 3 derivations run at once and at most 64 wait; beyond that `hashPassword`/`verifyPassword` throw 429 `rate_limited`
+("busy"). `verifyAgainstDummy(password)` spends one real verification against a per-process dummy hash: login calls it for unknown emails so "no such account" and "wrong password" cost the same
+(tested by counting scrypt calls). Policy (`assertPasswordPolicy(password, { email? })`, 422 `validation_failed` with one issue at path `password`): 8..128 characters (code points), not in the
+built-in deny list (`common-passwords.ts`, about 150 entries incl. Arabic and product-specific ones), not one repeated character, not the account's own email.
+
+**Sessions** (`sessions.ts`, `cookies.ts`). Token = `generateToken()` (32 random bytes, base64url, 43 chars); the database stores `hashToken(token)` (HMAC-SHA256 keyed with SESSION_SECRET), so a stolen database is
+useless without the secret and the lookup key reveals nothing guessable. Lifetime 30 days, sliding: a session used again after 1 hour gets a fresh 30 days (`lastSeenAt` and `expiresAt` are written at
+most hourly), capped at 180 days after login. At most 20 sessions per user (least recently used dropped); expired rows are deleted when met and, at most hourly, in bulk. Cookie `aivore_session`:
+`HttpOnly; SameSite=Lax; Path=/; Expires/Max-Age`, plus `Secure` whenever `NODE_ENV=production` (production must be served over HTTPS; browsers also accept it on `http://localhost`). `logout(token)`,
+`logoutAll(userId)`, `changePassword(userId, current, next, keepSessionId?)` (revokes every other session, keeps API keys). `authenticate(req)`: a `Bearer avk_…` header is authoritative (a wrong key is
+anonymous even with a good cookie), otherwise the cookie; disabled users and expired sessions give null. **Additive `AuthContext` fields** `sessionExpiresAt?` and `sessionRefreshed?`: a server
+component cannot set cookies, so the browser's cookie expiry is slid forward by `GET /auth/me` (which re-sends the cookie whenever the request extended the session). `getCurrentUser()` extends the
+database row the same way but not the cookie.
+
+**API keys** (`api-keys.ts`). `avk_<8 chars [a-z0-9]>_<43 chars base64url>`; only `hashToken(fullKey)` and the display prefix `avk_xxxxxxxx` are stored; the full key is returned once by `POST /keys`.
+At most 20 active (unrevoked) keys per user (409 `conflict`, counted in the insert's transaction). `revokeApiKey` answers 404 for a key that is missing or someone else's (same body), and is idempotent.
+`lastUsedAt` is written at most every 5 minutes. **Key management (`/keys*`), `POST /account/password` and `POST /auth/logout-all` accept a browser session only** (403 for API keys): a leaked key cannot
+mint more keys or lock the owner out. `GET /account`, `PATCH /account`, `GET /account/ledger` accept both.
+
+**Registration and login** (`users.ts`). `registerUser` validates (email: lower-cased ASCII `z.email()` up to 254; name: 1..80 printable characters, NFC, no control or bidi-override characters;
+password policy), hashes, and then ONE synchronous transaction creates the user, grants `SIGNUP_BONUS_CREDITS` through `credits.grantCredits` (`signup_bonus`, idempotency key `signup_bonus:<userId>`) and opens
+the session; any failure rolls all three back (tested by failing after each write). `SIGNUP_ENABLED=false` → 403 `signup_disabled`. `provisionUser(...)` is the same without a session (used by the CLI).
+- *Duplicate emails.* A taken email is a 409 `conflict` with the message "This account could not be created with these details" (no field named, no details). The status itself reveals existence and
+  that cannot be hidden without email verification, so enumeration is made expensive instead: 5 registrations per hour and address (failed attempts count), the password is hashed BEFORE the duplicate check
+  (a taken email costs as much time as a new one) and the UI shows its own text for `conflict` on this form. Login never reveals anything: a wrong password, an unknown email and a malformed email give the
+  identical 401 `unauthorized` "Invalid email or password" after the same single scrypt run. A disabled account gets 403 `forbidden` only after the right password was given. `loginUser` limits 10 attempts per
+  minute per IP **and email** on top of the route's 10 per minute per IP.
+- *`ADMIN_EMAILS`.* An address in the list becomes `role=admin` **at registration only**, and **emails are not verified**: whoever registers such an address first owns the admin account. Register the admins
+  right after deploying (once the account exists nobody else can take the address) or create them with `npm run admin -- create-user --role admin`. A warning naming this is logged at start-up (from the first
+  `getEnv()`) whenever the variable is set.
+- Changing the password: wrong current password is 422 at path `currentPassword` (not 401: the user is signed in), the new one must pass the policy and differ.
+
+**Routes** (all via `route()`, all `Cache-Control: no-store`; limits are per client address unless noted, see "Client address" for what that means behind no proxy):
+
+| Route | Auth | Limit | Notes |
+| ----- | ---- | ----- | ----- |
+| `POST /auth/register` | none, `csrf: true` | 5 / hour / IP | 201 `UserDTO`; sets `aivore_session` and `aivore_locale` (body locale, else `Accept-Language`, else `ar`); revokes the session it arrived with |
+| `POST /auth/login` | none, `csrf: true` | 10 / min / IP (+10 / min / IP+email inside) | 200 `UserDTO`; new token every time and the presented one is revoked (no session fixation); locale cookie = the account's |
+| `POST /auth/logout` | none, `csrf: true` | 30 / min / IP | 204 + expired cookie; idempotent; reads the cookie itself so stale sessions can always be cleaned up |
+| `POST /auth/logout-all` | session | 30 / min | 204; every device (**added route**) |
+| `GET /auth/me` | optional | 120 / min / user (IP when anonymous) | `{data: UserDTO}` or `{data: null}`, never 401; slides the cookie |
+| `GET /account` · `PATCH /account` | required | 60 · 20 / min / user | PATCH `{name?, locale?}` only (unknown keys ignored), a locale change also sets the locale cookie |
+| `POST /account/password` | session | 5 / min / user | 204 |
+| `GET /account/ledger` | required | 60 / min / user | `?limit&cursor`, `credits.listLedger`, `Page<LedgerEntryDTO>` |
+| `GET /keys` · `POST /keys` · `DELETE /keys/:id` | session | 60 · 10 · 10 / min / user | list is `Page<ApiKeyDTO>` (never the secret); POST 201 `{key, record}`; DELETE 204 |
+
+Auth bodies are capped at 8 KiB. Non-browser clients that sign in with a password must send `Origin: <APP_URL>` (login and register are CSRF-checked because no session exists yet to trigger the check).
+
+**CSRF** (`security/origin.ts`). `route()` calls `assertSameOrigin` for mutating methods when the request is cookie-authenticated (or `csrf: true`). Safe methods are exempt. Otherwise `Origin` must be `APP_URL`'s origin or the
+origin the browser used (`Host`; `X-Forwarded-Host`/`-Proto` only with TRUST_PROXY): a page on another site cannot forge either. Without `Origin` the `Referer` is used; with neither the request is refused unless it carries
+`Authorization: Bearer avk_…`. `Origin: null`, garbage and `Sec-Fetch-Site: cross-site` are always refused.
+
+**Client address** (`security/ip.ts`). Next.js 16 does not expose the socket address to route handlers (it only fills `X-Forwarded-For` when the client sent none, which cannot be told apart from a spoofed one), so with
+`TRUST_PROXY=false` the result is `req.ip` if a platform provides it, otherwise `'unknown'`: **every client shares one rate-limit bucket** (a production start-up warning says so). Behind a reverse proxy set
+`TRUST_PROXY=true`: the client is the `X-Forwarded-For` entry `TRUSTED_PROXY_HOPS` (default 1) positions from the RIGHT (the left part is client-controlled), else `X-Real-IP`; invalid values give `'unknown'`.
+Ports and brackets are stripped, IPv4-mapped IPv6 becomes IPv4, and IPv6 collapses to its /64 (`2001:db8:1:2::/64`) so one subscriber cannot rotate through billions of addresses. The proxy must overwrite or
+append `X-Forwarded-For` (nginx `$proxy_add_x_forwarded_for`, Caddy and Traefik do by default).
+
+**Rate limiter** (`security/rate-limit.ts`). Same interface, fixed windows; additionally the key table is capped (100 000 keys, least recently used evicted, so a flood of unique keys cannot grow memory or reset the counter
+of a client that keeps hitting), expired windows are swept lazily, and a window further away than its own length (clock stepped back) restarts. State is per process. `RATE_LIMIT_DISABLED=true` makes `getRateLimiter()`
+return a pass-through limiter (a limiter installed with `setRateLimiter` still wins); it exists ONLY so e2e/load tests can create many users from one address and logs a loud warning at start-up.
+
+**SSRF** (`security/ssrf.ts`). `assertPublicHttpsUrl(url)` accepts `https:` on port 443 only, no credentials, no `localhost`/`.local`/`.internal`/`.lan` names, resolves the name and requires EVERY answer to be public. Public
+means: IPv4 outside 0/8, 10/8, 100.64/10 (CGNAT, Alibaba metadata), 127/8, 169.254/16 (cloud metadata), 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4 (multicast) and 240/4 (reserved, broadcast); IPv6 only inside
+2000::/3 minus 2001::/23 (Teredo, ORCHID), 2001:db8::/32, 2002::/16 (6to4) and 3fff::/20, so loopback, link-local, unique-local, multicast, NAT64 and IPv4-compatible are out; IPv4-mapped IPv6 is judged by the IPv4 inside. `safeFetch`
+validates every hop, then again **at connect time** through a custom `lookup` on the socket (the checked answer is the connected one, so DNS rebinding between "validate" and "connect" cannot work; IP literals are checked before
+connecting because Node does not call `lookup` for them), follows at most 3 redirects by hand (each re-validated; a redirect to `file:`, `ftp:`, an internal name or a private address is a 400), sends `Accept-Encoding: identity` and
+refuses compressed answers, checks the `Content-Type` allowlist (exact or `image/*`; `*/*` opts into anything, a missing type is refused unless `*/*`) before reading, enforces `maxBytes` on `Content-Length` and while streaming, and
+covers the whole download (redirects and body) with `timeoutMs`. Errors are `AppError`s and never contain the URL (it may carry a signed token): `bad_request` (URL not allowed, too many redirects), `payload_too_large`,
+`unsupported_media_type`, `provider_error` (non-2xx, timeout, network). If the caller's `signal` aborts, its reason is rethrown untouched. Test seams: `SafeFetchOptions.allowHttpForTests` (also accepts `http:`, any port and
+loopback, nothing else) and `setSsrfResolverForTests(fn | null)`; production code must not use either.
+
+**Headers** (`security/headers.ts`, still free of imports because `next.config.ts` loads it). CSP: `default-src 'self'`, scripts `'self' 'unsafe-inline'` (a static header cannot carry a nonce; `'unsafe-eval'` in development only),
+no frames, objects or foreign base/form targets, `frame-ancestors 'none'`; HSTS in production; `Permissions-Policy` switches off camera, microphone, geolocation, payment, USB, serial, Bluetooth, HID, display capture, sensors and
+Topics; `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `COOP: same-origin`.
+
+**Admin CLI** (`npm run admin -- <command>`, `scripts/admin.ts` → `server/auth/admin/cli.ts`). `create-user`, `grant-credits`, `set-role`, `disable` (also signs the user out everywhere), `enable`, `list-users [--json] [--search] [--limit]`,
+`reset-password` (signs out everywhere); `--help` lists the options. Passwords come from `--password-stdin`, `--password` (warns: shell history), `AIVORE_ADMIN_PASSWORD` or a hidden prompt, never printed. Demoting or disabling the last
+active admin needs `--force`. Exit codes: 0 done, 1 failed (unknown user, rejected input, database error), 2 wrong usage.
+
+**Tests.** Helpers named `passwordFixture()`, `cleanSecurityState()` (tests/server/auth/support.ts) and `routeTestState()` (tests/app/api/v1/auth/support.ts) avoid the `use…` prefix that ESLint treats as a React hook. Route tests send
+`createSession(...).headers` (cookie plus matching Origin) for browser calls and `authorization: Bearer avk_…` for API calls. Hashing is the slow part: build users with a shared real hash (`createUser(db, { passwordHash })`) instead of registering.

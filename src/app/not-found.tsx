@@ -4,7 +4,6 @@ import { StatusPage } from '@/components/marketing/status-page';
 import { Button } from '@/components/ui/button';
 import { Directional } from '@/components/ui/icon';
 import { getI18n } from '@/lib/i18n/server';
-import { formatPlainNumber } from '@/lib/utils';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -13,13 +12,14 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /** Any URL that matches no page. Next answers with status 404. */
 export default async function NotFound() {
-  const { t, locale } = await getI18n();
+  const { t } = await getI18n();
   return (
     <StatusPage
       homeLabel={t('common.a11y.home')}
       mark={
-        <span className="text-gradient-brand text-5xl font-semibold tabular-nums sm:text-6xl">
-          {formatPlainNumber(404, locale)}
+        // The HTTP status is a code people recognise by its Latin digits, in every language.
+        <span dir="ltr" className="text-gradient-brand text-5xl font-semibold sm:text-6xl">
+          404
         </span>
       }
       eyebrow={t('landing.status.notFound.eyebrow')}

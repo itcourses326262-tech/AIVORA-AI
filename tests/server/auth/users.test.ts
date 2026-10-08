@@ -16,11 +16,11 @@ import {
   updateAccount,
 } from '@/server/auth/users';
 import { getRateLimiter } from '@/server/security/rate-limit';
-import { GOOD_PASSWORD, stubEnv, useCleanSecurityState, usePasswordFixture } from './support';
+import { GOOD_PASSWORD, stubEnv, cleanSecurityState, passwordFixture } from './support';
 
 const harness = freshDb();
-const fixture = usePasswordFixture();
-useCleanSecurityState();
+const fixture = passwordFixture();
+cleanSecurityState();
 
 async function failure(promise: Promise<unknown>): Promise<AppError> {
   const error = await promise.then(

@@ -23,6 +23,8 @@ export interface ToastOptions {
 
 export interface ToastRecord {
   id: string;
+  /** Changes on every `toast()` call, also when it reuses an id: a replacement restarts the countdown. */
+  serial: number;
   title: string;
   description?: string;
   variant: ToastVariant;
@@ -65,6 +67,7 @@ function show(options: ToastOptions): string {
   const variant = options.variant ?? 'info';
   const record: ToastRecord = {
     id,
+    serial: counter,
     title: options.title,
     description: options.description,
     variant,
@@ -72,8 +75,13 @@ function show(options: ToastOptions): string {
     action: options.action,
     closing: false,
   };
-  const others = records.filter((existing) => existing.id !== id);
-  commit([...others, record].slice(-MAX_VISIBLE));
+  // A reused id takes the old toast's place in the stack instead of jumping to the end.
+  const position = records.findIndex((existing) => existing.id === id);
+  const next =
+    position < 0
+      ? [...records, record]
+      : records.map((existing, index) => (index === position ? record : existing));
+  commit(next.slice(-MAX_VISIBLE));
   return id;
 }
 
@@ -132,12 +140,19 @@ const ICONS: Record<ToastVariant, ReactNode> = {
 function ToastItem({ record }: { record: ToastRecord }) {
   const { t } = useI18n();
   const [paused, setPaused] = useState(false);
-  const remaining = useRef(record.duration);
-  const { id, duration } = record;
+  const { id, duration, serial } = record;
+  const remaining = useRef(duration);
+  const counted = useRef(serial);
 
   // The countdown stops while the pointer or keyboard focus is on the toast and resumes with what
-  // was left, so a message being read or acted on never disappears under the user.
+  // was left, so a message being read or acted on never disappears under the user. A toast raised
+  // again with the same id (a progress toast that turns into its result) is a new message and gets
+  // its whole duration back, even while the old one was paused or had no end.
   useEffect(() => {
+    if (counted.current !== serial) {
+      counted.current = serial;
+      remaining.current = duration;
+    }
     if (paused || !Number.isFinite(duration)) return;
     const startedAt = Date.now();
     const timer = setTimeout(() => dismiss(id), remaining.current);
@@ -145,10 +160,10 @@ function ToastItem({ record }: { record: ToastRecord }) {
       clearTimeout(timer);
       remaining.current -= Date.now() - startedAt;
     };
-  }, [paused, duration, id]);
+  }, [paused, duration, id, serial]);
 
   return (
-    <li
+    <div
       data-variant={record.variant}
       onPointerEnter={() => setPaused(true)}
       onPointerLeave={() => setPaused(false)}
@@ -191,13 +206,15 @@ function ToastItem({ record }: { record: ToastRecord }) {
       >
         <X />
       </IconButton>
-    </li>
+    </div>
   );
 }
 
 /**
  * Renders the toast queue. Mount it once per layout. Two live regions are always present:
- * a polite one for info, success and warning, and an assertive one for errors.
+ * a polite one for info, success and warning, and an assertive one for errors. The regions are
+ * plain `div`s: `role="status"` and `role="alert"` replace a list's role, so a list inside them
+ * would be invalid ARIA.
  */
 export function Toaster() {
   const { t } = useI18n();
@@ -215,7 +232,7 @@ export function Toaster() {
         data-inert-exempt=""
         className="pointer-events-none fixed inset-x-0 bottom-0 z-[80] flex flex-col items-center gap-2 p-4 pb-[calc(1rem+var(--shell-bottom-inset,0px))] sm:items-end"
       >
-        <ol
+        <div
           role="status"
           aria-live="polite"
           aria-label={t('common.a11y.notifications')}
@@ -224,12 +241,12 @@ export function Toaster() {
           {others.map((record) => (
             <ToastItem key={record.id} record={record} />
           ))}
-        </ol>
-        <ol role="alert" aria-live="assertive" className={region}>
+        </div>
+        <div role="alert" aria-live="assertive" className={region}>
           {errors.map((record) => (
             <ToastItem key={record.id} record={record} />
           ))}
-        </ol>
+        </div>
       </div>
     </Portal>
   );

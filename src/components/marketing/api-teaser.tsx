@@ -45,7 +45,7 @@ function Code({ lines, label }: { lines: readonly CodeLine[]; label: string }) {
       role="region"
       aria-label={label}
       tabIndex={0}
-      className="overflow-x-auto px-4 py-4 text-start font-mono text-[13px] leading-6 whitespace-pre"
+      className="overflow-x-auto px-4 py-4 text-start font-mono text-[13px] leading-6 whitespace-pre -outline-offset-2 focus-visible:outline-[#a5b4fc]"
     >
       <code>
         {lines.map((line, index) => (

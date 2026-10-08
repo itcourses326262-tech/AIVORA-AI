@@ -12,12 +12,12 @@ import {
   expectUserDTO,
   setCookies,
   stubEnv,
-  useRouteTestState,
+  routeTestState,
   type ErrorBody,
 } from '../auth/support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 const URL_ = '/api/v1/account';
 
@@ -40,7 +40,9 @@ describe('GET /api/v1/account', () => {
     const session = createSession(harness.db, user.id);
     const { key } = await createApiKey(user.id, 'ci');
 
-    for (const headers of [{ cookie: session.cookie }, { authorization: `Bearer ${key}` }]) {
+    for (const headers of [{ cookie: session.cookie }, { authorization: `Bearer ${key}` }] as Array<
+      Record<string, string>
+    >) {
       const result = await read(headers);
       expect(result.status).toBe(200);
       expectUserDTO(result.json.data);
@@ -53,7 +55,7 @@ describe('GET /api/v1/account', () => {
       {},
       { cookie: 'aivore_session=garbage' },
       { authorization: 'Bearer avk_aaaaaaaa_' + 'a'.repeat(43) },
-    ]) {
+    ] as Array<Record<string, string>>) {
       const result = await read(headers);
       expect(result.status).toBe(401);
       expect(result.json.error.code).toBe('unauthorized');
@@ -165,7 +167,7 @@ describe('PATCH /api/v1/account', () => {
         { cookie: session.cookie, origin: 'null' },
         { cookie: session.cookie, referer: 'https://evil.example/attack.html' },
         { ...session.headers, 'sec-fetch-site': 'cross-site' },
-      ]) {
+      ] as Array<Record<string, string>>) {
         const result = await patch({ name: 'Hacked' }, headers);
         expect(result.status, JSON.stringify(headers)).toBe(403);
         expect(result.json.error.code).toBe('forbidden');

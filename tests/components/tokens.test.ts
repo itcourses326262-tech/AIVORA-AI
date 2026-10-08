@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import tailwind from '@tailwindcss/postcss';
 import postcss, { type AtRule, type Root, type Rule } from 'postcss';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { contrast, luminance, over, parseColor } from './contrast';
 
 const GLOBALS = fileURLToPath(new URL('../../src/app/globals.css', import.meta.url));
 const source = readFileSync(GLOBALS, 'utf8');
@@ -35,47 +36,6 @@ beforeAll(() => {
   light = tokensOf(sourceRoot, ":root[data-theme='light']");
   systemLight = tokensOf(sourceRoot, ":root[data-theme='system']", '(prefers-color-scheme: light)');
 });
-
-// ---- colour maths (WCAG 2.x relative luminance) ----------------------------------------------
-
-type Rgba = [number, number, number, number];
-
-function parseColor(value: string): Rgba {
-  const hex = /^#([0-9a-f]{6})$/i.exec(value);
-  if (hex) {
-    const n = parseInt(hex[1]!, 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1];
-  }
-  const rgb = /^rgb\((\d+) (\d+) (\d+)(?: \/ ([\d.]+))?\)$/.exec(value);
-  if (rgb)
-    return [
-      Number(rgb[1]),
-      Number(rgb[2]),
-      Number(rgb[3]),
-      rgb[4] === undefined ? 1 : Number(rgb[4]),
-    ];
-  throw new Error(`cannot parse colour: ${value}`);
-}
-
-function over(top: Rgba, bottom: Rgba): Rgba {
-  const a = top[3];
-  return [0, 1, 2].map((i) => top[i]! * a + bottom[i]! * (1 - a)).concat(1) as Rgba;
-}
-
-function luminance([r, g, b]: Rgba): number {
-  const [lr, lg, lb] = [r, g, b].map((channel) => {
-    const c = channel / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * lr! + 0.7152 * lg! + 0.0722 * lb!;
-}
-
-function contrast(foreground: Rgba, background: Rgba): number {
-  const [hi, lo] = [luminance(over(foreground, background)), luminance(background)].sort(
-    (a, b) => b - a,
-  );
-  return (hi! + 0.05) / (lo! + 0.05);
-}
 
 const SURFACES = ['--background', '--surface', '--surface-raised', '--surface-overlay'] as const;
 const TEXT_TOKENS = [

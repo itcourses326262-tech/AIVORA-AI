@@ -82,7 +82,7 @@ describe('toast', () => {
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    const item = screen.getByText('Reading').closest('li') as HTMLElement;
+    const item = screen.getByText('Reading').closest('[data-variant]') as HTMLElement;
     fireEvent.pointerEnter(item);
     act(() => {
       vi.advanceTimersByTime(60_000);
@@ -157,6 +157,104 @@ describe('toast', () => {
     });
     expect(screen.queryByText('First')).not.toBeInTheDocument();
     expect(screen.getByText('Second')).toBeInTheDocument();
+  });
+
+  it('a progress toast that turns into its result keeps the result for its whole duration', () => {
+    renderUi(<Toaster />);
+    act(() => {
+      toast({ id: 'gen', title: 'Working', duration: Infinity });
+    });
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText('Working')).toBeInTheDocument();
+    act(() => {
+      toast({ id: 'gen', title: 'Done', variant: 'success', duration: 4000 });
+    });
+    expect(screen.queryByText('Working')).not.toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(800); // 4000ms of countdown, then the exit animation
+    });
+    expect(screen.queryByText('Done')).not.toBeInTheDocument();
+  });
+
+  it('a replacement raised near the end of the old life gets its full duration back', () => {
+    renderUi(<Toaster />);
+    act(() => {
+      toast.info('First', { id: 'job', duration: 5000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(4900);
+    });
+    act(() => {
+      toast.info('Second', { id: 'job', duration: 5000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(4500);
+    });
+    expect(screen.getByText('Second')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(screen.queryByText('Second')).not.toBeInTheDocument();
+  });
+
+  it('a replacement of a toast being read (paused) restarts the countdown when the pointer leaves', () => {
+    renderUi(<Toaster />);
+    act(() => {
+      toast.info('Reading', { id: 'job', duration: 4000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    fireEvent.pointerEnter(screen.getByText('Reading').closest('[data-variant]') as HTMLElement);
+    act(() => {
+      toast.info('Updated', { id: 'job', duration: 4000 });
+    });
+    const item = screen.getByText('Updated').closest('[data-variant]') as HTMLElement;
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText('Updated')).toBeInTheDocument();
+    fireEvent.pointerLeave(item);
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    expect(screen.getByText('Updated')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(screen.queryByText('Updated')).not.toBeInTheDocument();
+  });
+
+  it('a replaced toast keeps its place in the stack', () => {
+    renderUi(<Toaster />);
+    act(() => {
+      toast.info('Upload', { id: 'upload', duration: Infinity });
+      toast.info('Other', { duration: Infinity });
+      toast.success('Uploaded', { id: 'upload', duration: Infinity });
+    });
+    const titles = Array.from(polite().querySelectorAll('[data-variant] p:first-of-type')).map(
+      (title) => title.textContent,
+    );
+    expect(titles).toEqual(['Uploaded', 'Other']);
+  });
+
+  it('keeps the live regions valid ARIA: plain containers, no list roles replaced by a live role', () => {
+    renderUi(<Toaster />);
+    act(() => {
+      toast.info('One');
+      toast.error('Two');
+    });
+    for (const region of [polite(), assertive()]) {
+      expect(region.tagName).toBe('DIV');
+      expect(region.querySelector('[data-variant]')?.parentElement).toBe(region);
+    }
+    expect(document.querySelector('ol, ul, li, [role="listitem"]')).toBeNull();
   });
 
   it('keeps at most four toasts, dropping the oldest', () => {

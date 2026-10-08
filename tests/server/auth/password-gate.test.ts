@@ -1,3 +1,4 @@
+import type * as CryptoModule from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/lib/errors';
 
@@ -12,7 +13,7 @@ const control = vi.hoisted(() => ({
 
 // A scrypt whose completion the test controls, to observe how many run at once.
 vi.mock('node:crypto', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:crypto')>();
+  const actual = await importOriginal<typeof CryptoModule>();
   return {
     ...actual,
     scrypt: (

@@ -17,7 +17,6 @@ vi.mock('next/headers', () => ({
     new Headers(mocks.acceptLanguage ? { 'accept-language': mocks.acceptLanguage } : {}),
 }));
 
-import HomePage from '@/app/(marketing)/page';
 import RootLayout, { generateMetadata, viewport } from '@/app/layout';
 
 async function renderLayout(child = <main id="main-content">content</main>) {
@@ -93,18 +92,5 @@ describe('metadata', () => {
 
   it('declares a theme color per color scheme', () => {
     expect(viewport.themeColor).toHaveLength(2);
-  });
-});
-
-describe('placeholder home page', () => {
-  it('shows the AIVORE name and the tagline in the active locale inside <main id="main-content">', async () => {
-    const arabic = renderToStaticMarkup(await HomePage());
-    expect(arabic).toContain('<main id="main-content"');
-    expect(arabic).toContain('<h1 class="text-5xl font-bold">AIVORE</h1>');
-    expect(arabic).toContain('أنشئ صورًا وفيديوهات مذهلة بالذكاء الاصطناعي');
-
-    mocks.acceptLanguage = 'en';
-    const english = renderToStaticMarkup(await HomePage());
-    expect(english).toContain('Create stunning images and videos with AI');
   });
 });

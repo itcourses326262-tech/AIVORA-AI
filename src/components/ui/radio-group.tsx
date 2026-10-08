@@ -178,7 +178,11 @@ export interface SegmentedControlProps extends GroupProps {
   fullWidth?: boolean;
 }
 
-/** A compact single-choice switcher (`Image | Video`, `1 | 2 | 3 | 4`) built on radio semantics. */
+/**
+ * A compact single-choice switcher (`Image | Video`, `1 | 2 | 3 | 4`) built on radio semantics.
+ * The selected segment has a 3:1 edge (`ring-field`) as well as a lighter fill: in the light theme
+ * every surface is white, so the fill alone would not tell the selection apart.
+ */
 export function SegmentedControl({
   options,
   value,
@@ -230,7 +234,7 @@ export function SegmentedControl({
               if (!isDisabled) group.setCurrent(option.value);
             }}
             className={cn(
-              'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap text-muted transition-[background-color,color,box-shadow] duration-150 hover:text-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-[state=checked]:bg-surface-overlay data-[state=checked]:text-foreground data-[state=checked]:shadow-sm [&_svg]:size-4',
+              'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap text-muted transition-[background-color,color,box-shadow] duration-150 hover:text-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-[state=checked]:bg-surface-overlay data-[state=checked]:text-foreground data-[state=checked]:shadow-sm data-[state=checked]:ring-1 data-[state=checked]:ring-field [&_svg]:size-4',
               size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3.5 text-sm',
               fullWidth && 'flex-1',
             )}

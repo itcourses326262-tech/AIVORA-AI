@@ -1,5 +1,13 @@
-import { Clapperboard, Image as ImageIcon, Play } from 'lucide-react';
-import type { Translator } from '@/lib/i18n';
+import {
+  Clapperboard,
+  Image as ImageIcon,
+  ImagePlay,
+  ImagePlus,
+  Play,
+  type LucideIcon,
+} from 'lucide-react';
+import type { Tool } from '@/lib/catalog/types';
+import type { MessageKey, Translator } from '@/lib/i18n';
 import { cn, formatSeconds } from '@/lib/utils';
 import { Section, SectionHeader } from './section';
 import { ShowcaseArt } from './showcase-art';
@@ -13,10 +21,24 @@ const SIZE_CLASSES: Record<ShowcaseSize, string> = {
   square: '',
 };
 
+const TOOL_ICON: Record<Tool, LucideIcon> = {
+  'text-to-image': ImageIcon,
+  'image-to-image': ImagePlus,
+  'text-to-video': Clapperboard,
+  'image-to-video': ImagePlay,
+};
+
+const TOOL_NAME: Record<Tool, MessageKey> = {
+  'text-to-image': 'common.tools.textToImage.name',
+  'image-to-image': 'common.tools.imageToImage.name',
+  'text-to-video': 'common.tools.textToVideo.name',
+  'image-to-video': 'common.tools.imageToVideo.name',
+};
+
 function SampleCard({ item, i18n }: { item: ShowcaseItem; i18n: Translator }) {
   const { t, locale } = i18n;
   const isVideo = item.kind === 'video';
-  const KindIcon = isVideo ? Clapperboard : ImageIcon;
+  const ToolIcon = TOOL_ICON[item.tool];
   const featured = item.size === 'hero';
   return (
     <figure
@@ -40,11 +62,11 @@ function SampleCard({ item, i18n }: { item: ShowcaseItem; i18n: Translator }) {
 
       <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
         <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 py-1 ps-2 pe-2.5 text-xs font-medium text-white backdrop-blur-md">
-          <KindIcon aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="sr-only">
-            {isVideo ? t('landing.showcase.kindVideo') : t('landing.showcase.kindImage')}:{' '}
+          <ToolIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="sr-only">{t(TOOL_NAME[item.tool])}: </span>
+          <span dir="ltr" className="truncate">
+            {item.model}
           </span>
-          <span className="truncate">{item.model}</span>
         </span>
         {isVideo && item.seconds !== undefined ? (
           <span className="shrink-0 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-xs font-medium whitespace-nowrap text-white backdrop-blur-md">

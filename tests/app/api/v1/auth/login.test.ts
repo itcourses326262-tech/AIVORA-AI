@@ -14,13 +14,13 @@ import {
   expectUserDTO,
   setCookies,
   stubEnv,
-  useRouteTestState,
+  routeTestState,
   type ErrorBody,
 } from './support';
 import { beforeAll } from 'vitest';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 let passwordHash = '';
 beforeAll(async () => {
@@ -151,7 +151,9 @@ describe('POST /api/v1/auth/login', () => {
 
   it('requires a same-origin browser request', async () => {
     member();
-    for (const headers of [{}, { origin: 'https://evil.example' }]) {
+    for (const headers of [{}, { origin: 'https://evil.example' }] as Array<
+      Record<string, string>
+    >) {
       const result = await post({ email: 'member@example.com', password: PASSWORD }, headers);
       expect(result.status).toBe(403);
       expect(result.headers.getSetCookie()).toEqual([]);

@@ -6,6 +6,7 @@ import {
   useId,
   useLayoutEffect,
   useRef,
+  useState,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -19,6 +20,13 @@ import { Portal } from './portal';
 import { usePresence } from './use-presence';
 
 const EXIT_MS = 160;
+
+// The open modals, oldest first. Escape belongs to the one on top: a delete confirmation opened
+// from a detail dialog must not close the dialog underneath. (Tab never needs the same rule: the
+// modals below are `inert`, so focus and key events only ever reach the top one, and the scroll
+// lock is reference counted.)
+const openModals: string[] = [];
+const isTopModal = (token: string) => openModals[openModals.length - 1] === token;
 
 export interface ModalCommonProps {
   open: boolean;
@@ -81,20 +89,30 @@ export function Modal({
 }: ModalCommonProps & { kind: ModalKind }) {
   const { t } = useI18n();
   const { mounted, state } = usePresence(open, EXIT_MS);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
+  // State, not refs: the portal renders nothing during hydration, so a modal that is open from the
+  // very first render only gets its elements one render later, and the setup below must follow them.
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const [panel, setPanel] = useState<HTMLDivElement | null>(null);
   const pressedBackdrop = useRef(false);
   const returnFocusTo = useRef<HTMLElement | null>(null);
+  const token = useId();
   const titleId = useId();
   const descriptionId = useId();
 
   useLayoutEffect(() => {
     if (!open) return;
-    const root = rootRef.current;
-    const panel = panelRef.current;
-    if (!root || !panel) return;
-    returnFocusTo.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openModals.push(token);
+    return () => {
+      openModals.splice(openModals.lastIndexOf(token), 1);
+    };
+  }, [open, token]);
+
+  useLayoutEffect(() => {
+    if (!open || !root || !panel) return;
+    // What had focus before the modal took it (not the body, not something inside the modal).
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !panel.contains(active))
+      returnFocusTo.current = active;
     const unlockScroll = lockPageScroll();
     const restoreBackground = inertBackground(root);
 
@@ -111,7 +129,7 @@ export function Modal({
       unlockScroll();
       restoreBackground();
     };
-  }, [open, mounted, initialFocusRef]);
+  }, [open, root, panel, initialFocusRef]);
 
   // Focus goes back in a passive effect on purpose: React re-focuses the element that was focused
   // before a commit once the commit's DOM changes are done, which would undo a focus() made by a
@@ -128,12 +146,14 @@ export function Modal({
   useEffect(() => {
     if (!open || !dismissible) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      // A menu or popover inside the modal handles its own Escape first.
-      if (event.key === 'Escape' && !event.defaultPrevented) onOpenChange(false);
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      // A menu or popover inside the modal handles its own Escape first (it prevents the default);
+      // a modal below the top one never reacts.
+      if (isTopModal(token)) onOpenChange(false);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, dismissible, onOpenChange]);
+  }, [open, dismissible, onOpenChange, token]);
 
   if (!mounted) return null;
 
@@ -142,7 +162,7 @@ export function Modal({
   return (
     <Portal>
       <div
-        ref={rootRef}
+        ref={setRoot}
         data-state={state}
         className={cn(
           'fixed inset-0 z-[60]',
@@ -164,7 +184,7 @@ export function Modal({
           className="pointer-events-none fixed inset-0 bg-scrim backdrop-blur-[3px] data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in"
         />
         <div
-          ref={panelRef}
+          ref={setPanel}
           role={kind === 'alertdialog' ? 'alertdialog' : 'dialog'}
           aria-modal="true"
           aria-labelledby={titleId}
@@ -172,7 +192,7 @@ export function Modal({
           tabIndex={-1}
           data-state={state}
           onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-            if (event.key === 'Tab' && panelRef.current) trapTab(event, panelRef.current);
+            if (event.key === 'Tab') trapTab(event, event.currentTarget);
           }}
           className={cn(
             'flex flex-col outline-none',

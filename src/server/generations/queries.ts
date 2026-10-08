@@ -1,37 +1,118 @@
-// OWNER: engine — replace this stub
 import 'server-only';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { GenerationDTO } from '@/lib/api-types';
-import { NotImplementedError } from '@/lib/errors';
 import type { DbOrTx } from '@/server/db';
-import type { GenerationRow } from '@/server/db/schema';
+import { assets, generations, users, type AssetRow, type GenerationRow } from '@/server/db/schema';
+import { toGenerationDTO, toPublicGenerationDTO } from './dto';
 
 /** A generation by id, whoever owns it. Undefined when it does not exist. */
-export function findGenerationRow(_db: DbOrTx, _id: string): GenerationRow | undefined {
-  throw new NotImplementedError('generations.findGenerationRow');
+export function findGenerationRow(db: DbOrTx, id: string): GenerationRow | undefined {
+  return db.select().from(generations).where(eq(generations.id, id)).get();
 }
 
 /** A generation only if `userId` owns it, so callers answer `not_found` for other people's ids. */
 export function findOwnedGenerationRow(
-  _db: DbOrTx,
-  _userId: string,
-  _id: string,
+  db: DbOrTx,
+  userId: string,
+  id: string,
 ): GenerationRow | undefined {
-  throw new NotImplementedError('generations.findOwnedGenerationRow');
+  return db
+    .select()
+    .from(generations)
+    .where(and(eq(generations.id, id), eq(generations.userId, userId)))
+    .get();
 }
 
 /** Number of the user's generations that are queued or processing (for `MAX_ACTIVE_PER_USER`). */
-export function countActiveGenerations(_db: DbOrTx, _userId: string): number {
-  throw new NotImplementedError('generations.countActiveGenerations');
+export function countActiveGenerations(db: DbOrTx, userId: string): number {
+  const row = db
+    .select({ total: sql<number>`count(*)` })
+    .from(generations)
+    .where(
+      and(eq(generations.userId, userId), inArray(generations.status, ['queued', 'processing'])),
+    )
+    .get();
+  return row?.total ?? 0;
+}
+
+function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
+  for (const item of items) {
+    const list = groups.get(key(item));
+    if (list) list.push(item);
+    else groups.set(key(item), [item]);
+  }
+  return groups;
 }
 
 /**
- * Turns rows into DTOs with two batched asset queries (outputs and inputs), not one per row.
- * `withOwner` adds `owner.name` for public feeds.
+ * Turns rows into DTOs with batched queries (outputs, inputs, owners), not one per row.
+ * `withOwner` produces the public view: it adds `owner.name` and leaves out what only the owner
+ * may see (the input image and the favorite flag), so it is the only option feeds should use.
  */
 export function hydrateGenerations(
-  _db: DbOrTx,
-  _rows: readonly GenerationRow[],
-  _options?: { withOwner?: boolean },
+  db: DbOrTx,
+  rows: readonly GenerationRow[],
+  options: { withOwner?: boolean } = {},
 ): GenerationDTO[] {
-  throw new NotImplementedError('generations.hydrateGenerations');
+  if (rows.length === 0) return [];
+
+  const outputs = groupBy(
+    db
+      .select()
+      .from(assets)
+      .where(
+        and(
+          inArray(
+            assets.generationId,
+            rows.map((row) => row.id),
+          ),
+          eq(assets.role, 'output'),
+        ),
+      )
+      .orderBy(asc(assets.index), asc(assets.createdAt))
+      .all(),
+    (asset) => asset.generationId,
+  );
+
+  if (options.withOwner) {
+    const ownerIds = [...new Set(rows.map((row) => row.userId))];
+    const names = new Map(
+      db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(inArray(users.id, ownerIds))
+        .all()
+        .map((owner) => [owner.id, owner.name]),
+    );
+    return rows.map((row) =>
+      toPublicGenerationDTO(row, {
+        outputs: outputs.get(row.id) ?? [],
+        owner: { name: names.get(row.userId) ?? '' },
+      }),
+    );
+  }
+
+  const inputIds = [
+    ...new Set(rows.flatMap((row) => (row.inputAssetId ? [row.inputAssetId] : []))),
+  ];
+  const inputs = new Map<string, AssetRow>(
+    inputIds.length === 0
+      ? []
+      : db
+          .select()
+          .from(assets)
+          .where(and(inArray(assets.id, inputIds), eq(assets.role, 'input')))
+          .all()
+          .map((asset) => [asset.id, asset]),
+  );
+  return rows.map((row) => {
+    // The upload belongs to the generation's owner by construction; checking again keeps a
+    // hand-edited row from ever surfacing someone else's file.
+    const input = row.inputAssetId ? inputs.get(row.inputAssetId) : undefined;
+    return toGenerationDTO(row, {
+      outputs: outputs.get(row.id) ?? [],
+      ...(input && input.userId === row.userId ? { input } : {}),
+    });
+  });
 }

@@ -140,8 +140,9 @@ function MobileMenu({
 
 /**
  * The public site header: logo, navigation, language and theme switchers and either the sign-in
- * buttons or the account menu. Sticky; it turns frosted once the page scrolls. On a phone the
- * navigation and the switchers move into a sheet.
+ * buttons or the account menu. Sticky; it turns frosted once the page scrolls. Below `lg` (phones
+ * and tablets) the navigation and the switchers move into a sheet: with the longer Arabic labels
+ * the full row does not fit a portrait tablet.
  */
 export function SiteHeader() {
   const { t } = useI18n();
@@ -158,14 +159,14 @@ export function SiteHeader() {
         <Link
           href="/"
           aria-label={t('common.a11y.home')}
-          className="-m-1 rounded-lg p-1 text-foreground"
+          className="-m-1 shrink-0 rounded-lg p-1 text-foreground"
         >
           <Logo label={null} className="h-6 sm:h-7" />
         </Link>
 
         <nav
           aria-label={t('common.a11y.mainNavigation')}
-          className="ms-6 hidden items-center gap-1 md:flex"
+          className="ms-6 hidden items-center gap-1 lg:flex"
         >
           {SITE_NAV.map((item) => {
             const active = isActivePath(pathname, item.href);
@@ -175,7 +176,7 @@ export function SiteHeader() {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium transition-colors duration-150',
+                  'inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150',
                   active
                     ? 'text-foreground'
                     : 'text-muted hover:bg-foreground/[0.06] hover:text-foreground',
@@ -187,8 +188,8 @@ export function SiteHeader() {
           })}
         </nav>
 
-        <div className="ms-auto flex items-center gap-1.5">
-          <div className="hidden items-center gap-1 md:flex">
+        <div className="ms-auto flex shrink-0 items-center gap-1.5">
+          <div className="hidden items-center gap-1 lg:flex">
             <LocaleSwitcher />
             <ThemeToggle />
           </div>
@@ -203,7 +204,7 @@ export function SiteHeader() {
                 href="/login"
                 className={cn(
                   buttonVariants({ variant: 'ghost', size: 'md' }),
-                  'hidden md:inline-flex',
+                  'hidden lg:inline-flex',
                 )}
               >
                 {t('common.nav.login')}
@@ -211,7 +212,7 @@ export function SiteHeader() {
               <Button
                 href="/register"
                 size="sm"
-                className="md:h-10 md:rounded-lg md:px-4"
+                className="lg:h-10 lg:rounded-lg lg:px-4"
                 endIcon={
                   <Directional className="hidden sm:inline-flex">
                     <ArrowRight className="size-4" />
@@ -224,7 +225,7 @@ export function SiteHeader() {
           )}
           <IconButton
             label={t('common.a11y.openMenu')}
-            className="md:hidden"
+            className="lg:hidden"
             tooltip={false}
             aria-haspopup="dialog"
             aria-expanded={menuOpen}

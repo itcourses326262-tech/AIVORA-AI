@@ -8,8 +8,13 @@ export const APP_URL = 'http://localhost:3000';
 export const PASSWORD = 'correct horse battery staple';
 
 /** Every route test starts with empty rate-limit counters and restores any env it stubbed. */
-export function useRouteTestState(): void {
+export function routeTestState(): void {
+  // Real scrypt runs (about 200 ms each, several times that under a loaded CI box) add up.
+  vi.setConfig({ testTimeout: 60_000 });
   beforeEach(() => {
+    // A developer's shell may have RATE_LIMIT_DISABLED=true; these tests are about the limits.
+    vi.stubEnv('RATE_LIMIT_DISABLED', 'false');
+    resetEnvForTests();
     setRateLimiter(null);
   });
   afterEach(() => {

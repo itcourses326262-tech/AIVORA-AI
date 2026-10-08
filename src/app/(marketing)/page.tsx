@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, ResolvingMetadata } from 'next';
 import { ApiTeaser } from '@/components/marketing/api-teaser';
 import { CreditsExplainer } from '@/components/marketing/credits-explainer';
 import { pickCreditSamples } from '@/components/marketing/credit-samples';
@@ -19,8 +19,11 @@ import { getModels } from '@/lib/catalog';
 import { getI18n } from '@/lib/i18n/server';
 import { getEnv } from '@/server/env';
 
-export async function generateMetadata(): Promise<Metadata> {
-  return landingMetadata(await getI18n());
+export async function generateMetadata(
+  _props: unknown,
+  parent: ResolvingMetadata,
+): Promise<Metadata> {
+  return landingMetadata(await getI18n(), (await parent).openGraph?.images);
 }
 
 /**

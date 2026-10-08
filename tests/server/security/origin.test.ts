@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/lib/errors';
 import { resetEnvForTests } from '@/server/env';
 import { assertSameOrigin } from '@/server/security/origin';
+
+beforeEach(() => {
+  vi.stubEnv('TRUST_PROXY', 'false'); // whatever the developer's shell says
+  resetEnvForTests();
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -25,6 +25,11 @@ export default defineMessages({
       },
       closed: 'Sign-ups are closed for now.',
     },
+    panel: {
+      title: 'Everything you imagine, ready in seconds',
+      enhancer: 'A prompt enhancer that speaks Arabic',
+      sampleLabel: 'Sample artwork',
+    },
     fields: {
       name: 'Name',
       email: 'Email',
@@ -91,6 +96,11 @@ export default defineMessages({
         studio: 'صور وفيديوهات في استوديو واحد',
       },
       closed: 'التسجيل مغلق في الوقت الحالي.',
+    },
+    panel: {
+      title: 'كل ما تتخيله، جاهز خلال ثوانٍ',
+      enhancer: 'محسّن وصف يفهم العربية',
+      sampleLabel: 'عمل فني توضيحي',
     },
     fields: {
       name: 'الاسم',

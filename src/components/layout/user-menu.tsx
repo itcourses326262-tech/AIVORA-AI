@@ -67,18 +67,22 @@ export function UserMenu({ navigation = true, preferences = true }: UserMenuProp
       trigger={
         <button
           type="button"
-          aria-label={t('common.a11y.userMenu')}
           className="inline-flex size-10 items-center justify-center rounded-full transition-transform duration-150 hover:scale-105 active:scale-95"
         >
-          <Avatar name={user.name} />
+          {/* Named by its content, not by an aria-label: the initials in the avatar are a picture,
+              and a label that does not contain the visible text fails "label in name". */}
+          <span className="sr-only">{t('common.a11y.userMenu')}</span>
+          <Avatar name={user.name} aria-hidden="true" />
         </button>
       }
     >
       <DropdownMenuLabel className="grid gap-0.5 px-2.5 py-2">
         <span className="text-xs text-subtle">{t('common.user.signedInAs')}</span>
         <span className="truncate text-sm font-semibold text-foreground">{user.name}</span>
-        <span dir="ltr" className="truncate text-start text-xs font-normal text-muted">
-          {user.email}
+        <span className="truncate text-xs font-normal text-muted">
+          {/* An isolated LTR run inside the block's own direction: the address reads left to right
+              but lines up with the name and the label above it (start edge, right in Arabic). */}
+          <bdi dir="ltr">{user.email}</bdi>
         </span>
       </DropdownMenuLabel>
       {navigation ? (

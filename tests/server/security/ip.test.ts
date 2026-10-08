@@ -8,6 +8,7 @@ afterEach(() => {
 });
 
 function withEnv(values: Record<string, string>): void {
+  vi.stubEnv('TRUSTED_PROXY_HOPS', '1');
   for (const [key, value] of Object.entries(values)) vi.stubEnv(key, value);
   resetEnvForTests();
 }

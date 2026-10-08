@@ -167,9 +167,11 @@ export function DropdownMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => {
+        onClick={(event) => {
           if (open) close({ returnFocus: false });
-          else openFrom('menu');
+          // Enter and Space click with `detail` 0: the keyboard user lands on the first item (a
+          // visible focus ring), a pointer user on the menu itself so no item looks selected.
+          else openFrom(event.detail === 0 ? 'first' : 'menu');
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
@@ -208,13 +210,23 @@ export function DropdownMenu({
   );
 }
 
+/** What a link item keeps of the extra props: its identity and its accessibility and test hooks. */
+function linkAttributes(props: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(props).filter(
+      ([name]) =>
+        name === 'id' || name === 'title' || name.startsWith('aria-') || name.startsWith('data-'),
+    ),
+  );
+}
+
 const ITEM_BASE =
   'relative flex w-full cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-start text-sm text-foreground outline-none transition-colors duration-100 focus:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:cursor-not-allowed aria-disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted';
 
 export interface DropdownMenuItemProps extends Omit<ComponentProps<'button'>, 'onSelect' | 'role'> {
   /** Runs on click or Enter/Space. Call `event.preventDefault()` to keep the menu open. */
   onSelect?: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** Renders a link instead of a button. */
+  /** Renders a link instead of a button; of the other props the link keeps `id`, `title`, `aria-*` and `data-*`. */
   href?: string;
   destructive?: boolean;
   /** Shortcut hint at the inline end. */
@@ -255,6 +267,7 @@ export function DropdownMenuItem({
   if (href !== undefined) {
     return (
       <Link
+        {...linkAttributes(props)}
         href={href}
         role="menuitem"
         tabIndex={-1}

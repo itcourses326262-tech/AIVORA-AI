@@ -7,10 +7,10 @@ import { createApiKey } from '@/server/auth/api-keys';
 import { freshDb } from '../../../../helpers/db';
 import { createSession, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { browser, cookieNamed, useRouteTestState, type ErrorBody } from './support';
+import { browser, cookieNamed, routeTestState, type ErrorBody } from './support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 function whoami(cookie: string) {
   return invokeRoute<{ data: { id: string } | null }>(me, {
@@ -64,7 +64,7 @@ describe('POST /api/v1/auth/logout', () => {
     for (const headers of [
       { cookie: session.cookie },
       { cookie: session.cookie, origin: 'https://evil.example' },
-    ]) {
+    ] as Array<Record<string, string>>) {
       const result = await invokeRoute<ErrorBody>(logout, {
         url: '/api/v1/auth/logout',
         method: 'POST',
@@ -76,11 +76,11 @@ describe('POST /api/v1/auth/logout', () => {
   });
 
   it('exports POST only: a GET (link, image, prefetch) can never sign anybody out', async () => {
-    const module = await import('@/app/api/v1/auth/logout/route');
-    expect(Object.keys(module).filter((key) => /^(GET|HEAD|PUT|PATCH|DELETE)$/.test(key))).toEqual(
-      [],
-    );
-    expect(typeof module.POST).toBe('function');
+    const routeModule = await import('@/app/api/v1/auth/logout/route');
+    expect(
+      Object.keys(routeModule).filter((key) => /^(GET|HEAD|PUT|PATCH|DELETE)$/.test(key)),
+    ).toEqual([]);
+    expect(typeof routeModule.POST).toBe('function');
   });
 });
 

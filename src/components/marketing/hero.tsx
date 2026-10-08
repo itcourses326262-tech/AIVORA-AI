@@ -22,7 +22,11 @@ export interface HeroProps {
 export function Hero({ i18n, bonus }: HeroProps) {
   const { t } = i18n;
   return (
-    <section aria-labelledby="hero-title" className="relative isolate overflow-hidden">
+    // The backdrop runs up behind the (transparent) site header, so there is no seam where it starts.
+    <section
+      aria-labelledby="hero-title"
+      className="relative isolate -mt-(--header-height) overflow-hidden pt-(--header-height)"
+    >
       <MeshBackdrop />
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center px-4 pt-14 pb-10 text-center sm:px-6 sm:pt-24 sm:pb-14">
         <p className="inline-flex max-w-full items-center gap-2 rounded-full border border-brand/30 bg-brand-soft py-1.5 ps-3 pe-4 text-sm font-medium text-brand shadow-xs backdrop-blur">
@@ -32,9 +36,9 @@ export function Hero({ i18n, bonus }: HeroProps) {
 
         <h1
           id="hero-title"
-          className="mt-7 max-w-4xl text-[2rem] leading-[1.1] font-semibold tracking-tight text-foreground sm:text-6xl lg:text-7xl rtl:leading-[1.3] rtl:font-bold"
+          className="mt-7 max-w-4xl text-[2rem] leading-[1.1] font-semibold tracking-tight text-foreground sm:text-6xl lg:text-7xl rtl:leading-[1.3] rtl:font-bold rtl:max-sm:text-[1.75rem]"
         >
-          <span className="block">{t('landing.hero.title')}</span>
+          <span className="block">{t('landing.hero.title')}</span>{' '}
           <span className="block text-gradient-brand">{t('landing.hero.titleAccent')}</span>
         </h1>
 

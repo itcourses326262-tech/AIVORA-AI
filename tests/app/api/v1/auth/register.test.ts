@@ -14,12 +14,12 @@ import {
   expectUserDTO,
   setCookies,
   stubEnv,
-  useRouteTestState,
+  routeTestState,
   type ErrorBody,
 } from './support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 const URL_ = '/api/v1/auth/register';
 const valid = { email: 'Lina@Example.com', password: PASSWORD, name: 'Lina Hassan', locale: 'en' };
@@ -200,7 +200,7 @@ describe('POST /api/v1/auth/register', () => {
       { origin: 'https://evil.example' },
       { origin: 'null' },
       { referer: 'https://evil.example/' },
-    ]) {
+    ] as Array<Record<string, string>>) {
       const result = await post(valid, headers);
       expect(result.status, JSON.stringify(headers)).toBe(403);
       expect(result.json.error.code).toBe('forbidden');

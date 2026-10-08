@@ -123,6 +123,27 @@ describe('SiteHeader', () => {
     expect(within(sheet).queryByRole('link', { name: 'Sign up' })).not.toBeInTheDocument();
   });
 
+  it('keeps the sheet menu until lg and never lets the brand or the call to action shrink', () => {
+    // The Arabic labels do not fit one row on a portrait tablet (768-860px), so the inline
+    // navigation starts at lg. (site-header.layout.test.tsx measures it in a real browser.)
+    mount(null, 'ar');
+    const main = screen.getByRole('navigation', { name: 'التنقل الرئيسي' });
+    expect(main).toHaveClass('hidden', 'lg:flex');
+    expect(screen.getByRole('button', { name: 'فتح القائمة' })).toHaveClass('lg:hidden');
+    expect(screen.getByRole('link', { name: 'تسجيل الدخول' })).toHaveClass(
+      'hidden',
+      'lg:inline-flex',
+    );
+    for (const link of within(main).getAllByRole('link'))
+      expect(link).toHaveClass('whitespace-nowrap');
+    expect(screen.getByRole('link', { name: 'الصفحة الرئيسية لـ AIVORE' })).toHaveClass('shrink-0');
+    expect(screen.getByRole('link', { name: 'إنشاء حساب' })).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+    );
+    expect(document.body.innerHTML).not.toMatch(/(?:^|[\s"'])md:(?:flex|hidden|inline-flex)/);
+  });
+
   it('is localized and uses an Arabic-first reading order', () => {
     mount(null, 'ar');
     expect(screen.getByRole('navigation', { name: 'التنقل الرئيسي' })).toBeInTheDocument();

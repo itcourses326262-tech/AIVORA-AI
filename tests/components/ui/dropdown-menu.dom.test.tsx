@@ -263,3 +263,66 @@ describe('DropdownMenuRadioGroup', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
+
+describe('where focus lands when the menu opens', () => {
+  it('goes to the first item for Enter and Space, and to the menu itself for a pointer click', async () => {
+    const user = userEvent.setup();
+    renderUi(<Demo />);
+    trigger().focus();
+    await user.keyboard('{Enter}');
+    expect(item('Download')).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(trigger()).toHaveFocus();
+    await user.keyboard(' ');
+    expect(item('Download')).toHaveFocus();
+    await user.keyboard('{Escape}');
+    await user.click(trigger());
+    expect(screen.getByRole('menu')).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(item('Download')).toHaveFocus();
+  });
+});
+
+describe('DropdownMenuItem as a link', () => {
+  it('keeps its id, title, aria-* and data-* attributes, and drops the button-only ones', async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <DropdownMenu trigger={<button>Menu</button>}>
+        <DropdownMenuItem
+          href="/account"
+          id="account-link"
+          title="Your account"
+          aria-label="Open account"
+          data-testid="account-item"
+          type="submit"
+          name="ignored"
+        >
+          Account
+        </DropdownMenuItem>
+      </DropdownMenu>,
+    );
+    await user.click(trigger());
+    const link = screen.getByRole('menuitem', { name: 'Open account' });
+    expect(link).toHaveAttribute('href', '/account');
+    expect(link).toHaveAttribute('id', 'account-link');
+    expect(link).toHaveAttribute('title', 'Your account');
+    expect(link).toHaveAttribute('data-testid', 'account-item');
+    expect(link).not.toHaveAttribute('type');
+    expect(link).not.toHaveAttribute('name');
+  });
+
+  it('the button variant forwards the same attributes', async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <DropdownMenu trigger={<button>Menu</button>}>
+        <DropdownMenuItem id="run" aria-label="Run it" data-testid="run-item">
+          Run
+        </DropdownMenuItem>
+      </DropdownMenu>,
+    );
+    await user.click(trigger());
+    const button = screen.getByRole('menuitem', { name: 'Run it' });
+    expect(button).toHaveAttribute('id', 'run');
+    expect(button).toHaveAttribute('data-testid', 'run-item');
+  });
+});

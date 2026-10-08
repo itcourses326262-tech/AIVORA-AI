@@ -44,8 +44,9 @@ function hasSequence(value: string): boolean {
 
 /**
  * A rough, honest estimate for the meter next to the password field: length first, then variety,
- * with a penalty for the usual giveaways (a common password, one repeated character, a keyboard
- * or alphabet run, the address itself). It is advice only; the server enforces the real policy.
+ * with the usual giveaways held against it (a common password, one repeated character, the
+ * address itself, a keyboard or alphabet run). It is advice only; the server enforces the real
+ * policy.
  */
 export function scorePassword(password: string, email = ''): PasswordStrength {
   if (password.length === 0) return { level: 'empty', score: 0 };
@@ -63,15 +64,17 @@ export function scorePassword(password: string, email = ''): PasswordStrength {
 
   const lower = password.toLowerCase();
   const local = email.split('@')[0]?.toLowerCase() ?? '';
-  const giveaways =
+  // Giveaways that no amount of variety rescues: a common password, one repeated character, or
+  // the address the account is made for.
+  const hopeless =
     COMMON.some((word) => lower.includes(word)) ||
     /^(.)\1+$/u.test(password) ||
-    hasSequence(password) ||
     (local.length >= 4 && lower.includes(local));
-  if (giveaways) points -= 2;
+  // A keyboard or alphabet run is a weakness, not a verdict.
+  if (hasSequence(password)) points -= 2;
 
   // Below the minimum length nothing else matters.
-  if (password.length < 8 || points <= 2) return { level: 'weak', score: 1 };
+  if (password.length < 8 || hopeless || points <= 2) return { level: 'weak', score: 1 };
   if (points === 3) return { level: 'fair', score: 2 };
   if (points <= 5) return { level: 'good', score: 3 };
   return { level: 'strong', score: 4 };

@@ -63,6 +63,36 @@ describe('UserMenu', () => {
     expect(screen.getByRole('menu')).toHaveTextContent('layla@example.com');
   });
 
+  it('names the account button from hidden text, with the avatar left to the eye only', () => {
+    mount();
+    const button = screen.getByRole('button', { name: 'Account menu' });
+    expect(button).not.toHaveAttribute('aria-label'); // a label that omits the visible initials fails "label in name"
+    expect(button.querySelector('[role="img"]')).toHaveAttribute('aria-hidden', 'true');
+    expect(button).toHaveTextContent('Account menu');
+  });
+
+  it.each([
+    ['en', 'layla@example.com'],
+    ['ar', 'layla@example.com'],
+  ] as const)(
+    'sets the address as an isolated left-to-right run that keeps the block direction (%s)',
+    async (locale, email) => {
+      const user = userEvent.setup();
+      mount({ locale });
+      await user.click(
+        screen.getByRole('button', { name: locale === 'ar' ? 'قائمة الحساب' : 'Account menu' }),
+      );
+      const address = screen.getByText(email);
+      expect(address.tagName).toBe('BDI');
+      expect(address).toHaveAttribute('dir', 'ltr');
+      // The line itself follows the page direction, so it lines up with the name above it.
+      const line = address.parentElement as HTMLElement;
+      expect(line).not.toHaveAttribute('dir');
+      expect(line.className).not.toContain('text-start');
+      expect(line.previousElementSibling).toHaveTextContent('Layla Hassan');
+    },
+  );
+
   it('includes navigation, language, theme and log out by default', async () => {
     const user = userEvent.setup();
     mount();

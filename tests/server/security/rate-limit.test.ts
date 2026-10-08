@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetEnvForTests } from '@/server/env';
 import {
   InMemoryRateLimiter,
@@ -7,6 +7,11 @@ import {
   unlimitedRateLimiter,
   type RateLimiter,
 } from '@/server/security/rate-limit';
+
+beforeEach(() => {
+  vi.stubEnv('RATE_LIMIT_DISABLED', 'false');
+  resetEnvForTests();
+});
 
 afterEach(() => {
   setRateLimiter(null);

@@ -10,10 +10,10 @@ import type { LedgerEntryDTO, Page } from '@/lib/api-types';
 import { freshDb } from '../../../../helpers/db';
 import { createGeneration, createSession, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { PASSWORD, browser, stubEnv, useRouteTestState, type ErrorBody } from '../auth/support';
+import { PASSWORD, browser, stubEnv, routeTestState, type ErrorBody } from '../auth/support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 let passwordHash = '';
 beforeAll(async () => {

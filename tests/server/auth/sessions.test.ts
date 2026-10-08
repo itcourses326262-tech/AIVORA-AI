@@ -20,10 +20,10 @@ import {
   sessionCookie,
   sessionTokenFromCookieHeader,
 } from '@/server/auth/cookies';
-import { stubEnv, useCleanSecurityState } from './support';
+import { stubEnv, cleanSecurityState } from './support';
 
 const harness = freshDb();
-useCleanSecurityState();
+cleanSecurityState();
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;

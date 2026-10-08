@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { AuthAside } from '@/components/auth/auth-aside';
 import { LoginForm } from '@/components/auth/login-form';
 import { firstParam } from '@/components/auth/search-params';
 import { getOptionalUser } from '@/lib/auth-guard';
 import { getI18n } from '@/lib/i18n/server';
 import { safeNextPath } from '@/lib/next-path';
+import { getEnv } from '@/server/env';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -20,5 +22,5 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   const next = safeNextPath(firstParam((await searchParams).next));
   if (await getOptionalUser()) redirect(next);
-  return <LoginForm next={next} />;
+  return <LoginForm next={next} aside={<AuthAside bonus={getEnv().SIGNUP_BONUS_CREDITS} />} />;
 }

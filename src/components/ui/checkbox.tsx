@@ -52,6 +52,8 @@ export function Checkbox({
     if (innerRef.current) innerRef.current.indeterminate = indeterminate;
   }, [indeterminate]);
 
+  // `rounded-sm`, not `rounded-md`: the radius scale is generous (md is 10px), which would turn this
+  // 20px box into a circle, the shape of a radio.
   const box = (
     <span className="relative mt-0.5 inline-flex size-5 shrink-0">
       <input
@@ -65,7 +67,7 @@ export function Checkbox({
         aria-describedby={control['aria-describedby']}
         aria-checked={indeterminate ? 'mixed' : undefined}
         className={cn(
-          'peer absolute inset-0 size-full cursor-pointer appearance-none rounded-md border bg-surface transition-colors duration-150 checked:border-transparent checked:bg-primary indeterminate:border-transparent indeterminate:bg-primary hover:border-muted disabled:cursor-not-allowed disabled:opacity-50',
+          'peer absolute inset-0 size-full cursor-pointer appearance-none rounded-sm border bg-surface transition-colors duration-150 checked:border-transparent checked:bg-primary indeterminate:border-transparent indeterminate:bg-primary hover:border-muted disabled:cursor-not-allowed disabled:opacity-50',
           control.invalid ? 'border-danger' : 'border-field',
           className,
         )}

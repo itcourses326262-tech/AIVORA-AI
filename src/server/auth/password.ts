@@ -129,7 +129,8 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   if (typeof password !== 'string' || password.length > HARD_INPUT_LIMIT) return false;
   const parsed = parseHash(hash);
   if (!parsed) return false;
-  const key = await deriveKey(password, parsed.salt, parsed.hash.length, parsed);
+  const { N, r, p } = parsed;
+  const key = await deriveKey(password, parsed.salt, parsed.hash.length, { N, r, p });
   return timingSafeEqual(key, parsed.hash);
 }
 

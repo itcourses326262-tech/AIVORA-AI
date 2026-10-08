@@ -7,10 +7,10 @@ import { SESSION_TTL_MS } from '@/server/auth/sessions';
 import { freshDb } from '../../../../helpers/db';
 import { createSession, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { expectUserDTO, setCookies, useRouteTestState } from './support';
+import { expectUserDTO, setCookies, routeTestState } from './support';
 
 const harness = freshDb();
-useRouteTestState();
+routeTestState();
 
 function get(headers: Record<string, string> = {}) {
   return invokeRoute<{ data: unknown }>(me, { url: '/api/v1/auth/me', headers });
@@ -24,7 +24,7 @@ describe('GET /api/v1/auth/me', () => {
       { cookie: 'aivore_session=garbage' },
       { cookie: `aivore_session=${'A'.repeat(43)}` },
       { authorization: 'Bearer avk_zzzzzzzz_' + 'z'.repeat(43) },
-    ]) {
+    ] as Array<Record<string, string>>) {
       const result = await get(headers);
       expect(result.status).toBe(200);
       expect(result.json).toEqual({ data: null });

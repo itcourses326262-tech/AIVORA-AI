@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, ResolvedMetadata } from 'next';
 import type { Translator } from '@/lib/i18n';
 import { LOCALES, type Locale } from '@/lib/i18n/locales';
 import { getEnv } from '@/server/env';
@@ -14,8 +14,14 @@ const OG_LOCALE: Record<Locale, string> = { ar: 'ar_AR', en: 'en_US' };
  * Metadata of the landing page in the active language. The language is chosen per request (cookie,
  * then Accept-Language), so both languages live at the same URL: the canonical and the language
  * alternates all point there, and Open Graph names the other language as an alternate locale.
+ *
+ * A page's `openGraph` replaces the one it inherits instead of merging with it, which would drop
+ * the share image the root segment gets from `opengraph-image.png`: pass the inherited image list.
  */
-export function landingMetadata({ t, locale }: Pick<Translator, 't' | 'locale'>): Metadata {
+export function landingMetadata(
+  { t, locale }: Pick<Translator, 't' | 'locale'>,
+  inheritedImages: NonNullable<ResolvedMetadata['openGraph']>['images'],
+): Metadata {
   const title = t('landing.meta.title');
   const description = t('landing.meta.description');
   return {
@@ -35,6 +41,7 @@ export function landingMetadata({ t, locale }: Pick<Translator, 't' | 'locale'>)
       description,
       locale: OG_LOCALE[locale],
       alternateLocale: LOCALES.filter((code) => code !== locale).map((code) => OG_LOCALE[code]),
+      images: inheritedImages,
     },
     twitter: { card: 'summary_large_image', title, description },
   };

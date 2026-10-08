@@ -1,3 +1,4 @@
+import type * as CryptoModule from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createUser } from '../../helpers/factories';
 import { freshDb } from '../../helpers/db';
@@ -7,7 +8,7 @@ const spy = vi.hoisted(() => ({ calls: 0 }));
 
 // The real scrypt, with a call counter.
 vi.mock('node:crypto', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:crypto')>();
+  const actual = await importOriginal<typeof CryptoModule>();
   const scrypt = ((...args: Parameters<typeof actual.scrypt>) => {
     spy.calls += 1;
     return actual.scrypt(...args);
@@ -17,11 +18,11 @@ vi.mock('node:crypto', async (importOriginal) => {
 
 import { hashPassword, verifyAgainstDummy } from '@/server/auth/password';
 import { loginUser } from '@/server/auth/users';
-import { GOOD_PASSWORD, useCleanSecurityState, usePasswordFixture } from './support';
+import { GOOD_PASSWORD, cleanSecurityState, passwordFixture } from './support';
 
 const harness = freshDb();
-const fixture = usePasswordFixture();
-useCleanSecurityState();
+const fixture = passwordFixture();
+cleanSecurityState();
 
 async function expectUnauthorized(promise: Promise<unknown>): Promise<void> {
   const error = await promise.then(

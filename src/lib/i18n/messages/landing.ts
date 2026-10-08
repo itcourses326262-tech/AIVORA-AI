@@ -42,8 +42,6 @@ export default defineMessages({
       subtitle:
         'Landscapes, patterns, worlds and motion. Here is a taste of what the models can do.',
       note: 'Illustrative artwork. Your results depend on the model and your prompt.',
-      kindImage: 'Image',
-      kindVideo: 'Video',
       promptLabel: 'Prompt',
       samples: {
         dunes: 'Desert dunes at sunset, warm golden light, ultra detailed',
@@ -247,8 +245,6 @@ export default defineMessages({
       title: 'من جملة واحدة إلى مشهد متكامل',
       subtitle: 'مناظر طبيعية وزخارف وعوالم وحركة. لمحة عمّا تستطيع النماذج فعله.',
       note: 'رسوم توضيحية. تختلف نتائجك بحسب النموذج ووصفك.',
-      kindImage: 'صورة',
-      kindVideo: 'فيديو',
       promptLabel: 'الوصف',
       samples: {
         dunes: 'كثبان صحراوية عند الغروب، ضوء ذهبي دافئ، تفاصيل فائقة',
@@ -376,7 +372,7 @@ export default defineMessages({
     },
     finalCta: {
       title: 'فكرتك التالية على بُعد جملة واحدة',
-      description: 'أنشئ حسابًا مجانيًا، وأخرِج أول صورة أو فيديو لك في أقل من دقيقة.',
+      description: 'أنشئ حسابًا مجانيًا، وابتكر أول صورة أو فيديو لك في أقل من دقيقة.',
     },
     footer: {
       tagline: 'حوّل جملة واحدة إلى صور وفيديوهات، بالعربية أو الإنجليزية.',
@@ -389,7 +385,7 @@ export default defineMessages({
       studio: 'افتح الاستوديو',
       explore: 'استكشف الإبداعات',
       notFound: {
-        eyebrow: 'خطأ ٤٠٤',
+        eyebrow: 'خطأ 404',
         title: 'هذه الصفحة خارج الإطار',
         description: 'قد يكون الرابط معطّلًا أو أن الصفحة نُقلت. إليك بعض الوجهات للمتابعة:',
       },
