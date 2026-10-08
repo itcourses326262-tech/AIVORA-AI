@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
-import { and, count, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ApiKeyDTO, CreateApiKeyResponse } from '@/lib/api-types';
 import { AppError } from '@/lib/errors';
 import { newId } from '@/lib/id';
@@ -91,16 +91,31 @@ export async function createApiKey(userId: string, name: string): Promise<Create
   return { key, record: toApiKeyDTO(row) };
 }
 
-/** The user's keys, newest first, including revoked ones. */
+/**
+ * The user's keys, newest first: EVERY active key (at most {@link MAX_ACTIVE_API_KEYS}, so the
+ * owner can always see and revoke what is live) plus the most recently created revoked ones, up to
+ * {@link LIST_LIMIT} rows in all. Revoked keys are kept for the audit trail but must never push a
+ * live key out of the list.
+ */
 export async function listApiKeys(userId: string): Promise<ApiKeyDTO[]> {
-  const rows = getDb()
+  const db = getDb();
+  const active = db
     .select()
     .from(apiKeys)
-    .where(eq(apiKeys.userId, userId))
+    .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)))
     .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
     .limit(LIST_LIMIT)
     .all();
-  return rows.map(toApiKeyDTO);
+  const revoked = db
+    .select()
+    .from(apiKeys)
+    .where(and(eq(apiKeys.userId, userId), isNotNull(apiKeys.revokedAt)))
+    .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
+    .limit(Math.max(0, LIST_LIMIT - active.length))
+    .all();
+  return [...active, ...revoked]
+    .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+    .map(toApiKeyDTO);
 }
 
 /**

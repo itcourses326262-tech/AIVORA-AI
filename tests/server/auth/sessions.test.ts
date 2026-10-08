@@ -14,6 +14,7 @@ import {
   openSession,
   resolveSession,
   revokeOtherSessions,
+  sessionCookieExpiry,
 } from '@/server/auth/sessions';
 import {
   clearSessionCookie,
@@ -227,6 +228,19 @@ describe('logout, logoutAll, revokeOtherSessions', () => {
 
 describe('session cookie', () => {
   const expiresAt = Date.UTC(2030, 0, 15, 12, 0, 0);
+
+  it('lives until the absolute cap of its session, not the sliding 30 day expiry', () => {
+    const createdAt = Date.UTC(2030, 0, 1);
+    expect(sessionCookieExpiry(createdAt)).toBe(createdAt + SESSION_ABSOLUTE_MAX_MS);
+    // The cookie can never be dropped by the browser before the server stops honouring it.
+    const user = createUser(harness.db);
+    const opened = openSession(harness.db, user.id, {}, createdAt);
+    expect(sessionCookieExpiry(createdAt)).toBeGreaterThan(opened.expiresAt);
+    for (let day = 0; day <= 180; day += 5) {
+      const resolved = resolveSession(opened.token, harness.db, createdAt + day * DAY);
+      if (resolved) expect(resolved.expiresAt).toBeLessThanOrEqual(sessionCookieExpiry(createdAt));
+    }
+  });
 
   it('is HttpOnly, SameSite=Lax, Path=/ with a matching Expires and Max-Age', () => {
     stubEnv({ NODE_ENV: 'development' });

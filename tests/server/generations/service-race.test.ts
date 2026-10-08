@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getBalance } from '@/server/credits';
 import { generations } from '@/server/db/schema';
 import { expectConsistentLedger } from '../../helpers/credits';
 import { createTestDb, seedUser, type TestDb } from '../../helpers/db';
+import { releaseWhenReady } from './barrier';
 
 const run = promisify(execFile);
 const ROOT = resolve(import.meta.dirname, '../../..');
@@ -15,7 +18,8 @@ type Tally = Record<string, number>;
 
 /**
  * The real `createGeneration` in several processes at once, each with its own connection to the
- * same database file: the only way to exercise the transaction's locking for real.
+ * same database file: the only way to exercise the transaction's locking for real. They start
+ * together from a barrier that opens once every process is up (barrier.ts).
  */
 async function race(
   test: TestDb,
@@ -23,9 +27,9 @@ async function race(
   workers: Array<{ attempts: number; keys: 'same' | 'distinct' }>,
   env: Record<string, string> = {},
 ): Promise<Tally[]> {
-  const startAt = Date.now() + 3000;
-  const outputs = await Promise.all(
-    workers.map((worker, index) =>
+  const barrier = mkdtempSync(join(tmpdir(), 'aivore-race-'));
+  try {
+    const children = workers.map((worker, index) =>
       run(
         process.execPath,
         [
@@ -33,7 +37,7 @@ async function race(
           'tsx',
           '--conditions=react-server',
           WORKER,
-          String(startAt),
+          barrier,
           userId,
           String(worker.attempts),
           worker.keys,
@@ -52,9 +56,16 @@ async function race(
           },
         },
       ),
-    ),
-  );
-  return outputs.map(({ stdout }) => JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as Tally);
+    );
+    const outputs = Promise.all(children);
+    outputs.catch(() => undefined); // reported by releaseWhenReady below
+    await releaseWhenReady(barrier, workers.length, children);
+    return (await outputs).map(
+      ({ stdout }) => JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as Tally,
+    );
+  } finally {
+    rmSync(barrier, { recursive: true, force: true });
+  }
 }
 
 const total = (tallies: Tally[], key: string) =>

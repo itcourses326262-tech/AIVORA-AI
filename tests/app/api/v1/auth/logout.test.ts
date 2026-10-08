@@ -7,7 +7,7 @@ import { createApiKey } from '@/server/auth/api-keys';
 import { freshDb } from '../../../../helpers/db';
 import { createSession, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { browser, cookieNamed, routeTestState, type ErrorBody } from './support';
+import { browser, cookieNamed, routeTestState, stubEnv, type ErrorBody } from './support';
 
 const harness = freshDb();
 routeTestState();
@@ -75,6 +75,39 @@ describe('POST /api/v1/auth/logout', () => {
     expect((await whoami(session.cookie)).json.data?.id).toBe(user.id);
   });
 
+  describe('rate limits', () => {
+    const signOut = (headers: Record<string, string>) =>
+      invokeRoute<ErrorBody>(logout, { url: '/api/v1/auth/logout', method: 'POST', headers });
+
+    it('behind a trusted proxy: 30 a minute per address', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      const headers = browser(undefined, { 'x-forwarded-for': '203.0.113.7' });
+      for (let index = 0; index < 30; index += 1) expect((await signOut(headers)).status).toBe(204);
+      expect((await signOut(headers)).status).toBe(429);
+      const other = browser(undefined, { 'x-forwarded-for': '203.0.113.8' });
+      expect((await signOut(other)).status).toBe(204);
+    });
+
+    it('without a trusted proxy it is not limited: one bucket for everybody would block every sign-out', async () => {
+      for (let index = 0; index < 40; index += 1) {
+        const result = await signOut(browser());
+        expect(result.status, `request ${index + 1}`).toBe(204);
+        expect(result.headers.get('x-ratelimit-limit')).toBeNull();
+      }
+    });
+
+    it('a cross-site refusal does not spend the budget', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 40; index += 1) {
+        const result = await signOut({ 'x-forwarded-for': '203.0.113.7' });
+        expect(result.status).toBe(403);
+      }
+      const ok = await signOut(browser(undefined, { 'x-forwarded-for': '203.0.113.7' }));
+      expect(ok.status).toBe(204);
+      expect(ok.headers.get('x-ratelimit-remaining')).toBe('29');
+    });
+  });
+
   it('exports POST only: a GET (link, image, prefetch) can never sign anybody out', async () => {
     const routeModule = await import('@/app/api/v1/auth/logout/route');
     expect(
@@ -135,5 +168,26 @@ describe('POST /api/v1/auth/logout-all', () => {
     });
     expect(crossSite.status).toBe(403);
     expect((await whoami(session.cookie)).json.data?.id).toBe(user.id);
+  });
+
+  it('is limited per user, so it works without a trusted proxy and never shares a bucket with logout', async () => {
+    const user = createUser(harness.db);
+    const bystander = createUser(harness.db);
+    const call = async (userId: string) => {
+      const session = createSession(harness.db, userId);
+      return invokeRoute<ErrorBody>(logoutAll, {
+        url: '/api/v1/auth/logout-all',
+        method: 'POST',
+        headers: browser(session.cookie),
+      });
+    };
+    for (let index = 0; index < 10; index += 1) {
+      const result = await call(user.id);
+      expect(result.status, `call ${index + 1}`).toBe(204);
+      expect(result.headers.get('x-ratelimit-limit')).toBe('10');
+    }
+    expect((await call(user.id)).status).toBe(429);
+    // Same (unknown) address, another user: unaffected.
+    expect((await call(bystander.id)).status).toBe(204);
   });
 });

@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +10,7 @@ import { assets, generations } from '@/server/db/schema';
 import { claimNextJob } from '@/server/generations/lifecycle';
 import { expectConsistentLedger, ledgerInOrder } from '../../helpers/credits';
 import { createTestDb, seedUser, type TestDb } from '../../helpers/db';
+import { releaseWhenReady } from './barrier';
 import { queue } from './support';
 
 const run = promisify(execFile);
@@ -16,13 +19,14 @@ const WORKER = 'tests/server/generations/race-worker.ts';
 
 /**
  * better-sqlite3 is synchronous, so one process can never interleave two transactions: real races
- * need real processes. Each child has its own connection to the same file and starts at a shared
- * timestamp, like tests/server/credits/race.test.ts.
+ * need real processes. Each child has its own connection to the same file and, once it is up,
+ * waits at a barrier until every child is: a fixed start time would let a slow-booting child
+ * arrive after the others are done (barrier.ts).
  */
 async function race<T>(path: string, jobs: string[][]): Promise<T[]> {
-  const startAt = Date.now() + 2500;
-  const outputs = await Promise.all(
-    jobs.map(([mode, ...rest], index) =>
+  const barrier = mkdtempSync(join(tmpdir(), 'aivore-race-'));
+  try {
+    const children = jobs.map(([mode, ...rest], index) =>
       run(
         process.execPath,
         [
@@ -32,15 +36,22 @@ async function race<T>(path: string, jobs: string[][]): Promise<T[]> {
           WORKER,
           mode ?? '',
           path,
-          String(startAt),
+          barrier,
           `p${index}`,
           ...rest,
         ],
         { cwd: ROOT, timeout: 90_000 },
       ),
-    ),
-  );
-  return outputs.map(({ stdout }) => JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as T);
+    );
+    const outputs = Promise.all(children);
+    outputs.catch(() => undefined); // reported by releaseWhenReady below
+    await releaseWhenReady(barrier, jobs.length, children);
+    return (await outputs).map(
+      ({ stdout }) => JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as T,
+    );
+  } finally {
+    rmSync(barrier, { recursive: true, force: true });
+  }
 }
 
 let test: TestDb;
@@ -58,17 +69,19 @@ describe('claiming from several processes', () => {
     const user = seedUser(test.db, { creditBalance: 500 });
     const ids = Array.from({ length: 40 }, () => queue(test.db, user).id);
 
+    // Nobody may take more than 15 of the 40, so the work MUST be shared between at least three
+    // processes whatever the machine's timing (4 x 15 = 60 >= 40, so every job still gets taken).
     const results = await race<{ claimed: string[] }>(
       test.path,
-      Array.from({ length: 4 }, () => ['claim']),
+      Array.from({ length: 4 }, () => ['claim', '15']),
     );
 
     const all = results.flatMap((result) => result.claimed);
     expect(all).toHaveLength(ids.length);
     expect(new Set(all).size).toBe(ids.length);
     expect(new Set(all)).toEqual(new Set(ids));
-    // Several workers really did share the work (this would fail if one process won every time).
-    expect(results.filter((result) => result.claimed.length > 0).length).toBeGreaterThan(1);
+    expect(results.every((result) => result.claimed.length <= 15)).toBe(true);
+    expect(results.filter((result) => result.claimed.length > 0).length).toBeGreaterThanOrEqual(3);
 
     const rows = test.db.select().from(generations).all();
     expect(rows.every((row) => row.status === 'processing' && row.attempts === 1)).toBe(true);

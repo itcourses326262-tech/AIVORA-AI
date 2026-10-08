@@ -25,8 +25,11 @@ export function cleanSecurityState(): void {
   // Real scrypt runs (about 200 ms each, several times that under a loaded CI box) add up.
   vi.setConfig({ testTimeout: 60_000 });
   beforeEach(() => {
-    // A developer's shell may have RATE_LIMIT_DISABLED=true; these tests are about the limits.
+    // A developer's shell may have RATE_LIMIT_DISABLED=true ...
     vi.stubEnv('RATE_LIMIT_DISABLED', 'false');
+    // ... or TRUST_PROXY=true, which would make every request come from a known address.
+    vi.stubEnv('TRUST_PROXY', 'false');
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '1');
     resetEnvForTests();
     setRateLimiter(null);
   });

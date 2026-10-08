@@ -25,9 +25,14 @@ describe('registry', () => {
     expect(isProviderAvailable('mock', env({ ENABLE_MOCK_PROVIDER: 'false' }))).toBe(false);
   });
 
-  it('offers no real provider before its adapter exists, even with keys set', () => {
-    const keyed = env({ OPENAI_API_KEY: 'k', FAL_KEY: 'k', REPLICATE_API_TOKEN: 'k' });
-    for (const id of ['openai', 'fal', 'replicate'] as const) {
+  it('offers a real provider only when its key is set', () => {
+    expect(isProviderAvailable('fal', env())).toBe(false);
+    expect(isProviderAvailable('fal', env({ FAL_KEY: 'k' }))).toBe(true);
+  });
+
+  it('offers no provider whose adapter is not built yet, even with keys set', () => {
+    const keyed = env({ OPENAI_API_KEY: 'k', REPLICATE_API_TOKEN: 'k' });
+    for (const id of ['openai', 'replicate'] as const) {
       expect(isProviderAvailable(id, keyed)).toBe(false);
     }
   });

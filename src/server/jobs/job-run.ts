@@ -281,8 +281,9 @@ export class JobRun {
     switch (reason) {
       case 'timeout':
         this.log.warn('Generation timed out');
-        await this.cancelUpstream();
+        // Fail and refund first: the user's outcome must not wait for the provider's goodwill.
         failGeneration(rt.db, job.id, rt.workerId, TIMEOUT_FAILURE);
+        await this.cancelUpstream();
         return;
       case 'canceled':
         this.log.info('Generation was canceled while running');
@@ -298,18 +299,42 @@ export class JobRun {
     }
   }
 
-  /** Best effort and bounded: a provider that hangs must not hold up the worker. */
+  /**
+   * Best effort and bounded: we stop waiting after {@link CANCEL_UPSTREAM_TIMEOUT_MS} or as soon as
+   * the runner is shutting down, even when the adapter ignores the signal it is given and never
+   * answers. A hung cancel must not hold the worker slot (and with it `stop()`).
+   */
   private async cancelUpstream(): Promise<void> {
-    const { provider, providerJobId } = this;
+    const { provider, providerJobId, rt } = this;
     if (!provider?.cancel || providerJobId === null) return;
+
+    const attempt = new AbortController();
+    const stopWaiting = () => attempt.abort(new Error('Gave up waiting for the upstream cancel'));
+    if (rt.shutdown.aborted) stopWaiting();
+    else rt.shutdown.addEventListener('abort', stopWaiting, { once: true });
+    const gaveUp = new Promise<never>((_resolve, reject) => {
+      attempt.signal.addEventListener('abort', () => reject(attempt.signal.reason), { once: true });
+    });
+    gaveUp.catch(() => undefined);
+    rt.sleep(CANCEL_UPSTREAM_TIMEOUT_MS, attempt.signal).then(stopWaiting, () => undefined);
+
     try {
-      await provider.cancel(
-        providerJobId,
-        { ...this.context(), signal: AbortSignal.timeout(CANCEL_UPSTREAM_TIMEOUT_MS) },
-        this.meta,
-      );
+      // The executor runs synchronously, so a cancel() that throws is a rejection like any other.
+      const cancelled = new Promise<void>((resolve) => {
+        resolve(
+          provider.cancel?.(
+            providerJobId,
+            { ...this.context(), signal: attempt.signal },
+            this.meta,
+          ),
+        );
+      });
+      await Promise.race([cancelled, gaveUp]);
     } catch (error) {
       this.log.warn('Could not cancel the upstream job', { err: error });
+    } finally {
+      rt.shutdown.removeEventListener('abort', stopWaiting);
+      attempt.abort(); // also stops the timer
     }
   }
 

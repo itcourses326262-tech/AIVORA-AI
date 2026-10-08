@@ -4,7 +4,7 @@ import { GET as listKeys, POST as createKey } from '@/app/api/v1/keys/route';
 import { DELETE as deleteKey } from '@/app/api/v1/keys/[id]/route';
 import { GET as account } from '@/app/api/v1/account/route';
 import { apiKeys } from '@/server/db/schema';
-import { MAX_ACTIVE_API_KEYS, createApiKey } from '@/server/auth/api-keys';
+import { MAX_ACTIVE_API_KEYS, createApiKey, revokeApiKey } from '@/server/auth/api-keys';
 import type { ApiKeyDTO, CreateApiKeyResponse, Page } from '@/lib/api-types';
 import { freshDb } from '../../../../helpers/db';
 import { createSession, createUser } from '../../../../helpers/factories';
@@ -76,6 +76,8 @@ describe('POST /api/v1/keys', () => {
       { name: 'x'.repeat(61) },
       { name: 7 },
       { name: 'a\u0000b' },
+      { name: '\u200b' },
+      { name: '\u3164' },
     ]) {
       const result = await create(body, session.headers);
       expect(result.status, JSON.stringify(body)).toBe(422);
@@ -130,6 +132,22 @@ describe('GET /api/v1/keys', () => {
     expect(result.json.data.map((key) => key.name)).toEqual(['second', 'first']);
     expect(result.json.data[1]?.revokedAt).toBeTypeOf('number');
     expect(result.json.data[0]).not.toHaveProperty('revokedAt');
+  });
+
+  it('still shows the long-lived key after many rotations, so it can always be revoked from the UI', async () => {
+    const user = createUser(harness.db);
+    const session = createSession(harness.db, user.id);
+    const longLived = await createApiKey(user.id, 'long lived');
+    for (let cycle = 0; cycle < 105; cycle += 1) {
+      const rotated = await createApiKey(user.id, `rotated ${cycle}`);
+      await revokeApiKey(user.id, rotated.record.id);
+    }
+
+    const result = await list(session.headers);
+    expect(result.status).toBe(200);
+    expect(result.json.data.length).toBeLessThanOrEqual(100);
+    expect(result.json.data.find((key) => key.id === longLived.record.id)).toBeDefined();
+    expect((await revoke(longLived.record.id, session.headers)).status).toBe(204);
   });
 
   it("never shows another user's keys", async () => {

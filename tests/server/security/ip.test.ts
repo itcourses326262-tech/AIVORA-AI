@@ -117,17 +117,33 @@ describe('getClientIp with TRUST_PROXY=true', () => {
     expect(getClientIp(request({ 'x-forwarded-for': '203.0.113.9' }))).toBe('203.0.113.9');
   });
 
-  it('falls back to X-Real-IP, and to unknown when neither header is usable', () => {
+  it('reads X-Forwarded-For only: X-Real-IP is never consulted', () => {
     withEnv({ TRUST_PROXY: 'true' });
-    expect(getClientIp(request({ 'x-real-ip': '203.0.113.10' }))).toBe('203.0.113.10');
+    // Next.js fills X-Forwarded-For with the proxy's own address when the proxy sent none, so a
+    // fallback to X-Real-IP could not be reached in production, and where it could (a runtime
+    // that does not do that) the header is client-controlled unless the proxy overwrites it.
+    expect(getClientIp(request({ 'x-real-ip': '203.0.113.10' }))).toBe('unknown');
     expect(getClientIp(request({ 'x-forwarded-for': '', 'x-real-ip': '203.0.113.10' }))).toBe(
-      '203.0.113.10',
+      'unknown',
     );
-    expect(getClientIp(request({ 'x-real-ip': 'nope' }))).toBe('unknown');
+    expect(
+      getClientIp(request({ 'x-forwarded-for': 'garbage', 'x-real-ip': '203.0.113.10' })),
+    ).toBe('unknown');
     expect(getClientIp(request())).toBe('unknown');
   });
 
-  it('prefers X-Forwarded-For over X-Real-IP and handles IPv6 and ports', () => {
+  it('uses the connection address, when the platform provides one, if there is no usable header', () => {
+    withEnv({ TRUST_PROXY: 'true' });
+    expect(getClientIp(request({}, { ip: '198.51.100.20' }))).toBe('198.51.100.20');
+    expect(getClientIp(request({ 'x-forwarded-for': 'garbage' }, { ip: '198.51.100.20' }))).toBe(
+      '198.51.100.20',
+    );
+    expect(
+      getClientIp(request({ 'x-forwarded-for': '203.0.113.9' }, { ip: '198.51.100.20' })),
+    ).toBe('203.0.113.9');
+  });
+
+  it('ignores a spoofed X-Real-IP next to X-Forwarded-For and handles IPv6 and ports', () => {
     withEnv({ TRUST_PROXY: 'true' });
     expect(getClientIp(request({ 'x-forwarded-for': '203.0.113.9', 'x-real-ip': '1.1.1.1' }))).toBe(
       '203.0.113.9',

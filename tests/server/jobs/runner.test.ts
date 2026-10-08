@@ -1,5 +1,7 @@
+import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDb } from '@/server/db';
+import { assets, generations } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
 import { markCanceled } from '@/server/generations/lifecycle';
 import { createGeneration } from '@/server/generations/service';
@@ -241,7 +243,139 @@ describe('the claim loop', () => {
   });
 });
 
+describe('a runner that stalls or loses a job', () => {
+  it('does not run a job again that it is still running, when only its lease looks expired', async () => {
+    const { provider, gates } = gatedProvider();
+    const h = harness({ provider });
+    const job = h.enqueue();
+    const first = h.runner.tick();
+    await settle();
+    expect(provider.submit).toHaveBeenCalledTimes(1);
+
+    // The process stalled for longer than the lease (or the clock stepped): the row says the lease
+    // is gone, the run is perfectly alive. The next claim pass must leave it alone.
+    h.db
+      .update(generations)
+      .set({ leaseUntil: h.clock.now() - 1 })
+      .where(eq(generations.id, job.id))
+      .run();
+    const second = h.runner.tick();
+    await settle();
+    expect(provider.submit).toHaveBeenCalledTimes(1);
+    expect(h.row(job.id)).toMatchObject({ status: 'processing', attempts: 1 });
+
+    gates[0]?.resolve();
+    await Promise.all([first, second]);
+    expect(h.row(job.id)).toMatchObject({ status: 'succeeded', attempts: 1 });
+    expect(provider.submit).toHaveBeenCalledTimes(1);
+    expect(h.balance()).toBe(49); // one submit, one credit
+  });
+
+  it('still lets ANOTHER runner recover that job when its owner is really gone', async () => {
+    const { provider, gates } = gatedProvider();
+    const h = harness({ provider });
+    const job = h.enqueue();
+    void h.runner.tick();
+    await settle();
+    h.db
+      .update(generations)
+      .set({ leaseUntil: h.clock.now() - 1 })
+      .where(eq(generations.id, job.id))
+      .run();
+
+    const rescuer = h.another({ providers: { getProvider: () => fakeProvider() } });
+    runners.push(rescuer);
+    expect(await rescuer.tick()).toBe(1);
+    expect(h.row(job.id)).toMatchObject({ status: 'succeeded', attempts: 2 });
+    gates[0]?.resolve();
+    await settle();
+    expect(h.row(job.id).status).toBe('succeeded');
+  });
+
+  it('never lets a run that lost its job act on a later claim of the same job, even by the same runner', async () => {
+    const h = harness({ env: { WORKER_CONCURRENCY: '1' } });
+    const job = h.enqueue({ cost: 2 });
+    const gates = [deferred<void>(), deferred<void>()];
+    const persist = h.persist.getMockImplementation();
+    if (!persist) throw new Error('fakePersist has an implementation');
+    let writes = 0;
+    h.persist.mockImplementation(async (...args) => {
+      await gates[writes++]?.promise;
+      return persist(...args);
+    });
+
+    const first = h.runner.tick();
+    await settle();
+    expect(writes).toBe(1); // run 1 is inside a storage write that hangs
+
+    // Run 1's lease lapsed and a recovery pass requeued the job. Its next heartbeat finds out and
+    // it gives up, although its storage write is still hanging in the background.
+    h.db
+      .update(generations)
+      .set({ status: 'queued', workerId: null, leaseUntil: null })
+      .where(eq(generations.id, job.id))
+      .run();
+    await h.clock.advance(16_000);
+    await first;
+
+    // The same runner claims the job again: a new run, a new claim.
+    const second = h.runner.tick();
+    await settle();
+    expect(writes).toBe(2);
+    expect(h.row(job.id)).toMatchObject({ status: 'processing', attempts: 2 });
+
+    // Run 1's abandoned write finishes now. It must not complete the job (or touch it at all).
+    gates[0]?.resolve();
+    await settle(12);
+    expect(h.row(job.id).status).toBe('processing');
+    expect(h.test.db.select().from(assets).all()).toHaveLength(0);
+    expect(h.storage.objects.size).toBe(0); // and the file it wrote is removed again
+
+    gates[1]?.resolve();
+    await second;
+    expect(h.row(job.id)).toMatchObject({ status: 'succeeded', attempts: 2 });
+    expect(h.test.db.select().from(assets).all()).toHaveLength(1);
+    expect(h.storage.objects.size).toBe(1);
+    expect(h.balance()).toBe(48);
+  });
+
+  it('writes one worker id per claim, all of them recognisable as this runner', async () => {
+    const { provider, gates } = gatedProvider();
+    const h = harness({ provider, env: { WORKER_CONCURRENCY: '2' } });
+    const [a, b] = [h.enqueue({ createdAt: 1 }), h.enqueue({ createdAt: 2 })];
+    void h.runner.tick();
+    await settle();
+    const ids = [a, b].map((job) => h.row(job.id).workerId ?? '');
+    expect(new Set(ids).size).toBe(2);
+    for (const id of ids) expect(id.startsWith(`${h.runner.workerId}/`)).toBe(true);
+    gates.forEach((gate) => gate.resolve());
+    await settle();
+  });
+});
+
 describe('abandon', () => {
+  it('leaves the jobs of other runners alone', async () => {
+    const { provider, gates } = gatedProvider();
+    const h = harness({ provider, env: { WORKER_CONCURRENCY: '1' } });
+    const other = h.another();
+    runners.push(other);
+    const [mine, theirs] = [h.enqueue({ createdAt: 1 }), h.enqueue({ createdAt: 2 })];
+    void h.runner.tick();
+    await settle();
+    void other.tick();
+    await settle();
+    expect(h.row(mine.id).status).toBe('processing');
+    expect(h.row(theirs.id).status).toBe('processing');
+
+    expect(h.runner.abandon()).toBe(1);
+    expect(h.row(mine.id).status).toBe('queued');
+    expect(h.row(theirs.id).status).toBe('processing');
+    expect(other.abandon()).toBe(1);
+    expect(h.row(theirs.id).status).toBe('queued');
+    gates.forEach((gate) => gate.resolve());
+    await settle();
+  });
+
   it('hands every running job back at once, for a process that is exiting', async () => {
     const { provider, gates } = gatedProvider();
     const h = harness({ provider });
@@ -355,6 +489,36 @@ describe('stop', () => {
     expect(h.row(job.id)).toMatchObject({ status: 'succeeded', attempts: 1 });
     expect(h.provider.submit).not.toHaveBeenCalled();
     expect(h.balance()).toBe(48);
+  });
+
+  it('does not wait for an upstream cancel that never answers', async () => {
+    const h = harness({
+      provider: fakeProvider({
+        submit: () => ({ mode: 'async', providerJobId: 'remote-1', meta: { v: 1 } }),
+        poll: () => ({ status: 'running' }),
+        cancel: () => new Promise<void>(() => undefined),
+      }),
+      tuning: { shutdownGraceMs: 4000 },
+      env: { GENERATION_TIMEOUT_SEC_IMAGE: '600' },
+    });
+    const job = h.enqueue({ cost: 2 });
+    h.provider.poll.mockImplementation(async () => {
+      markCanceled(h.db, h.user.id, job.id);
+      return { status: 'running' };
+    });
+    h.runner.start();
+    await h.clock.advance(1500); // the first poll cancels the job, the next look finds out
+    expect(h.provider.cancel).toHaveBeenCalledTimes(1); // the run is now waiting for the provider
+    const cancelStartedAt = h.clock.now();
+
+    // `stop()` gives up on it when the grace period is over, well before the 10 s cancel limit.
+    const stopped = h.runner.stop();
+    await h.clock.advance(4000);
+    await stopped;
+    expect(h.clock.now() - cancelStartedAt).toBeLessThan(10_000);
+    expect(h.row(job.id).status).toBe('canceled');
+    expect(h.balance()).toBe(50);
+    expect(h.clock.pending()).toEqual([]);
   });
 
   it('can be started again after stopping', async () => {

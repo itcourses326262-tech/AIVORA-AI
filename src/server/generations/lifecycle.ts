@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { refundGeneration } from '@/server/credits';
 import { withTx, type Db, type DbOrTx, type Tx } from '@/server/db';
 import { assets, generations, type GenerationRow } from '@/server/db/schema';
@@ -33,16 +33,31 @@ export const INTERRUPTED_FAILURE: GenerationFailure = {
 export interface ClaimOptions {
   /** A `processing` job that already used this many attempts is not claimed again. Default `MAX_ATTEMPTS`. */
   maxAttempts?: number;
+  /**
+   * Generations the caller is still running itself. They are never claimed: a job whose lease only
+   * LOOKS expired because the caller stalled (or the clock stepped) is not an orphan, and running
+   * it a second time would submit it, and bill it, twice.
+   */
+  excludeIds?: readonly string[];
 }
 
 function ownedBy(workerId: string) {
   return and(eq(generations.status, 'processing'), eq(generations.workerId, workerId));
 }
 
+function notExcluded(ids: readonly string[] | undefined) {
+  return ids && ids.length > 0 ? notInArray(generations.id, [...ids]) : undefined;
+}
+
 /**
- * Atomically takes the oldest `queued` generation, or a `processing` one whose lease expired, for
+ * Atomically takes the next `queued` generation, or a `processing` one whose lease expired, for
  * `workerId`: status `processing`, `attempts + 1`, lease until `now + leaseMs`. Uses
  * `BEGIN IMMEDIATE` so two workers never claim the same row.
+ *
+ * "Next" is fair between users: the user with the fewest jobs running right now goes first, then
+ * the oldest job. Without that, one account that queues its full allowance of long videos would
+ * hold every worker slot while everybody else waits. It never idles a slot, though: a user who is
+ * alone in the queue still gets all of them.
  */
 export function claimNextJob(
   db: Db,
@@ -52,14 +67,22 @@ export function claimNextJob(
   options: ClaimOptions = {},
 ): GenerationRow | null {
   const maxAttempts = options.maxAttempts ?? getEnv().MAX_ATTEMPTS;
-  const claimable = or(
-    eq(generations.status, 'queued'),
-    and(
-      eq(generations.status, 'processing'),
-      or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
-      lt(generations.attempts, maxAttempts),
+  const claimable = and(
+    or(
+      eq(generations.status, 'queued'),
+      and(
+        eq(generations.status, 'processing'),
+        or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
+        lt(generations.attempts, maxAttempts),
+      ),
     ),
+    notExcluded(options.excludeIds),
   );
+  // Jobs of the same owner that a worker is actively running (live lease). An expired lease is an
+  // orphan waiting for a taker, not load.
+  const runningForOwner = sql<number>`(select count(*) from ${generations} as running
+    where running.user_id = ${generations.userId}
+      and running.status = 'processing' and running.lease_until >= ${now})`;
   // An idle runner asks every second. A plain read answers "nothing to do" without taking the
   // write lock that every claim needs.
   if (!db.select({ id: generations.id }).from(generations).where(claimable).limit(1).get()) {
@@ -70,7 +93,7 @@ export function claimNextJob(
       .select({ id: generations.id })
       .from(generations)
       .where(claimable)
-      .orderBy(asc(generations.createdAt), asc(generations.id))
+      .orderBy(asc(runningForOwner), asc(generations.createdAt), asc(generations.id))
       .limit(1)
       .get();
     if (!candidate) return null;
@@ -303,11 +326,13 @@ export function releaseJob(db: Db, id: string, workerId: string): boolean {
 }
 
 /**
- * Hands back every job `workerId` still owns, in one statement: what a process does as it exits,
- * when nothing asynchronous can run any more, so the next worker resumes at once instead of after
- * the lease runs out. Returns how many jobs it released.
+ * Hands back every job the given worker id(s) still own, in one statement: what a process does as
+ * it exits, when nothing asynchronous can run any more, so the next worker resumes at once instead
+ * of after the lease runs out. Returns how many jobs it released.
  */
-export function releaseWorkerJobs(db: Db, workerId: string): number {
+export function releaseWorkerJobs(db: Db, workerIds: string | readonly string[]): number {
+  const ids = typeof workerIds === 'string' ? [workerIds] : workerIds;
+  if (ids.length === 0) return 0;
   return db
     .update(generations)
     .set({
@@ -317,7 +342,7 @@ export function releaseWorkerJobs(db: Db, workerId: string): number {
       attempts: sql`max(${generations.attempts} - 1, 0)`,
       updatedAt: Date.now(),
     })
-    .where(ownedBy(workerId))
+    .where(and(eq(generations.status, 'processing'), inArray(generations.workerId, ids)))
     .returning({ id: generations.id })
     .all().length;
 }
@@ -325,6 +350,8 @@ export function releaseWorkerJobs(db: Db, workerId: string): number {
 export interface RequeueOptions {
   /** Default `MAX_ATTEMPTS`. */
   maxAttempts?: number;
+  /** Generations the caller is still running itself; see {@link ClaimOptions.excludeIds}. */
+  excludeIds?: readonly string[];
 }
 
 /**
@@ -340,6 +367,7 @@ export function requeueStale(
   const expired = and(
     eq(generations.status, 'processing'),
     or(isNull(generations.leaseUntil), lt(generations.leaseUntil, now)),
+    notExcluded(options.excludeIds),
   );
   if (!db.select({ id: generations.id }).from(generations).where(expired).limit(1).get()) return 0;
   return withTx(db, (tx) => {

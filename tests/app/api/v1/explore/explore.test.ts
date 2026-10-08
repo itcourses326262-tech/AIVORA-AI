@@ -6,7 +6,7 @@ import { generations, users } from '@/server/db/schema';
 import { freshDb } from '../../../../helpers/db';
 import { createAsset, createGeneration, createUser } from '../../../../helpers/factories';
 import { invokeRoute } from '../../../../helpers/http';
-import { caller, routeTestState, type ErrorBody } from '../generations/support';
+import { caller, routeTestState, stubEnv, type ErrorBody } from '../generations/support';
 
 const harness = freshDb();
 routeTestState();
@@ -178,21 +178,61 @@ describe('GET /api/v1/explore', () => {
     expect(result.headers.get('set-cookie')).toBeNull();
   });
 
-  it('allows 60 requests a minute per address and then answers 429 with Retry-After', async () => {
-    for (let index = 0; index < 60; index += 1) {
-      expect((await explore()).status).toBe(200);
-    }
-    const blocked = await explore();
-    expect(blocked.status).toBe(429);
-    expect(blocked.json.error.code).toBe('rate_limited');
-    expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
-    expect(blocked.headers.get('x-ratelimit-limit')).toBe('60');
-  });
+  describe('rate limits', () => {
+    const from = (address: string) => ({ 'x-forwarded-for': address });
 
-  it('rate limits by address before anything else, so an anonymous flood never reaches the database', async () => {
-    for (let index = 0; index < 61; index += 1) await explore();
-    // Even a request with bad credentials is answered by the limiter, not by authentication.
-    const flood = await explore({}, { authorization: 'Bearer avk_garbage_garbage' });
-    expect(flood.status).toBe(429);
+    it('allows 60 requests a minute per client address and then answers 429 with Retry-After', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 60; index += 1) {
+        expect((await explore({}, from('203.0.113.7'))).status).toBe(200);
+      }
+      const blocked = await explore({}, from('203.0.113.7'));
+      expect(blocked.status).toBe(429);
+      expect(blocked.json.error.code).toBe('rate_limited');
+      expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(blocked.headers.get('x-ratelimit-limit')).toBe('60');
+    });
+
+    it('limits each address on its own: one visitor cannot use up the budget of the others', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 61; index += 1) await explore({}, from('203.0.113.7'));
+      expect((await explore({}, from('203.0.113.7'))).status).toBe(429);
+      expect((await explore({}, from('203.0.113.8'))).status).toBe(200);
+      expect((await explore({}, from('2001:db8:1:2::9'))).status).toBe(200);
+    });
+
+    it('rate limits by address before anything else, so an anonymous flood never reaches the database', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 61; index += 1) await explore({}, from('203.0.113.7'));
+      // Even a request with bad credentials is answered by the limiter, not by authentication.
+      const flood = await explore(
+        {},
+        { ...from('203.0.113.7'), authorization: 'Bearer avk_garbage_garbage' },
+      );
+      expect(flood.status).toBe(429);
+    });
+
+    it('does not let a single caller switch the feed off for everybody when the address is unknown (no trusted proxy)', async () => {
+      // TRUST_PROXY=false: every visitor is the one address "unknown", and a forwarded address is
+      // never believed. 62 requests (the old per-address budget plus two) must all be served.
+      for (let index = 0; index < 62; index += 1) {
+        const result = await explore({}, from(`198.51.100.${index + 1}`));
+        expect(result.status, `request ${index + 1}`).toBe(200);
+        expect(result.headers.get('x-ratelimit-limit')).toBe('1200');
+      }
+      // A visitor who has not made a request yet is served as well.
+      expect((await explore({}, from('198.51.100.250'))).status).toBe(200);
+    });
+
+    it('still stops a flood when the address is unknown, at the larger shared budget', async () => {
+      for (let index = 0; index < 1200; index += 1) {
+        expect((await explore()).status, `request ${index + 1}`).toBe(200);
+      }
+      const blocked = await explore();
+      expect(blocked.status).toBe(429);
+      expect(blocked.json.error.code).toBe('rate_limited');
+      expect(blocked.headers.get('x-ratelimit-limit')).toBe('1200');
+      expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+    }, 60_000); // 1201 real requests: slow only on a machine that is busy with other work
   });
 });

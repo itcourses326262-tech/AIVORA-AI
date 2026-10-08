@@ -37,6 +37,7 @@ export interface JobRuntime {
   providers: { getProvider(id: ProviderId): GenerationProvider };
   env: Env;
   log: Logger;
+  /** The identity of THIS claim, as written to `generations.workerId` (see `JobRunner.workerId`). */
   workerId: string;
   tuning: RunnerTuning;
   now(): number;

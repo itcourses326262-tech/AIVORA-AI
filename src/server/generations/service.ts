@@ -16,6 +16,7 @@ import { assets, creditLedger, generations, type GenerationRow } from '@/server/
 import { validateGenerationRequest } from '@/lib/validation/generation';
 import { getEnv, type Env } from '@/server/env';
 import { wakeWorkers } from '@/server/jobs/wake';
+import { getLogger } from '@/server/logger';
 import { moderatePrompt } from '@/server/moderation';
 import { isProviderAvailable } from '@/server/providers/registry';
 import { deleteAssetObjects } from '@/server/uploads';
@@ -54,6 +55,24 @@ export interface ListPublicGenerationsQuery {
 }
 
 const notFound = () => AppError.of('not_found', 'Generation not found');
+
+/**
+ * A cancel refunds in full (section 8), including after the provider already accepted the job and
+ * may bill us for it. That is the documented policy, so this does not change it; it makes the
+ * pattern visible, because an account that creates and cancels in a loop shows up as a high ratio
+ * of these lines to `Generation succeeded` ones. No prompt, only ids.
+ */
+function noteCancelAfterSubmit(row: GenerationRow): void {
+  if (row.status !== 'processing' || row.providerJobId === null) return;
+  getLogger().info('Canceled a generation after it was submitted to the provider', {
+    component: 'generations',
+    generationId: row.id,
+    userId: row.userId,
+    modelId: row.modelId,
+    provider: row.provider,
+    cost: row.cost,
+  });
+}
 
 function ownedRow(db: Db, userId: string, id: string): GenerationRow {
   const row = isValidId(id, 'gen') ? findOwnedGenerationRow(db, userId, id) : undefined;
@@ -200,9 +219,14 @@ export async function createGeneration(
   }
   if (request.inputAssetId !== undefined) assertOwnedInputImage(db, userId, request.inputAssetId);
 
-  // Only the prompt is moderated: a negative prompt such as "nsfw, nude" is exactly what users
-  // should be able to write.
-  const verdict = await moderatePrompt(prompt);
+  // Only the prompt is moderated like a prompt: a negative prompt such as "nsfw, nude" is exactly
+  // what users should be able to write. The moderation module still gets it, and whether the request
+  // edits an uploaded photo, for the two cases it judges in context: a negative prompt that steers
+  // toward nudity by excluding clothing, and nudity or undress words applied to a real photo.
+  const verdict = await moderatePrompt(prompt, {
+    negativePrompt,
+    hasInputImage: request.inputAssetId !== undefined,
+  });
   if (!verdict.allowed) {
     throw AppError.of('moderation_blocked', verdict.reason ?? 'This prompt is not allowed', {
       category: verdict.category,
@@ -308,18 +332,20 @@ export async function updateGeneration(
  */
 export async function deleteGeneration(userId: string, id: string): Promise<void> {
   const db = getDb();
-  const outputs = withTx(db, (tx) => {
+  const { outputs, canceled } = withTx(db, (tx) => {
     const row = findOwnedGenerationRow(tx, userId, id);
     if (!row) throw notFound();
-    if (row.status === 'queued' || row.status === 'processing') markCanceled(tx, userId, id);
+    const wasActive = row.status === 'queued' || row.status === 'processing';
+    const canceled = wasActive && markCanceled(tx, userId, id) ? row : undefined;
     const stored = tx.select().from(assets).where(eq(assets.generationId, id)).all();
     tx.update(creditLedger)
       .set({ generationId: null })
       .where(eq(creditLedger.generationId, id))
       .run();
     tx.delete(generations).where(eq(generations.id, id)).run();
-    return stored;
+    return { outputs: stored, canceled };
   });
+  if (canceled) noteCancelAfterSubmit(canceled);
   await deleteAssetObjects(outputs);
 }
 
@@ -329,17 +355,18 @@ export async function deleteGeneration(userId: string, id: string): Promise<void
  */
 export async function cancelGeneration(userId: string, id: string): Promise<GenerationDTO> {
   const db = getDb();
-  const row = withTx(db, (tx) => {
+  const { row, canceled } = withTx(db, (tx) => {
     const current = findOwnedGenerationRow(tx, userId, id);
     if (!current) throw notFound();
-    if (current.status === 'canceled') return current;
+    if (current.status === 'canceled') return { row: current, canceled: undefined };
     if (!markCanceled(tx, userId, id)) {
       throw AppError.of('conflict', `A ${current.status} generation cannot be canceled`, {
         status: current.status,
       });
     }
-    return findGenerationRow(tx, id) ?? current;
+    return { row: findGenerationRow(tx, id) ?? current, canceled: current };
   });
+  if (canceled) noteCancelAfterSubmit(canceled);
   return toDTO(db, row);
 }
 

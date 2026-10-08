@@ -111,6 +111,53 @@ describe('listApiKeys', () => {
     expect(list[0]?.id).toBe(second.record.id);
     expect(await listApiKeys('usr_nobody')).toEqual([]);
   });
+
+  it('never lets revoked keys push an active key out of the list', async () => {
+    const user = createUser(harness.db);
+    const longLived = await createApiKey(user.id, 'long lived');
+    // A CI job that rotates its key: far more revoked keys than the list can show.
+    for (let cycle = 0; cycle < 105; cycle += 1) {
+      const rotated = await createApiKey(user.id, `rotated ${cycle}`);
+      await revokeApiKey(user.id, rotated.record.id);
+    }
+
+    const list = await listApiKeys(user.id);
+    expect(list.length).toBeLessThanOrEqual(100);
+    // The oldest key of all is still there, and it is the one that can be revoked from the UI.
+    const found = list.find((key) => key.id === longLived.record.id);
+    expect(found).toBeDefined();
+    expect(found?.revokedAt).toBeUndefined();
+    expect(list.filter((key) => key.revokedAt === undefined)).toHaveLength(1);
+    // The rest is the most recent revoked keys, newest first.
+    expect(list[0]?.name).toBe('rotated 104');
+    expect(list.at(-1)?.id).toBe(longLived.record.id);
+    await revokeApiKey(user.id, longLived.record.id);
+    expect((await listApiKeys(user.id)).some((key) => key.id === longLived.record.id)).toBe(false);
+  });
+
+  it('shows every active key (up to the limit of 20) plus the most recent revoked ones, newest first', async () => {
+    const user = createUser(harness.db);
+    const active: string[] = [];
+    for (let index = 0; index < MAX_ACTIVE_API_KEYS; index += 1) {
+      active.push((await createApiKey(user.id, `active ${index}`)).record.id);
+    }
+    for (let index = 0; index < 120; index += 1) {
+      // Revoke one, replace it: the number of active keys stays at the limit.
+      const victim = active.shift();
+      if (victim === undefined) throw new Error('no active key');
+      await revokeApiKey(user.id, victim);
+      active.push((await createApiKey(user.id, `replacement ${index}`)).record.id);
+    }
+
+    const list = await listApiKeys(user.id);
+    expect(list).toHaveLength(100);
+    expect(new Set(list.filter((key) => key.revokedAt === undefined).map((key) => key.id))).toEqual(
+      new Set(active),
+    );
+    const created = list.map((key) => key.createdAt);
+    expect([...created].sort((a, b) => b - a)).toEqual(created);
+    expect(list.filter((key) => key.revokedAt !== undefined)).toHaveLength(80);
+  });
 });
 
 describe('revokeApiKey', () => {

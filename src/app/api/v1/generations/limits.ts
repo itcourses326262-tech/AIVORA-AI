@@ -38,6 +38,19 @@ const SEARCH_LIMIT = { name: 'generations-search', limit: 60, windowSec: 60 } as
 /** The public feed: no account, so per client address. */
 export const EXPLORE_LIMIT = { name: 'explore', limit: 60, windowSec: 60, by: 'ip' } as const;
 
+/**
+ * The feed's budget when the client address is `unknown`, i.e. no trusted proxy (`TRUST_PROXY`
+ * unset, section 16 "Client address"): every visitor shares this one bucket, so a budget sized for
+ * one client would let anybody switch the feed off for everybody. The answer is an indexed read the
+ * browser or a CDN may cache for 15 s, so this only has to stop a flood, not meter a person.
+ */
+export const EXPLORE_SHARED_LIMIT = {
+  name: 'explore-shared',
+  limit: 1200,
+  windowSec: 60,
+  by: 'ip',
+} as const;
+
 /** The extra budget a text search spends on top of the read limit. */
 export function enforceSearchLimit(userId: string): void {
   const hit = getRateLimiter().hit(

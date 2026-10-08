@@ -96,6 +96,10 @@ describe('PATCH /api/v1/account', () => {
       { name: '   ' },
       { name: 'x'.repeat(500) },
       { name: 'a‮b' },
+      { name: '\u200b' },
+      { name: '\u00ad\u200c' },
+      { name: '\u2800' },
+      { name: '\u3164' },
       { locale: 'fr' },
       { name: 5 },
     ]) {

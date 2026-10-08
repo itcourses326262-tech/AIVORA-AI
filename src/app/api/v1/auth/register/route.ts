@@ -1,3 +1,4 @@
+import { addressRoute } from '@/server/auth/address-route';
 import { toUserDTO } from '@/server/auth/dto';
 import { sessionHeaders, retireRequestSession } from '@/server/auth/http';
 import { registerSchema, AUTH_BODY_LIMIT } from '@/server/auth/schemas';
@@ -5,8 +6,7 @@ import { getUserById, registerUser } from '@/server/auth/users';
 import { localeFromHeaders } from '@/lib/i18n';
 import { AppError } from '@/lib/errors';
 import { created } from '@/server/http/respond';
-import { route } from '@/server/http/route';
-import { REGISTER_RATE_LIMIT } from '../rate-limits';
+import { REGISTER_RATE_LIMIT, REGISTER_SHARED_RATE_LIMIT } from '../rate-limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,8 +17,9 @@ export const dynamic = 'force-dynamic';
  * transaction as the account. `csrf: true` because there is no session yet to trigger the
  * same-origin check: browsers must send a matching `Origin`.
  */
-export const POST = route(
-  { auth: 'none', csrf: true, rateLimit: REGISTER_RATE_LIMIT, maxBodyBytes: AUTH_BODY_LIMIT },
+export const POST = addressRoute(
+  { auth: 'none', csrf: true, maxBodyBytes: AUTH_BODY_LIMIT },
+  { perAddress: REGISTER_RATE_LIMIT, sharedAddress: REGISTER_SHARED_RATE_LIMIT },
   async (ctx) => {
     const body = await ctx.body(registerSchema);
     const locale = body.locale ?? localeFromHeaders(ctx.req.headers);
@@ -31,7 +32,7 @@ export const POST = route(
     const row = getUserById(result.user.id);
     if (!row) throw AppError.of('internal', 'Account missing right after registration');
     return created(toUserDTO(row), {
-      headers: sessionHeaders(result.token, result.expiresAt, row.locale),
+      headers: sessionHeaders(result.token, row.locale),
     });
   },
 );

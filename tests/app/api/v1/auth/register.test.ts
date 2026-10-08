@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { POST as register } from '@/app/api/v1/auth/register/route';
 import { GET as me } from '@/app/api/v1/auth/me/route';
 import { creditLedger, sessions, users } from '@/server/db/schema';
+import { SESSION_ABSOLUTE_MAX_MS } from '@/server/auth/sessions';
+import { getRateLimiter } from '@/server/security/rate-limit';
 import { freshDb } from '../../../../helpers/db';
 import { invokeRoute } from '../../../../helpers/http';
 import { createUser, createSession } from '../../../../helpers/factories';
@@ -48,14 +50,18 @@ describe('POST /api/v1/auth/register', () => {
     });
     expect(result.text).not.toMatch(/passwordHash|scrypt|password/i);
     expect(result.headers.get('cache-control')).toBe('no-store');
-    expect(result.headers.get('x-ratelimit-limit')).toBe('5');
+    expect(result.headers.get('x-ratelimit-limit')).toBe('60'); // no proxy: the shared budget
 
     const session = cookieNamed(result, 'aivore_session');
     expect(session.value).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(session.attributes.has('httponly')).toBe(true);
     expect(session.attributes.get('samesite')).toBe('Lax');
     expect(session.attributes.get('path')).toBe('/');
-    expect(Number(session.attributes.get('max-age'))).toBeGreaterThan(29 * 24 * 3600);
+    // The cookie outlives the sliding 30 day session: it lasts until the 180 day absolute cap, so
+    // an active user is never signed out by the browser (the database enforces the idle expiry).
+    expect(
+      Math.abs(Number(session.attributes.get('max-age')) - SESSION_ABSOLUTE_MAX_MS / 1000),
+    ).toBeLessThan(10);
     const locale = cookieNamed(result, 'aivore_locale');
     expect(locale.value).toBe('en');
     expect(locale.attributes.has('httponly')).toBe(false); // readable by the UI on purpose
@@ -127,6 +133,8 @@ describe('POST /api/v1/auth/register', () => {
       [{ ...valid, password: 12345678 }, 'password'],
       [{ ...valid, password: 'p'.repeat(300) }, 'password'],
       [{ ...valid, name: 'n'.repeat(500) }, 'name'],
+      [{ ...valid, name: '\u200b' }, 'name'],
+      [{ ...valid, name: '\u3164\u2800' }, 'name'],
     ];
     for (const [body, path] of cases) {
       const result = await post(body);
@@ -168,23 +176,78 @@ describe('POST /api/v1/auth/register', () => {
     expect(result.status).toBe(413);
   });
 
-  it('allows 5 registrations per hour per address and then answers 429 with Retry-After', async () => {
-    for (let index = 0; index < 5; index += 1) {
-      const result = await post({ ...valid, email: `user${index}@example.com` });
-      expect(result.status).toBe(201);
-      expect(result.headers.get('x-ratelimit-remaining')).toBe(String(4 - index));
-    }
-    const blocked = await post({ ...valid, email: 'user6@example.com' });
-    expect(blocked.status).toBe(429);
-    expect(blocked.json.error.code).toBe('rate_limited');
-    expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(3000);
-    expect(harness.db.select().from(users).all()).toHaveLength(5);
-  });
+  describe('rate limits', () => {
+    const fromAddress = (ip: string) => browser(undefined, { 'x-forwarded-for': ip });
 
-  it('counts failed attempts against the budget too (enumeration stays expensive)', async () => {
-    await post(valid);
-    for (let index = 0; index < 4; index += 1) expect((await post(valid)).status).toBe(409);
-    expect((await post(valid)).status).toBe(429);
+    it('behind a trusted proxy: 5 registrations per hour per address, then 429 with Retry-After', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 5; index += 1) {
+        const result = await post(
+          { ...valid, email: `user${index}@example.com` },
+          fromAddress('203.0.113.7'),
+        );
+        expect(result.status).toBe(201);
+        expect(result.headers.get('x-ratelimit-limit')).toBe('5');
+        expect(result.headers.get('x-ratelimit-remaining')).toBe(String(4 - index));
+      }
+      const blocked = await post(
+        { ...valid, email: 'user6@example.com' },
+        fromAddress('203.0.113.7'),
+      );
+      expect(blocked.status).toBe(429);
+      expect(blocked.json.error.code).toBe('rate_limited');
+      expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(3000);
+      expect(harness.db.select().from(users).all()).toHaveLength(5);
+      // Another address has its own budget.
+      const other = await post(
+        { ...valid, email: 'user7@example.com' },
+        fromAddress('203.0.113.8'),
+      );
+      expect(other.status).toBe(201);
+    });
+
+    it('behind a trusted proxy: failed attempts count against the budget too (enumeration stays expensive)', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      await post(valid, fromAddress('203.0.113.7'));
+      for (let index = 0; index < 4; index += 1) {
+        expect((await post(valid, fromAddress('203.0.113.7'))).status).toBe(409);
+      }
+      expect((await post(valid, fromAddress('203.0.113.7'))).status).toBe(429);
+    });
+
+    it('without a trusted proxy the budget is one generous shared bucket, not 5 an hour for everybody', async () => {
+      // Five sign-ups in an hour, "from different addresses" (the headers are ignored): all fine.
+      for (let index = 0; index < 6; index += 1) {
+        const result = await post(
+          { ...valid, email: `user${index}@example.com` },
+          fromAddress(`198.51.100.${index + 1}`),
+        );
+        expect(result.status).toBe(201);
+        expect(result.headers.get('x-ratelimit-limit')).toBe('60');
+      }
+      // The shared bucket is still a ceiling on how many free-credit accounts one hour can mint.
+      for (let hit = 0; hit < 54; hit += 1)
+        getRateLimiter().hit('auth-register-shared:ip:unknown', 60, 3600);
+      const blocked = await post({ ...valid, email: 'late@example.com' });
+      expect(blocked.status).toBe(429);
+      expect(blocked.json.error.code).toBe('rate_limited');
+      expect(harness.db.select().from(users).all()).toHaveLength(6);
+    });
+
+    it('a request refused as cross-site does not spend the budget', async () => {
+      stubEnv({ TRUST_PROXY: 'true' });
+      for (let index = 0; index < 8; index += 1) {
+        const result = await post(valid, {
+          'x-forwarded-for': '203.0.113.7',
+          ...(index % 2 === 0 ? {} : { origin: 'https://evil.example' }),
+        });
+        expect(result.status).toBe(403);
+        expect(result.headers.get('x-ratelimit-limit')).toBeNull();
+      }
+      const ok = await post(valid, fromAddress('203.0.113.7'));
+      expect(ok.status).toBe(201);
+      expect(ok.headers.get('x-ratelimit-remaining')).toBe('4');
+    });
   });
 
   it('is not limited when RATE_LIMIT_DISABLED=true (end-to-end tests)', async () => {

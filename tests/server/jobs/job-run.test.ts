@@ -638,6 +638,39 @@ describe('timeouts', () => {
     expect(h.balance()).toBe(50);
   });
 
+  it('fails and refunds a timed-out job BEFORE asking the provider to cancel, and does not wait for a cancel that never answers', async () => {
+    const statusWhenCancelStarted: string[] = [];
+    let cancelSignal: AbortSignal | undefined;
+    const h = harness({
+      provider: fakeProvider({
+        submit: () => asyncSubmit(),
+        poll: () => running(10),
+        cancel: (_id, ctx) => {
+          cancelSignal = ctx.signal;
+          statusWhenCancelStarted.push(h.row(job.id).status);
+          return new Promise<void>(() => undefined); // ignores its signal, never answers
+        },
+      }),
+      env: { GENERATION_TIMEOUT_SEC_IMAGE: '10' },
+    });
+    const job = h.enqueue({ cost: 3 });
+    const startedAt = h.clock.now();
+    await h.clock.runUntil(h.runner.tick());
+
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'timeout' });
+    expect(h.balance()).toBe(50);
+    expectConsistentLedger(h.db, h.user.id, 50);
+    // The outcome was recorded before the provider was bothered...
+    expect(statusWhenCancelStarted).toEqual(['failed']);
+    // ...and the run stopped waiting for it after the 10 s limit (deadline 10 s + cancel 10 s).
+    expect(h.clock.now() - startedAt).toBe(20_000);
+    expect(cancelSignal?.aborted).toBe(true);
+    expect(h.clock.pending()).toEqual([]);
+    expect(h.logs.lines.some((line) => line.msg === 'Could not cancel the upstream job')).toBe(
+      true,
+    );
+  });
+
   it('tolerates a provider that ignores the abort and answers late', async () => {
     const release = deferred<SubmitResult>();
     const h = harness({
@@ -954,6 +987,54 @@ describe('canceling while a job runs', () => {
     expect(h.logs.lines.some((line) => line.msg === 'Could not cancel the upstream job')).toBe(
       true,
     );
+  });
+
+  it('gives the worker slot back when the upstream cancel never answers, with the refund already made', async () => {
+    let cancelStartedAt = 0;
+    const h = harness({
+      provider: fakeProvider({
+        submit: () => asyncSubmit(),
+        poll: () => running(),
+        cancel: () => {
+          cancelStartedAt = h.clock.now();
+          return new Promise<void>(() => undefined);
+        },
+      }),
+      env: { WORKER_CONCURRENCY: '1' },
+    });
+    const job = h.enqueue({ cost: 4 });
+    h.provider.poll.mockImplementation(async () => {
+      markCanceled(h.db, h.user.id, job.id);
+      return running();
+    });
+    await h.clock.runUntil(h.runner.tick());
+
+    expect(h.row(job.id).status).toBe('canceled');
+    expect(h.balance()).toBe(50);
+    expect(h.provider.cancel).toHaveBeenCalledTimes(1);
+    expect(h.clock.now() - cancelStartedAt).toBe(10_000);
+    expect(h.clock.pending()).toEqual([]);
+
+    // The only slot is free again.
+    h.provider.submit.mockImplementation(async (input) => ({
+      mode: 'sync',
+      outputs: [tinyOutput(input.model.kind)],
+    }));
+    const next = h.enqueue();
+    await h.clock.runUntil(h.runner.tick());
+    expect(h.row(next.id).status).toBe('succeeded');
+  });
+
+  it('does not cancel upstream twice and does not leak a timer when the cancel answers at once', async () => {
+    const h = harness({ provider: pollingProvider([running()], { cancel: true }) });
+    const job = h.enqueue();
+    h.provider.poll.mockImplementation(async () => {
+      markCanceled(h.db, h.user.id, job.id);
+      return running();
+    });
+    await runOne(h, job.id);
+    expect(h.provider.cancel).toHaveBeenCalledTimes(1);
+    expect(h.clock.pending()).toEqual([]);
   });
 
   it('treats a deleted generation like a canceled one', async () => {

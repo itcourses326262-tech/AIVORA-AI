@@ -34,7 +34,14 @@ vi.mock('node:crypto', async (importOriginal) => {
   };
 });
 
-import { hashPassword } from '@/server/auth/password';
+import { hashPassword, verifyAgainstDummy } from '@/server/auth/password';
+import { loginUser } from '@/server/auth/users';
+import { freshDb } from '../../helpers/db';
+import { createUser } from '../../helpers/factories';
+import { cleanSecurityState } from './support';
+
+const harness = freshDb();
+cleanSecurityState();
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -75,5 +82,53 @@ describe('hash concurrency gate', () => {
       await settle();
     }
     await expect(Promise.all(accepted)).resolves.toHaveLength(67);
+  });
+});
+
+/** Runs the pending (mocked) derivations until `promise` settles; the promise never rejects here. */
+async function finish<T>(promise: Promise<T>): Promise<T> {
+  let done = false;
+  const tracked = promise.finally(() => {
+    done = true;
+  });
+  while (!done) {
+    releaseAll();
+    await settle();
+  }
+  return tracked;
+}
+
+/** A well-formed stored hash whose key is not what the mocked scrypt derives (seven bytes). */
+function storedHash(): string {
+  const salt = Buffer.alloc(16, 1).toString('base64url');
+  return ['scrypt', 2 ** 15, 8, 2, salt, Buffer.alloc(64, 9).toString('base64url')].join('$');
+}
+
+describe('the dummy hash behind unknown-email logins', () => {
+  it('is not poisoned by a first use that the saturated gate refused', async () => {
+    createUser(harness.db, { email: 'member@example.com', passwordHash: storedHash() });
+    const accepted = Array.from({ length: 3 + 64 }, () => hashPassword('queued-password-3'));
+    await settle();
+
+    // During the burst nothing can be hashed, so the very first dummy hash is refused ...
+    const during = await verifyAgainstDummy('guess-guess-1').catch((error: unknown) => error);
+    expect(during).toBeInstanceOf(AppError);
+    expect((during as AppError).code).toBe('rate_limited');
+    while (control.pending.length > 0) {
+      releaseAll();
+      await settle();
+    }
+    await Promise.all(accepted);
+
+    // ... and once the gate is idle again unknown emails must answer exactly like wrong
+    // passwords. A remembered failure made them answer 429 forever: an account-existence oracle.
+    for (const email of ['ghost@example.com', 'other-ghost@example.com', 'member@example.com']) {
+      const outcome = await finish(
+        loginUser({ email, password: 'guess-guess-1' }).catch((error: unknown) => error),
+      );
+      expect(outcome, email).toBeInstanceOf(AppError);
+      expect((outcome as AppError).code, email).toBe('unauthorized');
+    }
+    await expect(finish(verifyAgainstDummy('guess-guess-1'))).resolves.toBeUndefined();
   });
 });

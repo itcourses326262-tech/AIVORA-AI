@@ -66,23 +66,25 @@ function forwardedIp(header: string, hops: number): string | null {
  * - `TRUST_PROXY=false` (default): headers are never believed, because any client can send
  *   `X-Forwarded-For`. Next.js 16 does not expose the socket address to route handlers either
  *   (it only fills `X-Forwarded-For` when the client sent none, which cannot be told apart), so
- *   the result is `req.ip` when a platform provides one and otherwise `'unknown'`, a single
- *   shared bucket. Run behind a reverse proxy and set `TRUST_PROXY=true` for per-client limits.
+ *   the result is `req.ip` when a platform provides one and otherwise `'unknown'`, which means
+ *   "the app cannot tell its clients apart" (see `addressRoute` for how limits cope). Run behind
+ *   a reverse proxy and set `TRUST_PROXY=true` for per-client limits.
  * - `TRUST_PROXY=true`: the proxy chain is trusted to append the address it saw to
  *   `X-Forwarded-For`. The client is the entry `TRUSTED_PROXY_HOPS` (default 1) positions from the
  *   RIGHT, never the left-most: everything to the left of the last trusted proxy is client-supplied
- *   and spoofable. Without that header `X-Real-IP` (single value, set by the proxy) is used.
- *   Invalid values fall through to `'unknown'` rather than becoming a bucket key.
+ *   and spoofable. Invalid values fall through to `'unknown'` rather than becoming a bucket key.
+ *
+ * Only `X-Forwarded-For` is read, on purpose. Next.js fills it with the socket address (the
+ * proxy's own) whenever the proxy sent none, so an `X-Real-IP` fallback could never be reached in
+ * production, and where it could (other runtimes) the header is client-controlled unless the proxy
+ * overwrites it. A proxy that only sets `X-Real-IP` therefore puts every client in the proxy's
+ * bucket: configure it to append to `X-Forwarded-For`.
  */
 export function getClientIp(req: Request): string {
   const env = getEnv();
   if (!env.TRUST_PROXY) return connectionIp(req) ?? UNKNOWN_IP;
 
   const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const ip = forwardedIp(forwarded, env.TRUSTED_PROXY_HOPS);
-    if (ip) return ip;
-  }
-  const real = req.headers.get('x-real-ip');
-  return (real ? normalizeIp(real) : null) ?? connectionIp(req) ?? UNKNOWN_IP;
+  const ip = forwarded ? forwardedIp(forwarded, env.TRUSTED_PROXY_HOPS) : null;
+  return ip ?? connectionIp(req) ?? UNKNOWN_IP;
 }

@@ -1,7 +1,7 @@
+import { addressRoute } from '@/server/auth/address-route';
 import { clearSessionCookie, sessionTokenFromCookieHeader } from '@/server/auth/cookies';
 import { logout } from '@/server/auth/sessions';
 import { noContent } from '@/server/http/respond';
-import { route } from '@/server/http/route';
 import { LOGOUT_RATE_LIMIT } from '../rate-limits';
 
 export const runtime = 'nodejs';
@@ -12,8 +12,9 @@ export const dynamic = 'force-dynamic';
  * unknown session it still clears the cookie. It reads the cookie itself instead of requiring
  * authentication so an expired session can always be cleaned up.
  */
-export const POST = route(
-  { auth: 'none', csrf: true, rateLimit: LOGOUT_RATE_LIMIT },
+export const POST = addressRoute(
+  { auth: 'none', csrf: true },
+  { perAddress: LOGOUT_RATE_LIMIT, sharedAddress: false },
   async (ctx) => {
     const token = sessionTokenFromCookieHeader(ctx.req.headers.get('cookie'));
     if (token) await logout(token);

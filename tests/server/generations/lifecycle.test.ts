@@ -136,6 +136,125 @@ describe('claimNextJob', () => {
   });
 });
 
+describe('claimNextJob between users', () => {
+  const VIDEO = {
+    tool: 'text-to-video',
+    modelId: 'aivore-demo-video',
+    params: { aspectRatio: '16:9', count: 1, durationSec: 5, resolution: '480p' },
+  } as const;
+
+  it('does not let one user take every slot while another user waits', () => {
+    const { db, user, close } = setup(100);
+    const other = seedUser(db, { creditBalance: 100 });
+    const videos = Array.from({ length: 4 }, (_, index) =>
+      queue(db, user, { ...VIDEO, createdAt: NOW + index }),
+    );
+    const image = queue(db, other, { createdAt: NOW + 10 });
+
+    const order = [1, 2, 3, 4, 5].map((n) => claimNextJob(db, `w${n}`, LEASE, NOW + 20)?.id);
+    // The first claim is the oldest job. With one video running, the other user has the fewer
+    // running jobs and goes next; after that both have one running and age decides again.
+    expect(order).toEqual([videos[0]?.id, image.id, videos[1]?.id, videos[2]?.id, videos[3]?.id]);
+    close();
+  });
+
+  it('still gives a user who is alone every slot', () => {
+    const { db, user, close } = setup(100);
+    const jobs = Array.from({ length: 3 }, (_, index) =>
+      queue(db, user, { createdAt: NOW + index }),
+    );
+    expect([1, 2, 3].map((n) => claimNextJob(db, `w${n}`, LEASE, NOW + 5)?.id)).toEqual(
+      jobs.map((job) => job.id),
+    );
+    close();
+  });
+
+  it('falls back to the oldest job when the users have the same load', () => {
+    const { db, user, close } = setup();
+    const other = seedUser(db, { creditBalance: 50 });
+    const younger = queue(db, user, { createdAt: NOW + 5 });
+    const older = queue(db, other, { createdAt: NOW });
+    expect(claimNextJob(db, 'w1', LEASE, NOW + 10)?.id).toBe(older.id);
+    expect(claimNextJob(db, 'w2', LEASE, NOW + 10)?.id).toBe(younger.id);
+    close();
+  });
+
+  it('counts only jobs that are really running, not orphans whose lease ran out', () => {
+    const { db, user, close } = setup(100);
+    const other = seedUser(db, { creditBalance: 100 });
+    // The first user has an orphan (expired lease, the oldest job) and a queued job: nothing of
+    // theirs is running, so the orphan must not count against them and is taken first.
+    const orphan = queue(db, user, {
+      status: 'processing',
+      attempts: 1,
+      workerId: 'gone',
+      leaseUntil: NOW - 1,
+      createdAt: NOW - 100,
+    });
+    const queuedOfFirst = queue(db, user, { createdAt: NOW });
+    const queuedOfSecond = queue(db, other, { createdAt: NOW + 1 });
+    expect(claimNextJob(db, 'w1', LEASE, NOW)?.id).toBe(orphan.id);
+    // Now the first user really runs one job, so the second user's job goes before their queued one.
+    expect(claimNextJob(db, 'w2', LEASE, NOW)?.id).toBe(queuedOfSecond.id);
+    expect(claimNextJob(db, 'w3', LEASE, NOW)?.id).toBe(queuedOfFirst.id);
+    close();
+  });
+});
+
+describe('jobs the caller says it is running itself', () => {
+  it('claimNextJob never takes an excluded job, queued or with a lease that only looks expired', () => {
+    const { db, user, close, row } = setup();
+    const mine = queue(db, user, { createdAt: NOW });
+    const next = queue(db, user, { createdAt: NOW + 1 });
+    claimNextJob(db, 'w1', LEASE, NOW);
+    // The lease lapsed (a stall): without the exclusion the same worker would claim it again.
+    expect(claimNextJob(db, 'w1', LEASE, NOW + LEASE + 1, { excludeIds: [mine.id] })?.id).toBe(
+      next.id,
+    );
+    expect(row(mine.id)).toMatchObject({ status: 'processing', attempts: 1 });
+    expect(claimNextJob(db, 'w1', LEASE, NOW + LEASE + 1, { excludeIds: [mine.id] })).toBeNull();
+    // Not excluded, it would be an ordinary takeover.
+    expect(claimNextJob(db, 'w1', LEASE, NOW + LEASE + 1)?.id).toBe(mine.id);
+    close();
+  });
+
+  it('claimNextJob does not claim an excluded job that was requeued meanwhile', () => {
+    const { db, user, close } = setup();
+    const job = queue(db, user);
+    expect(claimNextJob(db, 'w1', LEASE, NOW, { excludeIds: [job.id] })).toBeNull();
+    expect(claimNextJob(db, 'w1', LEASE, NOW, { excludeIds: [] })?.id).toBe(job.id);
+    close();
+  });
+
+  it('requeueStale leaves an excluded job in place and still recovers the others', () => {
+    const { db, user, close, row } = setup();
+    const alive = queue(db, user);
+    const orphan = queue(db, user);
+    claimNextJob(db, 'w1', LEASE, NOW);
+    claimNextJob(db, 'w1', LEASE, NOW);
+    expect(requeueStale(db, NOW + LEASE + 1, { maxAttempts: 3, excludeIds: [alive.id] })).toBe(1);
+    expect(row(alive.id)).toMatchObject({ status: 'processing', workerId: 'w1' });
+    expect(row(orphan.id)).toMatchObject({ status: 'queued', workerId: null });
+    close();
+  });
+
+  it('requeueStale does not fail an excluded job even when its attempts are used up', () => {
+    const { db, user, close, row } = setup();
+    const job = queue(db, user, {
+      status: 'processing',
+      attempts: 3,
+      workerId: 'w1',
+      leaseUntil: 1,
+    });
+    expect(requeueStale(db, NOW, { maxAttempts: 3, excludeIds: [job.id] })).toBe(0);
+    expect(row(job.id).status).toBe('processing');
+    expect(getBalance(db, user.id)).toBe(49);
+    expect(requeueStale(db, NOW, { maxAttempts: 3 })).toBe(1);
+    expect(row(job.id).status).toBe('failed');
+    close();
+  });
+});
+
 describe('extendLease', () => {
   it('moves the lease of the owner', () => {
     const { db, user, close, row } = setup();
@@ -688,6 +807,19 @@ describe('releaseWorkerJobs', () => {
     completeGeneration(db, job.id, 'w1', [persisted()]);
     expect(releaseWorkerJobs(db, 'w1')).toBe(0);
     expect(row(job.id).status).toBe('succeeded');
+    close();
+  });
+
+  it('takes several worker ids at once (a runner has one per claim), and none is fine', () => {
+    const { db, user, close, row } = setup();
+    const [a, b, c] = [queue(db, user), queue(db, user), queue(db, user)];
+    claimNextJob(db, 'w1/1', LEASE, NOW);
+    claimNextJob(db, 'w1/2', LEASE, NOW);
+    claimNextJob(db, 'w2/1', LEASE, NOW);
+    expect(releaseWorkerJobs(db, [])).toBe(0);
+    expect(releaseWorkerJobs(db, ['w1/1', 'w1/2', 'never-used'])).toBe(2);
+    expect([a, b].map((job) => row(job.id).status)).toEqual(['queued', 'queued']);
+    expect(row(c.id)).toMatchObject({ status: 'processing', workerId: 'w2/1' });
     close();
   });
 });

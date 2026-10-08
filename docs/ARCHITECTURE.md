@@ -546,11 +546,16 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
   hydrates with a fixed number of queries. `listPublicGenerations`/`getPublicGeneration` return only `isPublic` + `succeeded` generations of enabled accounts, with `owner.name` and without the input image and
   without the favorite flag (always `false`).
 - **`lifecycle.ts`** additions: `markCanceled(db|tx, userId, id)` (owner-scoped cancel + full refund), `releaseJob(db, id, workerId)` (processing -> queued without counting the attempt, keeps the provider job
-  id/meta), `releaseWorkerJobs(db, workerId)`, `INTERRUPTED_FAILURE`, and the optional last parameters `claimNextJob(..., now?, { maxAttempts? })` / `requeueStale(db, now?, { maxAttempts? })` (default `MAX_ATTEMPTS`).
+  id/meta), `releaseWorkerJobs(db, workerId | workerIds[])`, `INTERRUPTED_FAILURE`, and the optional last parameters `claimNextJob(..., now?, { maxAttempts?, excludeIds? })` / `requeueStale(db, now?, { maxAttempts?, excludeIds? })`
+  (`maxAttempts` defaults to `MAX_ATTEMPTS`; `excludeIds` are generations the caller is still running itself: never claimed, never requeued, never failed, so a stall longer than the lease cannot make a runner run its own
+  live job a second time). `claimNextJob` is fair between users: the owner with the fewest jobs running right now (live lease) goes first, then the oldest job, so one account that queues its whole allowance of videos
+  cannot hold every worker slot while others wait; it never idles a slot (a lone user still gets all of them).
   Idle polls read before they write, so a worker with nothing to do never takes the write lock. A partial result refunds `floor(cost * missing / count)` with idempotency key `refund:partial:<id>`; fail and cancel
   refunds use `refund:<id>`. `failGeneration` stores `errorCode` <= 64 and `errorMessage` <= 500 characters. `completeGeneration` throws a `RangeError` for an empty output list (use `failGeneration`).
 - **`jobs/runner.ts`**: `JobRunnerDeps` also takes `sleep(ms, signal)`, `random`, `fetch`, `fetchOutput` (default `safeFetch`), `persistOutput` and `tuning` (`leaseMs` 60 s, `heartbeatMs` 15 s, `idleMs` 1 s,
-  `shutdownGraceMs` 8 s, `maxPollErrors` 5). `workerId` is `worker-<pid>-<8 hex>`. `tick()` recovers expired leases, claims up to `WORKER_CONCURRENCY` jobs and resolves when they are finished; `start()` runs the
+  `shutdownGraceMs` 8 s, `maxPollErrors` 5). `workerId` is `worker-<pid>-<8 hex>` and names the runner in logs; what a claim writes to `generations.workerId` is `<workerId>/<n>`, one identity per claim, so a run that
+  lost its job (and any call it left hanging in the background) can never act on a later claim of the same job, not even one by the same runner. A claim pass leaves the jobs the runner is still running alone
+  (`excludeIds`, see above). `tick()` recovers expired leases, claims up to `WORKER_CONCURRENCY` jobs and resolves when they are finished; `start()` runs the
   same pass in a loop (`wake()` or a finished job cuts the idle wait); `stop()` stops claiming, waits up to the grace period, then aborts the rest, which hand their jobs back with `releaseJob`; `abandon()` is the
   synchronous version for `process.on('exit')`, which `startWorker()` registers (inline mode), so a restarted server resumes its jobs at once instead of after the lease. `jobs/wake.ts` (`onWake`, `wakeWorkers`) is how
   the service reaches the runner of its own process; with `WORKER_MODE=external` the worker finds new jobs on its idle poll (1 s).
@@ -558,7 +563,9 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
   2 s, 4 s ... backoff up to `MAX_ATTEMPTS` tries, honouring `retryAfterMs`) -> sync outputs, or `recordSubmitted` + poll (images 1 -> 3 s, videos 3 -> 10 s, x1.5 per poll, +-20% jitter; retryable poll errors are
   tolerated up to `maxPollErrors` in a row) -> outputs: `bytes` as they are, `url`/`thumbUrl` through `safeFetch` (https only, `image/*`/`video/*`, 64 MB per image, 500 MB per video; one retry after a transient
   failure) -> `persistOutput` -> `completeGeneration`. At most `params.count` outputs are kept; an output that cannot be downloaded or is not a usable image/video is skipped (the missing share is refunded), none usable
-  = `failed`. Before every poll the row is re-read: `canceled` or deleted -> `provider.cancel` (best effort, 10 s) and stop without persisting; taken over by another worker -> stop without touching anything.
+  = `failed`. Before every poll the row is re-read: `canceled` or deleted -> `provider.cancel` (best effort) and stop without persisting; taken over by another worker -> stop without touching anything. The upstream
+  cancel is bounded: the run stops waiting after 10 s or as soon as the runner is shutting down, even for an adapter that ignores the signal and never answers, so it can never hold a worker slot or `stop()`. A job that
+  times out is failed and refunded BEFORE the upstream cancel is attempted.
   Files written for a result that no longer completes (canceled, lost, error half way) are deleted. A background heartbeat extends the lease every 15 s (and notices a cancel or a takeover during a long call), a
   deadline timer enforces `GENERATION_TIMEOUT_SEC_IMAGE/VIDEO` from the claim, and a provider or storage call that ignores the abort cannot hold a worker slot. Progress: 3 after preparing, 10 once submitted,
   the provider's own number squeezed into 10-85 (+4 per poll when it reports none), 90 while storing, 100 on completion; it never goes backwards.
@@ -567,9 +574,14 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
   `userMessage` or text written by the engine, never an upstream message. A job interrupted `MAX_ATTEMPTS` times is `unavailable`: "The generation was interrupted and could not be completed."
 - **Routes** (all through `route()`; limits are named buckets): `POST /generations` 30/min per user (`generations-create`, body <= 64 KiB, 201 created / 200 replay, both with a `Location` header); `GET /generations` and `GET /generations/:id`
   600/min per user (`generations-read`, generous because the studio polls `?ids=` every 1.5-4 s from every open tab) plus 60/min per user for `?q=` searches (`generations-search`); `PATCH`/`DELETE`/`cancel` 60/min per
-  user (`generations-write`); `GET /explore` 60/min per client address (`explore`, `auth: 'none'`, so credentials are never read; `Cache-Control: public, max-age=15, stale-while-revalidate=45`; default page 24).
+  user (`generations-write`); `GET /explore` 60/min per client address (`explore`, `auth: 'none'`, so credentials are never read; `Cache-Control: public, max-age=15, stale-while-revalidate=45`; default page 24),
+  built with `addressRoute` (§16): when the client address is unknown (no trusted proxy) everybody shares one 1200/min budget (`explore-shared`) instead of the 60/min one, which a single caller could use up for the whole site.
   `GET /generations` query: `kind`, `status`, `favorite` (`true|false|1|0`), `q` (1-200), `ids` (comma separated or repeated, <= 50 valid `gen_` ids), `limit` 1-100 (default 20), `cursor`. `DELETE` answers 204.
-  Behind a reverse proxy without `TRUST_PROXY=true` every anonymous caller shares one address, so the 60/min `explore` budget is then shared by the whole site (see §16, "Client address").
+  Behind a reverse proxy without `TRUST_PROXY=true` every anonymous caller shares one address (see §16, "Client address"); set it, or the per-client 60/min does not apply and the shared 1200/min is all there is.
+- **Start-up and policy.** `instrumentation.ts` starts the inline runner through `startWorkerWithRetry(log)` (`jobs/start.ts`): a failed start (a transient `SQLITE_BUSY` while another process migrates, a storage wiring error) is
+  logged and retried after 1 s, 2 s, 4 s ... (30 s at most) from an unref'd timer until it works or `stopWorker()` is called; `isWorkerRunning()` says whether this process has a runner (the foundation-owned `/api/health`
+  only reports the configured `WORKER_MODE`). A cancel (or a delete of an active generation) refunds in full even after the provider accepted the job (§8, a documented policy, not changed); each such cancel logs
+  `Canceled a generation after it was submitted to the provider` (ids and cost only, never the prompt) so an account that creates and cancels in a loop shows up as a high ratio of those lines to `Generation succeeded`.
 
 ### 6.7 `server/moderation`, `server/prompt` (owner `catalog`)
 
@@ -832,24 +844,27 @@ built-in deny list (`common-passwords.ts`, about 150 entries incl. Arabic and pr
 **Sessions** (`sessions.ts`, `cookies.ts`). Token = `generateToken()` (32 random bytes, base64url, 43 chars); the database stores `hashToken(token)` (HMAC-SHA256 keyed with SESSION_SECRET), so a stolen database is
 useless without the secret and the lookup key reveals nothing guessable. Lifetime 30 days, sliding: a session used again after 1 hour gets a fresh 30 days (`lastSeenAt` and `expiresAt` are written at
 most hourly), capped at 180 days after login. At most 20 sessions per user (least recently used dropped); expired rows are deleted when met and, at most hourly, in bulk. Cookie `aivore_session`:
-`HttpOnly; SameSite=Lax; Path=/; Expires/Max-Age`, plus `Secure` whenever `NODE_ENV=production` (production must be served over HTTPS; browsers also accept it on `http://localhost`). `logout(token)`,
+`HttpOnly; SameSite=Lax; Path=/; Expires/Max-Age`, plus `Secure` whenever `NODE_ENV=production` (production must be served over HTTPS; browsers also accept it on `http://localhost`). **The cookie is issued once, at login or
+registration, and lives until the session's absolute cap** (`sessionCookieExpiry(createdAt)` = login + 180 days), it is never re-sent: the sliding 30 day idle expiry is enforced by the database alone (an idle, expired or revoked session
+is refused whatever the browser still holds). Re-sending the cookie when the hourly touch happens cannot work: whichever request comes first after the hour (a server component, any API call) consumes the "refreshed" flag, and a server
+component cannot set cookies, so an active user's cookie would still vanish on day 30. `logout(token)`,
 `logoutAll(userId)`, `changePassword(userId, current, next, keepSessionId?)` (revokes every other session, keeps API keys). `authenticate(req)`: a `Bearer avk_…` header is authoritative (a wrong key is
-anonymous even with a good cookie), otherwise the cookie; disabled users and expired sessions give null. **Additive `AuthContext` fields** `sessionExpiresAt?` and `sessionRefreshed?`: a server
-component cannot set cookies, so the browser's cookie expiry is slid forward by `GET /auth/me` (which re-sends the cookie whenever the request extended the session). `getCurrentUser()` extends the
-database row the same way but not the cookie.
+anonymous even with a good cookie), otherwise the cookie; disabled users and expired sessions give null. **Additive `AuthContext` fields** `sessionExpiresAt?` (when the database session now ends) and `sessionRefreshed?`
+(this request extended it); informational only, nothing sets a cookie from them. `getCurrentUser()` extends the database row the same way.
 
 **API keys** (`api-keys.ts`). `avk_<8 chars [a-z0-9]>_<43 chars base64url>`; only `hashToken(fullKey)` and the display prefix `avk_xxxxxxxx` are stored; the full key is returned once by `POST /keys`.
 At most 20 active (unrevoked) keys per user (409 `conflict`, counted in the insert's transaction). `revokeApiKey` answers 404 for a key that is missing or someone else's (same body), and is idempotent.
-`lastUsedAt` is written at most every 5 minutes. **Key management (`/keys*`), `POST /account/password` and `POST /auth/logout-all` accept a browser session only** (403 for API keys): a leaked key cannot
+`lastUsedAt` is written at most every 5 minutes. `listApiKeys` / `GET /keys` return EVERY active key plus the most recently created revoked ones, 100 rows at most, newest first (revoked keys are kept for the audit
+trail but can never push a live key out of the list, so it can always be found and revoked); `nextCursor` is always null. **Key management (`/keys*`), `POST /account/password` and `POST /auth/logout-all` accept a browser session only** (403 for API keys): a leaked key cannot
 mint more keys or lock the owner out. `GET /account`, `PATCH /account`, `GET /account/ledger` accept both.
 
-**Registration and login** (`users.ts`). `registerUser` validates (email: lower-cased ASCII `z.email()` up to 254; name: 1..80 printable characters, NFC, no control or bidi-override characters;
+**Registration and login** (`users.ts`). `registerUser` validates (email: lower-cased ASCII `z.email()` up to 254; name: 1..80 printable characters with at least one visible one (zero-width spaces, soft hyphens, Hangul fillers, the blank braille pattern and bare marks do not count; ZWNJ/ZWJ/LRM/RLM stay allowed inside text), NFC, no control or bidi-override characters;
 password policy), hashes, and then ONE synchronous transaction creates the user, grants `SIGNUP_BONUS_CREDITS` through `credits.grantCredits` (`signup_bonus`, idempotency key `signup_bonus:<userId>`) and opens
 the session; any failure rolls all three back (tested by failing after each write). `SIGNUP_ENABLED=false` → 403 `signup_disabled`. `provisionUser(...)` is the same without a session (used by the CLI).
 - *Duplicate emails.* A taken email is a 409 `conflict` with the message "This account could not be created with these details" (no field named, no details). The status itself reveals existence and
-  that cannot be hidden without email verification, so enumeration is made expensive instead: 5 registrations per hour and address (failed attempts count), the password is hashed BEFORE the duplicate check
+  that cannot be hidden without email verification, so enumeration is made expensive instead: 5 registrations per hour and address (failed attempts count, cross-site refusals do not), the password is hashed BEFORE the duplicate check
   (a taken email costs as much time as a new one) and the UI shows its own text for `conflict` on this form. Login never reveals anything: a wrong password, an unknown email and a malformed email give the
-  identical 401 `unauthorized` "Invalid email or password" after the same single scrypt run. A disabled account gets 403 `forbidden` only after the right password was given. `loginUser` limits 10 attempts per
+  identical 401 `unauthorized` "Invalid email or password" after the same single scrypt run (the shared dummy hash is made on first use and a refused attempt is never remembered, otherwise one burst at start-up would leave unknown emails answering 429 while known ones answer 401). A disabled account gets 403 `forbidden` only after the right password was given. `loginUser` limits 10 attempts per
   minute per IP **and email** on top of the route's 10 per minute per IP.
 - *`ADMIN_EMAILS`.* An address in the list becomes `role=admin` **at registration only**, and **emails are not verified**: whoever registers such an address first owns the admin account. Register the admins
   right after deploying (once the account exists nobody else can take the address) or create them with `npm run admin -- create-user --role admin`. A warning naming this is logged at start-up (from the first
@@ -860,15 +875,18 @@ the session; any failure rolls all three back (tested by failing after each writ
 
 | Route | Auth | Limit | Notes |
 | ----- | ---- | ----- | ----- |
-| `POST /auth/register` | none, `csrf: true` | 5 / hour / IP | 201 `UserDTO`; sets `aivore_session` and `aivore_locale` (body locale, else `Accept-Language`, else `ar`); revokes the session it arrived with |
-| `POST /auth/login` | none, `csrf: true` | 10 / min / IP (+10 / min / IP+email inside) | 200 `UserDTO`; new token every time and the presented one is revoked (no session fixation); locale cookie = the account's |
-| `POST /auth/logout` | none, `csrf: true` | 30 / min / IP | 204 + expired cookie; idempotent; reads the cookie itself so stale sessions can always be cleaned up |
-| `POST /auth/logout-all` | session | 30 / min | 204; every device (**added route**) |
-| `GET /auth/me` | optional | 120 / min / user (IP when anonymous) | `{data: UserDTO}` or `{data: null}`, never 401; slides the cookie |
+| `POST /auth/register` | none, `csrf: true` | 5 / hour / IP; address unknown: 60 / hour shared | 201 `UserDTO`; sets `aivore_session` and `aivore_locale` (body locale, else `Accept-Language`, else `ar`); revokes the session it arrived with |
+| `POST /auth/login` | none, `csrf: true` | 10 / min / IP (+10 / min / IP+email inside); address unknown: only the 10 / min / email inside | 200 `UserDTO`; new token every time and the presented one is revoked (no session fixation); locale cookie = the account's |
+| `POST /auth/logout` | none, `csrf: true` | 30 / min / IP; address unknown: none | 204 + expired cookie; idempotent; reads the cookie itself so stale sessions can always be cleaned up |
+| `POST /auth/logout-all` | session | 10 / min / user | 204; every device (**added route**) |
+| `GET /auth/me` | optional | 120 / min / user (IP when anonymous); address unknown: 1200 / min | `{data: UserDTO}` or `{data: null}`, never 401; never touches the cookie |
 | `GET /account` · `PATCH /account` | required | 60 · 20 / min / user | PATCH `{name?, locale?}` only (unknown keys ignored), a locale change also sets the locale cookie |
 | `POST /account/password` | session | 5 / min / user | 204 |
 | `GET /account/ledger` | required | 60 / min / user | `?limit&cursor`, `credits.listLedger`, `Page<LedgerEntryDTO>` |
 | `GET /keys` · `POST /keys` · `DELETE /keys/:id` | session | 60 · 10 · 10 / min / user | list is `Page<ApiKeyDTO>` (never the secret); POST 201 `{key, record}`; DELETE 204 |
+
+The three IP-keyed credential routes and `/auth/me` are built with `addressRoute` (`server/auth/address-route.ts`, a thin layer over `route()`): it picks the per-address budget or the "address unknown" budget per request, and for `csrf: true` routes it runs the
+same-origin check BEFORE any budget is spent, so a request refused as cross-site (a hostile page firing forms at a visitor) never uses up the visitor's login or sign-up allowance.
 
 Auth bodies are capped at 8 KiB. Non-browser clients that sign in with a password must send `Origin: <APP_URL>` (login and register are CSRF-checked because no session exists yet to trigger the check).
 
@@ -877,10 +895,17 @@ origin the browser used (`Host`; `X-Forwarded-Host`/`-Proto` only with TRUST_PRO
 `Authorization: Bearer avk_…`. `Origin: null`, garbage and `Sec-Fetch-Site: cross-site` are always refused.
 
 **Client address** (`security/ip.ts`). Next.js 16 does not expose the socket address to route handlers (it only fills `X-Forwarded-For` when the client sent none, which cannot be told apart from a spoofed one), so with
-`TRUST_PROXY=false` the result is `req.ip` if a platform provides it, otherwise `'unknown'`: **every client shares one rate-limit bucket** (a production start-up warning says so). Behind a reverse proxy set
-`TRUST_PROXY=true`: the client is the `X-Forwarded-For` entry `TRUSTED_PROXY_HOPS` (default 1) positions from the RIGHT (the left part is client-controlled), else `X-Real-IP`; invalid values give `'unknown'`.
-Ports and brackets are stripped, IPv4-mapped IPv6 becomes IPv4, and IPv6 collapses to its /64 (`2001:db8:1:2::/64`) so one subscriber cannot rotate through billions of addresses. The proxy must overwrite or
-append `X-Forwarded-For` (nginx `$proxy_add_x_forwarded_for`, Caddy and Traefik do by default).
+`TRUST_PROXY=false` the result is `req.ip` if a platform provides it, otherwise `'unknown'`, meaning "this app cannot tell its clients apart" (a production start-up warning says so). Behind a reverse proxy set
+`TRUST_PROXY=true`: the client is the `X-Forwarded-For` entry `TRUSTED_PROXY_HOPS` (default 1) positions from the RIGHT (the left part is client-controlled); invalid values give `'unknown'`. **Only `X-Forwarded-For` is read.**
+Next.js fills it with the socket address, i.e. the proxy's own, when the proxy sent none, so an `X-Real-IP` fallback could never be reached in production (and the header is client-controlled unless the proxy overwrites it): a proxy that
+only sets `X-Real-IP` would put every client into the proxy's single bucket, so configure it to append to `X-Forwarded-For` (nginx `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, Caddy and Traefik do by default).
+Ports and brackets are stripped, IPv4-mapped IPv6 becomes IPv4, and IPv6 collapses to its /64 (`2001:db8:1:2::/64`) so one subscriber cannot rotate through billions of addresses.
+
+*Without a trusted proxy every visitor is the one address `unknown`.* A per-address budget sized for one client would then be a switch anybody can pull for everybody (11 failed logins a minute and nobody signs in), so the credential
+routes treat that case on purpose: **login** has no address-wide budget (what remains is the 10 / min per EMAIL inside `loginUser`, which bounds guessing against one account but also lets someone lock that one account out for a minute,
+and the password hash gate, which caps concurrent scrypt work), **logout** has none (one indexed delete), **register** has a shared 60 / hour (it caps how many free-credit accounts one hour can mint: 60 times `SIGNUP_BONUS_CREDITS`),
+**/auth/me** a shared 1200 / min for anonymous callers, and the public **/explore** feed (engine module) the same 1200 / min instead of its 60 / min per address. Everything keyed by user (keys, account, logout-all) is unaffected. Routes of other modules that rely on the default `general` bucket for anonymous callers still share one bucket in
+this mode (see the open issues of this module): the real fix is to run behind a proxy with `TRUST_PROXY=true`.
 
 **Rate limiter** (`security/rate-limit.ts`). Same interface, fixed windows; additionally the key table is capped (100 000 keys, least recently used evicted, so a flood of unique keys cannot grow memory or reset the counter
 of a client that keeps hitting), expired windows are swept lazily, and a window further away than its own length (clock stepped back) restarts. State is per process. `RATE_LIMIT_DISABLED=true` makes `getRateLimiter()`

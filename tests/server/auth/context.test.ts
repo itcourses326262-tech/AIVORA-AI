@@ -128,7 +128,7 @@ describe('authenticate', () => {
     expect(await authenticate(request({ cookie: `aivore_session=${live.token}` }))).toBeNull();
   });
 
-  it('flags a session whose expiry was extended so the cookie can be refreshed', async () => {
+  it('reports a session whose expiry was extended by this request', async () => {
     const user = createUser(harness.db);
     const session = openSession(harness.db, user.id, {}, Date.now() - 2 * 3600 * 1000);
     const auth = await authenticate(request({ cookie: `aivore_session=${session.token}` }));

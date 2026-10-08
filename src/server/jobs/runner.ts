@@ -37,6 +37,12 @@ export interface JobRunnerDeps {
   tuning?: Partial<RunnerTuning>;
 }
 
+interface RunningJob {
+  /** The `workerId` this claim wrote to the row. */
+  claimId: string;
+  finished: Promise<void>;
+}
+
 /**
  * Claims queued generations and drives them through submit, poll and persist (section 6.6). One
  * instance per process; `WORKER_CONCURRENCY` jobs run at a time. Several runners (even in several
@@ -44,10 +50,17 @@ export interface JobRunnerDeps {
  * disappears is picked up again once its lease runs out.
  */
 export class JobRunner {
-  /** Identifies this runner in `generations.workerId`; unique per runner, not just per process. */
+  /**
+   * Identifies this runner in logs; unique per runner, not just per process. What a claim writes
+   * to `generations.workerId` is `<workerId>/<n>`: one identity per claim, so a run that lost its
+   * job (and whatever it left hanging in the background) can never act on a later claim of the
+   * same job, not even one made by this same runner.
+   */
   readonly workerId: string = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
 
-  private readonly running = new Set<Promise<void>>();
+  /** The jobs this runner is running, by generation id. */
+  private readonly running = new Map<string, RunningJob>();
+  private claims = 0;
   private readonly tuning: RunnerTuning;
   private loop: Promise<void> | undefined;
   private stopping: Promise<void> | undefined;
@@ -95,7 +108,8 @@ export class JobRunner {
    * at once instead of after their leases run out. Returns how many jobs it released.
    */
   abandon(): number {
-    return releaseWorkerJobs(this.deps.db, this.workerId);
+    const claimIds = [...this.running.values()].map((job) => job.claimId);
+    return releaseWorkerJobs(this.deps.db, claimIds);
   }
 
   /**
@@ -119,7 +133,7 @@ export class JobRunner {
     return this.deps.sleep ?? realSleep;
   }
 
-  private runtime(): JobRuntime {
+  private runtime(claimId: string): JobRuntime {
     const { deps } = this;
     return {
       db: deps.db,
@@ -127,7 +141,7 @@ export class JobRunner {
       providers: deps.providers,
       env: deps.env,
       log: deps.log,
-      workerId: this.workerId,
+      workerId: claimId,
       tuning: this.tuning,
       now: this.now,
       sleep: this.sleep,
@@ -145,24 +159,32 @@ export class JobRunner {
     const started: Promise<void>[] = [];
     if (this.stopRequested) return started;
     const maxAttempts = deps.env.MAX_ATTEMPTS;
-    const recovered = requeueStale(deps.db, this.now(), { maxAttempts });
+    // A job this runner is still running is alive by definition, whatever its lease says: after a
+    // stall longer than the lease (or a clock step) the heartbeat has simply not run yet. Leave it
+    // alone, or it would be submitted a second time.
+    const excludeIds = [...this.running.keys()];
+    const recovered = requeueStale(deps.db, this.now(), { maxAttempts, excludeIds });
     if (recovered > 0) deps.log.warn('Recovered generations with expired leases', { recovered });
 
     while (this.running.size < deps.env.WORKER_CONCURRENCY) {
-      const job = claimNextJob(deps.db, this.workerId, this.tuning.leaseMs, this.now(), {
+      const claimId = `${this.workerId}/${this.claims + 1}`;
+      const job = claimNextJob(deps.db, claimId, this.tuning.leaseMs, this.now(), {
         maxAttempts,
+        excludeIds,
       });
       if (!job) break;
-      const finished: Promise<void> = processJob(job, this.runtime())
+      this.claims += 1; // a claim id is only spent when it was written to a row
+      excludeIds.push(job.id);
+      const finished: Promise<void> = processJob(job, this.runtime(claimId))
         .catch((error: unknown) => {
           // `processJob` never rejects; this only guards a slot against a bug.
           deps.log.error('Job runner crashed on a job', { err: error, generationId: job.id });
         })
         .finally(() => {
-          this.running.delete(finished);
+          if (this.running.get(job.id)?.finished === finished) this.running.delete(job.id);
           this.wake();
         });
-      this.running.add(finished);
+      this.running.set(job.id, { claimId, finished });
       started.push(finished);
     }
     return started;
@@ -197,6 +219,10 @@ export class JobRunner {
     }
   }
 
+  private finishedJobs(): Promise<void>[] {
+    return [...this.running.values()].map((job) => job.finished);
+  }
+
   private async shutDown(): Promise<void> {
     this.unregisterWake?.();
     this.unregisterWake = undefined;
@@ -205,7 +231,7 @@ export class JobRunner {
 
     if (this.running.size > 0) {
       const grace = new AbortController();
-      const drained = Promise.allSettled([...this.running]).then(() => true);
+      const drained = Promise.allSettled(this.finishedJobs()).then(() => true);
       const expired = this.sleep(this.tuning.shutdownGraceMs, grace.signal).then(
         () => false,
         () => true,
@@ -217,7 +243,7 @@ export class JobRunner {
           running: this.running.size,
         });
         this.shutdown.abort();
-        await Promise.allSettled([...this.running]);
+        await Promise.allSettled(this.finishedJobs());
       }
     }
     this.deps.log.info('Job runner stopped', { workerId: this.workerId });

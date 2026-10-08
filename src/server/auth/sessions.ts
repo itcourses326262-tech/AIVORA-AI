@@ -18,6 +18,17 @@ export const SESSION_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 /** Opening a session beyond this many drops the least recently used ones. */
 export const MAX_SESSIONS_PER_USER = 20;
 
+/**
+ * When the browser may drop the session cookie for a session created at `createdAt`: the day the
+ * session reaches its absolute cap, NOT the sliding 30 day expiry. Only some requests extend a
+ * session and a server component cannot re-send the cookie, so a cookie that tracked the sliding
+ * expiry would vanish on day 30 under a user who is active every day. The database alone enforces
+ * the idle expiry (an expired or revoked session is refused whatever the browser still holds).
+ */
+export function sessionCookieExpiry(createdAt: number): number {
+  return createdAt + SESSION_ABSOLUTE_MAX_MS;
+}
+
 const USER_AGENT_MAX = 256;
 const IP_MAX = 64;
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
@@ -91,7 +102,7 @@ export interface ResolvedSession {
  * session expired or the account is disabled. Sliding expiry: a session that is used again after
  * {@link SESSION_TOUCH_INTERVAL_MS} gets a fresh {@link SESSION_TTL_MS}, capped by
  * {@link SESSION_ABSOLUTE_MAX_MS}; the write is throttled so a busy page does not hit the disk on
- * every request.
+ * every request. The browser's cookie does not follow this expiry, see {@link sessionCookieExpiry}.
  *
  * The lookup key is an HMAC of the token under a server secret, so the index comparison reveals
  * nothing an attacker can use to guess a valid token (no timing oracle on the secret itself).

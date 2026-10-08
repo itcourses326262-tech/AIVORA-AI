@@ -149,13 +149,28 @@ export function needsRehash(hash: string): boolean {
 let dummyHash: Promise<string> | undefined;
 
 /**
+ * The shared dummy hash, made on first use. A failed attempt (typically the gate refusing work
+ * because it is saturated) is forgotten at once: remembering the rejection would make every
+ * later unknown-email login fail with "busy" while known emails answer normally, a permanent
+ * oracle for which addresses have an account.
+ */
+function dummyPasswordHash(): Promise<string> {
+  if (dummyHash) return dummyHash;
+  const pending = hashPassword(randomBytes(24).toString('base64url'));
+  dummyHash = pending;
+  pending.catch(() => {
+    if (dummyHash === pending) dummyHash = undefined;
+  });
+  return pending;
+}
+
+/**
  * Spends the time of a real verification without knowing the user. Login calls it for unknown
  * emails so that "no such account" and "wrong password" take equally long. The hash is made once
  * per process from random input nobody knows, with the current parameters.
  */
 export async function verifyAgainstDummy(password: string): Promise<void> {
-  dummyHash ??= hashPassword(randomBytes(24).toString('base64url'));
-  await verifyPassword(password, await dummyHash);
+  await verifyPassword(password, await dummyPasswordHash());
 }
 
 export interface PasswordContext {
