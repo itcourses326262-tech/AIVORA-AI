@@ -1,8 +1,9 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { ModelSpec } from '@/lib/catalog/types';
 import { getTool } from '@/lib/tools';
 import { assets, type GenerationRow } from '@/server/db/schema';
+import { INPUT_ASSET_ROLES } from '@/server/generations/queries';
 import type { ProviderInput } from '@/server/providers/types';
 import { JobFailure } from './failure';
 import type { JobRuntime } from './runtime';
@@ -30,7 +31,7 @@ async function readAll(stream: ReadableStream<Uint8Array>, maxBytes: number): Pr
   return new Uint8Array(Buffer.concat(chunks, total));
 }
 
-/** The uploaded image of an `image-to-*` generation, read back from storage. */
+/** The input image of an `image-to-*` generation (an upload or an earlier result), read back from storage. */
 async function loadInputImage(
   job: GenerationRow,
   rt: JobRuntime,
@@ -43,7 +44,7 @@ async function loadInputImage(
           and(
             eq(assets.id, job.inputAssetId),
             eq(assets.userId, job.userId),
-            eq(assets.role, 'input'),
+            inArray(assets.role, INPUT_ASSET_ROLES),
           ),
         )
         .get()

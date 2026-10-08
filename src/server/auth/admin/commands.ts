@@ -6,9 +6,14 @@ import { AppError } from '@/lib/errors';
 import { LOCALES, isLocale, type Locale } from '@/lib/i18n/locales';
 import { MAX_CREDIT_AMOUNT, grantCredits } from '@/server/credits';
 import { getDb, withTx } from '@/server/db';
-import { sessions, users, type UserRow } from '@/server/db/schema';
+import { assets, generations, sessions, users, type UserRow } from '@/server/db/schema';
+import { flushEmails, isSmtpConfigured, outboxFilePath } from '@/server/email';
+import { getEnv } from '@/server/env';
+import { deleteAccount, resumeAccountPurges } from '../account-deletion';
+import { isEmailVerificationRequired } from '../email-policy';
 import { assertPasswordPolicy, hashPassword } from '../password';
 import { provisionUser } from '../users';
+import { markEmailVerified, resendVerificationNow } from '../verification';
 import { normalizeEmail } from '../validation';
 import type { CliIo } from './io';
 
@@ -59,6 +64,18 @@ function findUser(context: CommandContext): UserRow {
   const email = normalizeEmail(required(context, 'email'));
   const user = getDb().select().from(users).where(eq(users.email, email)).get();
   if (!user) throw AppError.of('not_found', `No user with email ${email}`);
+  return user;
+}
+
+/**
+ * Like {@link findUser}, but a deleted account (whose email is a tombstone) is found by `--id`
+ * too, which is how a leftover purge is resumed.
+ */
+function findUserByEmailOrId(context: CommandContext): UserRow {
+  const id = text(context, 'id');
+  if (id === undefined) return findUser(context);
+  const user = getDb().select().from(users).where(eq(users.id, id)).get();
+  if (!user) throw AppError.of('not_found', `No user with id ${id}`);
   return user;
 }
 
@@ -223,4 +240,139 @@ export function listUsers(context: CommandContext): void {
       [row.id, row.email, row.role, `${row.credits} credits`, row.status, row.createdAt].join('\t'),
     );
   }
+}
+
+// ---- Trust & safety --------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface StatsRow {
+  total: number;
+  active: number;
+  disabled: number;
+  deleted: number;
+  confirmed: number;
+  unconfirmed: number;
+  admins: number;
+  signups24h: number;
+  signups7d: number;
+  signups30d: number;
+  credits: number;
+}
+
+export function usersStats(context: CommandContext): void {
+  const now = Date.now();
+  const row = getDb()
+    .$client.prepare(
+      `select
+         count(*) as total,
+         coalesce(sum(deleted_at is null and disabled_at is null), 0) as active,
+         coalesce(sum(deleted_at is null and disabled_at is not null), 0) as disabled,
+         coalesce(sum(deleted_at is not null), 0) as deleted,
+         coalesce(sum(deleted_at is null and email_verified_at is not null), 0) as confirmed,
+         coalesce(sum(deleted_at is null and email_verified_at is null), 0) as unconfirmed,
+         coalesce(sum(deleted_at is null and role = 'admin'), 0) as admins,
+         coalesce(sum(created_at > ?), 0) as signups24h,
+         coalesce(sum(created_at > ?), 0) as signups7d,
+         coalesce(sum(created_at > ?), 0) as signups30d,
+         coalesce(sum(case when deleted_at is null then credit_balance else 0 end), 0) as credits
+       from users`,
+    )
+    .get(now - DAY_MS, now - 7 * DAY_MS, now - 30 * DAY_MS) as StatsRow;
+
+  const env = getEnv();
+  const policy = {
+    confirmationRequired: isEmailVerificationRequired(env),
+    setting: env.EMAIL_VERIFICATION,
+    smtpConfigured: isSmtpConfigured(env),
+  };
+  if (context.values.json === true) {
+    context.io.out(JSON.stringify({ ...row, policy }, null, 2));
+    return;
+  }
+  const out = context.io.out;
+  out(
+    `Accounts        ${row.total} (active ${row.active}, disabled ${row.disabled}, deleted ${row.deleted})`,
+  );
+  out(`Email           confirmed ${row.confirmed}, not confirmed ${row.unconfirmed}`);
+  out(`Admins          ${row.admins}`);
+  out(`New accounts    24 h ${row.signups24h}, 7 d ${row.signups7d}, 30 d ${row.signups30d}`);
+  out(`Credits held    ${row.credits}`);
+  out(
+    `Confirmation    ${policy.confirmationRequired ? 'required' : 'not required'} ` +
+      `(EMAIL_VERIFICATION=${policy.setting}, SMTP ${policy.smtpConfigured ? 'configured' : 'not configured'})`,
+  );
+}
+
+/** Where a message went, so an operator without SMTP knows where to look. */
+function describeMailDestination(): string {
+  if (isSmtpConfigured()) return 'sent through SMTP';
+  const file = outboxFilePath();
+  return file
+    ? `written to the outbox file ${file}`
+    : 'kept in memory (no SMTP, no data directory)';
+}
+
+export async function resendVerification(context: CommandContext): Promise<void> {
+  const user = findUser(context);
+  if (!resendVerificationNow(user.id)) {
+    context.io.out(`${user.email} has already confirmed their address.`);
+    return;
+  }
+  await flushEmails();
+  context.io.out(`Confirmation email for ${user.email}: ${describeMailDestination()}.`);
+}
+
+export function forceVerify(context: CommandContext): void {
+  const user = findUser(context);
+  const outcome = withTx(getDb(), (tx) => markEmailVerified(tx, user.id));
+  if (!outcome.changed) {
+    context.io.out(`${user.email} had already confirmed their address.`);
+    return;
+  }
+  const bonus = outcome.bonus?.created
+    ? ` Granted ${outcome.bonus.entry.delta} sign-up credits.`
+    : '';
+  context.io.out(`Confirmed ${user.email}.${bonus}`);
+}
+
+export async function deleteUser(context: CommandContext): Promise<void> {
+  const user = findUserByEmailOrId(context);
+  const db = getDb();
+  const content = db
+    .select({ total: count() })
+    .from(generations)
+    .where(eq(generations.userId, user.id))
+    .get();
+  const files = db.select({ total: count() }).from(assets).where(eq(assets.userId, user.id)).get();
+  if (context.values.yes !== true) {
+    context.io.out(
+      [
+        `Would delete ${user.deletedAt === null ? user.email : `${user.id} (already deleted)`}:`,
+        `  ${content?.total ?? 0} generations and ${files?.total ?? 0} stored files are removed,`,
+        '  sessions and API keys end, the account is anonymized (credit and billing rows stay).',
+        `  Remaining balance ${user.creditBalance} credits is forfeited.`,
+        'Run again with --yes to do it.',
+      ].join('\n'),
+    );
+    return;
+  }
+  const result = await deleteAccount(user.id, { force: context.values.force === true });
+  await flushEmails();
+  const state = result.alreadyDeleted ? 'was already deleted; cleaned up leftovers' : 'deleted';
+  context.io.out(
+    `Account ${user.id} ${state}: ${result.purge.assetsDeleted} files removed` +
+      (result.purge.complete
+        ? '.'
+        : `, ${result.purge.assetsFailed} could not be removed yet (run purge-deleted later).`),
+  );
+}
+
+export async function purgeDeleted(context: CommandContext): Promise<void> {
+  const touched = await resumeAccountPurges();
+  context.io.out(
+    touched === 0
+      ? 'Nothing to clean up.'
+      : `Finished the clean-up of ${touched} deleted account${touched === 1 ? '' : 's'}.`,
+  );
 }

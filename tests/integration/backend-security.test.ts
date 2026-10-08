@@ -344,7 +344,7 @@ describe('uploads through the real stack', () => {
     expect((await alice.upload(await makePng(8, 8))).status).toBe(201);
   });
 
-  it('never lets a user build on someone else’s public result or their own output as an input photo', async () => {
+  it('lets a user build on their own result but never on someone else’s, public or not', async () => {
     const alice = await world.signUp('Alice');
     const bob = await world.signUp('Bob');
     const shared = await finished(alice, textToImage('a lake', { isPublic: true }));
@@ -357,11 +357,16 @@ describe('uploads through the real stack', () => {
       prompt: 'make the sky a deep blue',
       inputAssetId: id,
     });
-    for (const user of [bob, alice]) {
-      expect(errorOf(await user.post('/generations', edit(outputId)), 404)).toBe('not_found');
-    }
+    // Bob can look at Alice's public picture but cannot start from it: same answer as "no such asset".
+    expect(errorOf(await bob.post('/generations', edit(outputId)), 404)).toBe('not_found');
     expect(await balanceOf(bob)).toBe(50);
-    expect(await balanceOf(alice)).toBe(49);
+
+    // Alice can: this is the iteration flow (edit or animate a result).
+    const derived = dataOf(await alice.post<GenerationDTO>('/generations', edit(outputId)), 201);
+    expect(derived.input?.id).toBe(outputId);
+    expect(await balanceOf(alice)).toBe(48);
+    // The input of a public generation is never shown on the public feed or share page.
+    expect(derived.isPublic).toBe(false);
   });
 });
 

@@ -12,6 +12,13 @@ import {
 import { ASSET_ROLES, GENERATION_STATUSES, LEDGER_REASONS, USER_ROLES } from '@/lib/api-types';
 import { KINDS, PROVIDER_IDS, TOOLS, type GenerationParams } from '@/lib/catalog/types';
 import { LOCALES } from '@/lib/i18n/locales';
+import {
+  BILLING_GATEWAY_IDS,
+  LIVE_SUBSCRIPTION_STATUSES,
+  ORDER_KINDS,
+  ORDER_STATUSES,
+  SUBSCRIPTION_STATUSES,
+} from '@/lib/billing/types';
 
 /**
  * Database schema (docs/ARCHITECTURE.md section 4). Ids are text primary keys from `newId`;
@@ -39,8 +46,22 @@ export const users = sqliteTable(
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     disabledAt: integer('disabled_at'),
+    /** When the address was confirmed (emailed link, password reset or operator). Null: unconfirmed. */
+    emailVerifiedAt: integer('email_verified_at'),
+    /**
+     * `email` without the aliases a mailbox may have (dots and +tags of Gmail-style providers),
+     * unique, so one mailbox cannot farm sign-up bonuses. `email` keeps what the user typed. Null
+     * only for rows that predate the column.
+     */
+    emailCanonical: text('email_canonical'),
+    /** Client address at registration, for the daily sign-up cap. Cleared when the account is deleted. */
+    signupIp: text('signup_ip'),
+    /** Set once the account was deleted: the row stays as an anonymized tombstone for accounting. */
+    deletedAt: integer('deleted_at'),
   },
   (t) => [
+    uniqueIndex('users_email_canonical_uq').on(t.emailCanonical),
+    index('users_signup_ip_idx').on(t.signupIp, t.createdAt),
     check('users_credit_balance_nonnegative', sql`${t.creditBalance} >= 0`),
     check('users_email_lowercase', sql`${t.email} = lower(${t.email})`),
     check('users_role_valid', oneOf(t.role, USER_ROLES)),
@@ -133,6 +154,14 @@ export const generations = sqliteTable(
     progress: integer('progress').notNull().default(0),
     providerJobId: text('provider_job_id'),
     providerMeta: text('provider_meta', { mode: 'json' }).$type<Record<string, unknown>>(),
+    /**
+     * Set (compare-and-set) right BEFORE `provider.submit` is called and cleared by the same
+     * statement that stores the provider job id. While it is set and `providerJobId` is null, a
+     * submit may have reached the provider without us learning its id (a crash in between): the
+     * outcome is indeterminate, and re-submitting a PAID provider would bill the same request
+     * twice, so the engine fails such a job with a refund instead (`interrupted`).
+     */
+    submitStartedAt: integer('submit_started_at'),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     attempts: integer('attempts').notNull().default(0),
@@ -150,6 +179,8 @@ export const generations = sqliteTable(
     index('generations_user_created_idx').on(t.userId, sql`${t.createdAt} desc`),
     index('generations_status_lease_idx').on(t.status, t.leaseUntil),
     index('generations_public_created_idx').on(t.isPublic, sql`${t.createdAt} desc`),
+    // The rolling-24h sum of the daily upstream budget scans only the recent rows.
+    index('generations_created_idx').on(t.createdAt),
     uniqueIndex('generations_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     check('generations_status_valid', oneOf(t.status, GENERATION_STATUSES)),
     check('generations_tool_valid', oneOf(t.tool, TOOLS)),
@@ -193,6 +224,197 @@ export const assets = sqliteTable(
   ],
 );
 
+export const EMAIL_TOKEN_TYPES = ['verify', 'reset'] as const;
+export type EmailTokenType = (typeof EMAIL_TOKEN_TYPES)[number];
+
+/**
+ * Single-use links sent by email (address confirmation, password reset). Only the keyed hash of
+ * the secret is stored; `usedAt` is set by a compare-and-set when the link is used or revoked.
+ */
+export const emailTokens = sqliteTable(
+  'email_tokens',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: EMAIL_TOKEN_TYPES }).notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: integer('expires_at').notNull(),
+    usedAt: integer('used_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('email_tokens_user_type_idx').on(t.userId, t.type, t.createdAt),
+    check('email_tokens_type_valid', oneOf(t.type, EMAIL_TOKEN_TYPES)),
+  ],
+);
+
+/**
+ * One row per mailbox that ever received the free sign-up bonus, keyed by a keyed hash of its
+ * canonical address (not the address). It outlives account deletion, so deleting and registering
+ * again cannot claim the bonus twice.
+ */
+export const signupBonusClaims = sqliteTable('signup_bonus_claims', {
+  keyHash: text('key_hash').primaryKey(),
+  userId: text('user_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+// ---- Billing (docs/ARCHITECTURE.md "Billing (as built)") -----------------------------------------
+// Financial records must outlive everything else, so none of these tables cascades from `users`:
+// a user row that still has orders cannot be hard-deleted (accounts are anonymized, not removed).
+
+/**
+ * A monthly plan the user pays for. At most one per user is "live" (incomplete, active or
+ * past_due), which the partial unique index enforces whatever the code does.
+ */
+export const subscriptions = sqliteTable(
+  'subscriptions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    /** A plan id from `lib/billing/plans.ts` (config, so not an SQL enum). */
+    planId: text('plan_id').notNull(),
+    status: text('status', { enum: SUBSCRIPTION_STATUSES }).notNull(),
+    /** Day of the month (UTC) the first period started, so month ends do not drift (31st -> 28th -> 28th). */
+    anchorDay: integer('anchor_day'),
+    currentPeriodStart: integer('current_period_start'),
+    currentPeriodEnd: integer('current_period_end'),
+    /** Set by the user: the subscription ends when the paid period does, no renewal is issued. */
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    /**
+     * When the scheduler has to look at this subscription next (issue the renewal link, mark it
+     * past due, expire it, finish a cancellation). A claimed row carries a short lease here so
+     * several processes never work on the same subscription.
+     */
+    nextChargeAt: integer('next_charge_at'),
+    canceledAt: integer('canceled_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('subscriptions_one_live_per_user_uq')
+      .on(t.userId)
+      .where(
+        sql`${t.status} in (${sql.join(
+          LIVE_SUBSCRIPTION_STATUSES.map((status) => sql.raw(`'${status}'`)),
+          sql`, `,
+        )})`,
+      ),
+    index('subscriptions_due_idx').on(t.status, t.nextChargeAt),
+    index('subscriptions_user_created_idx').on(t.userId, sql`${t.createdAt} desc`),
+    check('subscriptions_status_valid', oneOf(t.status, SUBSCRIPTION_STATUSES)),
+    check(
+      'subscriptions_anchor_day_valid',
+      sql`${t.anchorDay} is null or ${t.anchorDay} between 1 and 31`,
+    ),
+    check(
+      'subscriptions_period_when_running',
+      sql`${t.status} not in ('active', 'past_due') or (${t.currentPeriodStart} is not null and ${t.currentPeriodEnd} is not null and ${t.anchorDay} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * One purchase attempt: a credit pack, a subscription's first month or one of its renewals. The
+ * amount, VAT, currency and credits are copied from the server-side price list when the order is
+ * created and are the only numbers a payment is ever compared with. `paid_at` is set in the same
+ * transaction that grants the credits, so `paid_at is not null` means "the credits were granted".
+ */
+export const orders = sqliteTable(
+  'orders',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    kind: text('kind', { enum: ORDER_KINDS }).notNull(),
+    /** Pack id or plan id at the time of purchase. */
+    itemId: text('item_id').notNull(),
+    amountHalalas: integer('amount_halalas').notNull(),
+    currency: text('currency').notNull(),
+    /** VAT contained in `amount_halalas`. */
+    vatHalalas: integer('vat_halalas').notNull(),
+    credits: integer('credits').notNull(),
+    status: text('status', { enum: ORDER_STATUSES }).notNull().default('pending'),
+    gateway: text('gateway', { enum: BILLING_GATEWAY_IDS }).notNull(),
+    /** The gateway's hosted payment page (Moyasar invoice) behind `checkout_url`. */
+    gatewayInvoiceId: text('gateway_invoice_id'),
+    gatewayPaymentId: text('gateway_payment_id'),
+    /** Where the buyer pays. Only shown to the owner of the order, only while it can still be paid. */
+    checkoutUrl: text('checkout_url'),
+    subscriptionId: text('subscription_id').references(() => subscriptions.id),
+    /** Buyer-supplied `Idempotency-Key`; a retry of the same checkout returns the same order. */
+    idempotencyKey: text('idempotency_key'),
+    /** The checkout cannot be paid after this. */
+    expiresAt: integer('expires_at'),
+    /** The subscription period this order paid for (subscription orders, once paid). */
+    periodStart: integer('period_start'),
+    periodEnd: integer('period_end'),
+    refundedHalalas: integer('refunded_halalas').notNull().default(0),
+    /** Credits taken back for refunds so far; never more than `credits`. */
+    clawedBackCredits: integer('clawed_back_credits').notNull().default(0),
+    /** When the gateway was last asked about this order (reconciliation claim). */
+    lastCheckedAt: integer('last_checked_at'),
+    createdAt: integer('created_at').notNull(),
+    paidAt: integer('paid_at'),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('orders_user_idempotency_uq').on(t.userId, t.idempotencyKey),
+    uniqueIndex('orders_gateway_invoice_uq').on(t.gateway, t.gatewayInvoiceId),
+    uniqueIndex('orders_gateway_payment_uq').on(t.gateway, t.gatewayPaymentId),
+    uniqueIndex('orders_one_pending_renewal_uq')
+      .on(t.subscriptionId)
+      .where(sql`${t.kind} = 'subscription_renewal' and ${t.status} = 'pending'`),
+    index('orders_user_created_idx').on(t.userId, sql`${t.createdAt} desc`),
+    index('orders_status_checked_idx').on(t.status, t.lastCheckedAt),
+    index('orders_subscription_idx').on(t.subscriptionId),
+    check('orders_kind_valid', oneOf(t.kind, ORDER_KINDS)),
+    check('orders_status_valid', oneOf(t.status, ORDER_STATUSES)),
+    check('orders_gateway_valid', oneOf(t.gateway, BILLING_GATEWAY_IDS)),
+    check('orders_currency_sar', sql`${t.currency} = 'SAR'`),
+    check('orders_amount_positive', sql`${t.amountHalalas} > 0`),
+    check('orders_vat_within_amount', sql`${t.vatHalalas} between 0 and ${t.amountHalalas}`),
+    check('orders_credits_positive', sql`${t.credits} > 0`),
+    check(
+      'orders_refund_within_amount',
+      sql`${t.refundedHalalas} between 0 and ${t.amountHalalas}`,
+    ),
+    check('orders_clawback_within_credits', sql`${t.clawedBackCredits} between 0 and ${t.credits}`),
+  ],
+);
+
+/**
+ * Webhook deliveries we received, for idempotency (`event_key` is unique) and for the audit
+ * trail. The body is never stored: only a hash of it without the shared secret.
+ */
+export const billingEvents = sqliteTable(
+  'billing_events',
+  {
+    id: text('id').primaryKey(),
+    gateway: text('gateway', { enum: BILLING_GATEWAY_IDS }).notNull(),
+    /** `<gateway>:<event id>`; a redelivery of the same event has the same key. */
+    eventKey: text('event_key').notNull(),
+    orderId: text('order_id').references(() => orders.id),
+    type: text('type').notNull(),
+    payloadHash: text('payload_hash').notNull(),
+    receivedAt: integer('received_at').notNull(),
+    /** Null until the event was fully handled; an unprocessed event is handled again on redelivery. */
+    processedAt: integer('processed_at'),
+  },
+  (t) => [
+    uniqueIndex('billing_events_event_key_uq').on(t.eventKey),
+    index('billing_events_order_idx').on(t.orderId),
+    check('billing_events_gateway_valid', oneOf(t.gateway, BILLING_GATEWAY_IDS)),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -203,5 +425,13 @@ export type LedgerEntry = typeof creditLedger.$inferSelect;
 export type NewLedgerEntry = typeof creditLedger.$inferInsert;
 export type GenerationRow = typeof generations.$inferSelect;
 export type NewGenerationRow = typeof generations.$inferInsert;
+export type EmailTokenRow = typeof emailTokens.$inferSelect;
+export type NewEmailTokenRow = typeof emailTokens.$inferInsert;
 export type AssetRow = typeof assets.$inferSelect;
 export type NewAssetRow = typeof assets.$inferInsert;
+export type SubscriptionRow = typeof subscriptions.$inferSelect;
+export type NewSubscriptionRow = typeof subscriptions.$inferInsert;
+export type OrderRow = typeof orders.$inferSelect;
+export type NewOrderRow = typeof orders.$inferInsert;
+export type BillingEventRow = typeof billingEvents.$inferSelect;
+export type NewBillingEventRow = typeof billingEvents.$inferInsert;

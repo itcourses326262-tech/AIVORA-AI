@@ -1,17 +1,22 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import type { UserRole } from '@/lib/api-types';
 import { AppError } from '@/lib/errors';
 import { newId } from '@/lib/id';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '@/lib/i18n/locales';
-import { grantCredits } from '@/server/credits';
 import { getDb, withTx, type Tx } from '@/server/db';
 import { users, type UserRow } from '@/server/db/schema';
+import { isSmtpConfigured } from '@/server/email';
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getRateLimiter } from '@/server/security/rate-limit';
+import { grantSignupBonus } from './bonus';
 import type { SessionUser } from './context';
 import { toSessionUser } from './dto';
+import { canonicalizeEmail } from './email-canonical';
+import { isEmailVerificationRequired } from './email-policy';
+import { issueEmailToken } from './email-tokens';
+import { queueVerificationEmail, queueWelcomeEmail } from './notifications';
 import {
   assertPasswordPolicy,
   hashPassword,
@@ -20,6 +25,7 @@ import {
   verifyPassword,
 } from './password';
 import { openSession, revokeOtherSessions } from './sessions';
+import { assertEmailAllowed, assertSignupsWithinCap, signupAddress } from './signup-guard';
 import { fieldError, normalizeEmail, parseEmail, parseName } from './validation';
 
 export interface RegisterInput {
@@ -88,13 +94,33 @@ export interface NewAccount {
   passwordHash: string;
   locale: Locale;
   role: UserRole;
-  /** Credits granted as `signup_bonus` in the same transaction. 0 grants nothing. */
+  /**
+   * Credits granted as `signup_bonus` in the same transaction. 0 grants nothing: when emails must
+   * be confirmed the bonus waits for the confirmation (`markEmailVerified`).
+   */
   bonusCredits: number;
+  /** Client address of the registration (counts towards the daily cap); null for operator-made accounts. */
+  signupIp: string | null;
+  /** Set for accounts whose address nobody needs to confirm (operator-made). */
+  verifiedAt: number | null;
 }
 
 /** Inserts the user and its signup bonus. Synchronous: call it inside `withTx`. */
 function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow {
-  const taken = tx.select({ id: users.id }).from(users).where(eq(users.email, account.email)).get();
+  const emailCanonical = canonicalizeEmail(account.email);
+  // The canonical form catches `a.b+x@gmail.com` after `ab@gmail.com`; comparing it with `email`
+  // as well covers rows that predate the column.
+  const taken = tx
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      or(
+        eq(users.email, account.email),
+        eq(users.emailCanonical, emailCanonical),
+        eq(users.email, emailCanonical),
+      ),
+    )
+    .get();
   if (taken) throw accountUnavailable();
 
   const id = newId('usr', now);
@@ -107,27 +133,29 @@ function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow {
       role: account.role,
       locale: account.locale,
       creditBalance: 0,
+      emailCanonical,
+      emailVerifiedAt: account.verifiedAt,
+      signupIp: account.signupIp,
       createdAt: now,
       updatedAt: now,
     })
     .run();
-  if (account.bonusCredits > 0) {
-    grantCredits(tx, {
-      userId: id,
-      amount: account.bonusCredits,
-      reason: 'signup_bonus',
-      idempotencyKey: `signup_bonus:${id}`,
-    });
-  }
+  grantSignupBonus(tx, { id, email: account.email, emailCanonical }, account.bonusCredits, now);
   const row = tx.select().from(users).where(eq(users.id, id)).get();
   if (!row) throw new Error('User row missing right after insert');
   return row;
 }
 
 /**
- * Creates the account, grants the signup bonus in the same transaction (first `ADMIN_EMAILS`
- * match becomes admin) and opens a session. `conflict` for a taken email, `signup_disabled` when
- * registration is closed, `validation_failed` for a bad email or password.
+ * Creates the account and opens a session. Without mandatory email confirmation the signup bonus
+ * is granted in the same transaction and the first `ADMIN_EMAILS` match becomes admin; with it, the
+ * account starts with no credits and no privileges, a confirmation link is mailed, and bonus and
+ * admin role follow the confirmation (`markEmailVerified`).
+ *
+ * `conflict` for a taken address (also an alias of a taken mailbox), `signup_disabled` when
+ * registration is closed, `email_not_allowed` for a throwaway-mail domain, `signup_limit` when the
+ * client address created its share of accounts today, `validation_failed` for a bad email or
+ * password.
  */
 export async function registerUser(
   input: RegisterInput,
@@ -139,12 +167,16 @@ export async function registerUser(
   const email = parseEmail(input.email);
   const name = parseName(input.name);
   assertPasswordPolicy(input.password, { email });
+  // Before the expensive hash, and independent of whether the address is taken.
+  assertEmailAllowed(email);
   const locale = isLocale(input.locale) ? input.locale : DEFAULT_LOCALE;
   const passwordHash = await hashPassword(input.password);
+  const confirmFirst = isEmailVerificationRequired(env);
 
   try {
     const result = withTx(getDb(), (tx) => {
       const now = Date.now();
+      assertSignupsWithinCap(tx, meta.ip, now);
       const user = insertAccount(
         tx,
         {
@@ -152,16 +184,27 @@ export async function registerUser(
           name,
           passwordHash,
           locale,
-          // Emails are not verified: see "ADMIN_EMAILS" in docs/ARCHITECTURE.md section 16.
-          role: env.ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
-          bonusCredits: env.SIGNUP_BONUS_CREDITS,
+          // Admin only for an address that proved it owns the mailbox: when confirmation is
+          // required the promotion happens at confirmation. Otherwise whoever registers an
+          // ADMIN_EMAILS address first owns it (docs/ARCHITECTURE.md section 16).
+          role: !confirmFirst && env.ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
+          bonusCredits: confirmFirst ? 0 : env.SIGNUP_BONUS_CREDITS,
+          signupIp: signupAddress(meta.ip),
+          verifiedAt: null,
         },
         now,
       );
       const session = openSession(tx, user.id, meta, now);
-      return { user, session };
+      const confirmation = confirmFirst ? issueEmailToken(tx, user.id, 'verify', now) : null;
+      return { user, session, confirmation };
     });
     getLogger().info('User registered', { userId: result.user.id, role: result.user.role });
+    const recipient = { email, name: result.user.name, locale: result.user.locale };
+    if (result.confirmation) {
+      queueVerificationEmail(recipient, result.confirmation.secret, env.SIGNUP_BONUS_CREDITS);
+    } else if (isSmtpConfigured(env)) {
+      queueWelcomeEmail(recipient, result.user.creditBalance);
+    }
     return {
       user: toSessionUser(result.user),
       token: result.session.token,
@@ -190,6 +233,7 @@ export async function provisionUser(input: ProvisionInput): Promise<SessionUser>
   const name = parseName(input.name);
   assertPasswordPolicy(input.password, { email });
   const passwordHash = await hashPassword(input.password);
+  const now = Date.now();
   try {
     const user = withTx(getDb(), (tx) =>
       insertAccount(
@@ -201,8 +245,11 @@ export async function provisionUser(input: ProvisionInput): Promise<SessionUser>
           locale: isLocale(input.locale) ? input.locale : DEFAULT_LOCALE,
           role: input.role ?? 'user',
           bonusCredits: input.bonusCredits ?? getEnv().SIGNUP_BONUS_CREDITS,
+          // The operator vouches for the address, so there is nothing to confirm or to cap.
+          signupIp: null,
+          verifiedAt: now,
         },
-        Date.now(),
+        now,
       ),
     );
     return toSessionUser(user);

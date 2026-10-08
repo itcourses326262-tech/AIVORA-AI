@@ -18,7 +18,7 @@ export function validationError(error: ZodError): AppError {
 export interface NormalizedError {
   status: number;
   body: ApiErrorBody;
-  /** Seconds to wait, for `rate_limited` errors that know it. */
+  /** Seconds to wait, for `rate_limited` and `service_busy` errors that know it. */
   retryAfterSec?: number;
 }
 
@@ -38,7 +38,7 @@ export function normalizeError(thrown: unknown): NormalizedError {
   }
   const exposeMessage = error.code !== 'internal';
   const retryAfter =
-    error.code === 'rate_limited' && isRecord(error.details)
+    (error.code === 'rate_limited' || error.code === 'service_busy') && isRecord(error.details)
       ? error.details.retryAfterSec
       : undefined;
   return {

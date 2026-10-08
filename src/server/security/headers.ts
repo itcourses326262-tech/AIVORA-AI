@@ -11,7 +11,6 @@ const HSTS_MAX_AGE_SEC = 60 * 60 * 24 * 365;
 // Everything the app does not use is switched off for the page and every frame in it.
 const PERMISSIONS_POLICY = [
   'accelerometer',
-  'bluetooth',
   'browsing-topics',
   'camera',
   'display-capture',

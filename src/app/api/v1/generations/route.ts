@@ -41,6 +41,8 @@ function idempotencyKeyOf(req: Request): string | undefined {
 export const POST = route(
   { auth: 'required', rateLimit: GENERATION_CREATE_LIMIT, maxBodyBytes: MAX_CREATE_BODY_BYTES },
   async (ctx) => {
+    if (ctx.auth.mustVerifyEmail)
+      throw AppError.of('email_not_verified', 'Confirm your email first');
     const body = await ctx.body(createGenerationRequestSchema);
     const idempotencyKey = idempotencyKeyOf(ctx.req);
     const { generation, created: isNew } = await createGeneration(ctx.auth.user.id, body, {

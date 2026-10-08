@@ -1,11 +1,11 @@
 import 'server-only';
 import type { ZodType } from 'zod';
-import { AppError } from '@/lib/errors';
+import { AppError, isAppError } from '@/lib/errors';
 import { authenticate, type AuthContext } from '@/server/auth';
 import { getLogger, type Logger } from '@/server/logger';
 import { assertSameOrigin } from '@/server/security/origin';
 import { getRateLimiter, type RateLimitResult } from '@/server/security/rate-limit';
-import { getClientIp } from '@/server/security/ip';
+import { UNKNOWN_IP, getClientIp } from '@/server/security/ip';
 import { errorResponse, normalizeError } from './errors';
 import {
   DEFAULT_MAX_JSON_BYTES,
@@ -26,13 +26,35 @@ export interface RateLimitOptions {
   name: string;
   limit: number;
   windowSec: number;
-  /** Defaults to `user` for `auth: 'required'` routes and `ip` otherwise. */
+  /**
+   * Leave it out for the usual identity keying: a signed-in caller (session cookie or API key,
+   * resolved even on `auth: 'optional'` routes) spends `user:<id>`, an anonymous one the address
+   * bucket, or, when the address is unknown (no trusted proxy), the shared
+   * {@link ANONYMOUS_UNKNOWN_SCOPE} bucket with {@link ANONYMOUS_UNKNOWN_FACTOR} times the limit.
+   * A signed-in caller therefore never spends an anonymous budget.
+   *
+   * `'ip'` is the explicit per-address budget (login, register, the public feed): it is counted
+   * before authentication, for everybody, and an unknown address stays `ip:unknown`, so the route
+   * must size that case itself (see `addressRoute`). `'user'` keys signed-in callers by account and
+   * anonymous ones by address.
+   */
   by?: 'ip' | 'user';
 }
 
 /**
+ * Without a trusted proxy (`TRUST_PROXY=false`) every client has the address `unknown`, and a
+ * budget sized for one client would be a switch any script can pull for everybody. Anonymous
+ * callers of a route that leaves `by` unset share this many times its `limit` instead, in a bucket
+ * of their own per route class. Signed-in callers never touch it.
+ */
+export const ANONYMOUS_UNKNOWN_FACTOR = 10;
+/** Key of the shared anonymous bucket (`<rate name>:anonymous-unknown`). */
+export const ANONYMOUS_UNKNOWN_SCOPE = 'anonymous-unknown';
+
+/**
  * Applied to every route that does not pass its own `rateLimit`, so a forgotten option can never
- * leave an endpoint unthrottled. The bucket is shared by all such routes (per user or IP).
+ * leave an endpoint unthrottled. The bucket is shared by all such routes (per user, or per address
+ * for anonymous callers).
  */
 export const GENERAL_RATE_LIMIT: Readonly<RateLimitOptions> = {
   name: 'general',
@@ -122,20 +144,27 @@ export function route<P>(
     try {
       const ip = getClientIp(req);
       const rate = opts.rateLimit === false ? undefined : (opts.rateLimit ?? GENERAL_RATE_LIMIT);
-      const rateBy = rate ? (rate.by ?? (opts.auth === 'required' ? 'user' : 'ip')) : undefined;
-      const hit = (scope: string) => {
-        if (!rate) return;
-        const result = getRateLimiter().hit(`${rate.name}:${scope}`, rate.limit, rate.windowSec);
-        rateInfo = { limit: rate.limit, result };
+      const hit = (rateLimit: RateLimitOptions, scope: string, limit: number) => {
+        const result = getRateLimiter().hit(
+          `${rateLimit.name}:${scope}`,
+          limit,
+          rateLimit.windowSec,
+        );
+        rateInfo = { limit, result };
         if (!result.allowed) {
           const retryAfterSec = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));
           throw AppError.of('rate_limited', 'Too many requests', { retryAfterSec });
         }
       };
 
-      // IP limits run before authentication so floods never reach the credential lookup.
-      if (rateBy === 'ip') hit(`ip:${ip}`);
+      // An explicit per-address budget is counted before authentication, so floods never reach the
+      // credential lookup.
+      if (rate?.by === 'ip') hit(rate, `ip:${ip}`, rate.limit);
 
+      // Credentials are resolved before an identity budget is spent, also on `optional` routes: a
+      // signed-in caller is keyed by account and must never consume (or be starved by) the bucket
+      // of anonymous callers. Anonymous requests carry nothing to look up, and rejected credentials
+      // cost one HMAC and one indexed read before they are counted as anonymous.
       const auth = await resolveAuth(req, opts.auth);
       if (opts.admin && auth?.user.role !== 'admin') {
         throw AppError.of('forbidden', 'Admin access required');
@@ -143,7 +172,12 @@ export function route<P>(
       if (isMutatingMethod(req.method) && (opts.csrf ?? auth?.via === 'session')) {
         assertSameOrigin(req);
       }
-      if (rateBy === 'user') hit(auth ? `user:${auth.user.id}` : `ip:${ip}`);
+      if (rate && rate.by !== 'ip') {
+        if (auth) hit(rate, `user:${auth.user.id}`, rate.limit);
+        else if (rate.by === undefined && ip === UNKNOWN_IP) {
+          hit(rate, ANONYMOUS_UNKNOWN_SCOPE, rate.limit * ANONYMOUS_UNKNOWN_FACTOR);
+        } else hit(rate, `ip:${ip}`, rate.limit);
+      }
 
       const maxBodyBytes = bodyLimit(opts.maxBodyBytes);
       const capped = capRequestBody(req, maxBodyBytes);
@@ -237,7 +271,10 @@ function logOutcome(
     status: response.status,
     durationMs: Math.round(performance.now() - startedAt),
   };
-  if (response.status >= 500) {
+  // `service_busy` is the 503 a deliberate guard answers with (its own source logs it, throttled),
+  // not a fault: it must not page anyone with a stack trace per refused request.
+  const deliberate = isAppError(failure) && failure.code === 'service_busy';
+  if (response.status >= 500 && !deliberate) {
     log.error('Request failed', failure === undefined ? fields : { ...fields, err: failure });
   } else {
     const code = failure === undefined ? undefined : normalizeError(failure).body.error.code;

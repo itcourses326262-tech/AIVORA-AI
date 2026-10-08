@@ -9,6 +9,12 @@ export type Theme = (typeof THEMES)[number];
 export const DEFAULT_THEME: Theme = 'dark';
 export const THEME_COOKIE = 'aivore_theme';
 
+/**
+ * The page background of each color scheme, for `<meta name="theme-color">` (the browser's own
+ * chrome). A test keeps them equal to the `--background` tokens of `globals.css`.
+ */
+export const THEME_COLORS = { dark: '#0b0b16', light: '#f6f6fb' } as const;
+
 const THEME_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 365;
 
 export function isTheme(value: unknown): value is Theme {

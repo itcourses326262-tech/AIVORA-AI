@@ -1,10 +1,14 @@
+import { deleteAccountWithPassword } from '@/server/auth/account-deletion';
+import { clearSessionCookie } from '@/server/auth/cookies';
 import { toUserDTO } from '@/server/auth/dto';
-import { AUTH_BODY_LIMIT, updateAccountSchema } from '@/server/auth/schemas';
+import { requireSession } from '@/server/auth/http';
+import { AUTH_BODY_LIMIT, deleteAccountSchema, updateAccountSchema } from '@/server/auth/schemas';
 import { getUserById, updateAccount } from '@/server/auth/users';
 import { AppError } from '@/lib/errors';
 import { serializeLocaleCookie } from '@/lib/i18n';
-import { ok } from '@/server/http/respond';
+import { noContent, ok } from '@/server/http/respond';
 import { route } from '@/server/http/route';
+import { ACCOUNT_DELETE_RATE_LIMIT } from './data-rate-limits';
 import { ACCOUNT_READ_RATE_LIMIT, ACCOUNT_WRITE_RATE_LIMIT } from './rate-limits';
 
 export const runtime = 'nodejs';
@@ -31,5 +35,22 @@ export const PATCH = route(
       headers.append('Set-Cookie', serializeLocaleCookie(patch.locale));
     }
     return ok(toUserDTO(row), { headers });
+  },
+);
+
+/**
+ * `DELETE /api/v1/account` `{ password }` -> 204: deletes the account (browser session only, the
+ * current password must be re-entered, same-origin checked). Sessions and API keys end at once,
+ * generations and stored files are removed, the user row is anonymized, ledger and billing rows
+ * stay for accounting; a confirmation email is sent. A wrong password is a 422 at path
+ * `password`. See `server/auth/account-deletion.ts`.
+ */
+export const DELETE = route(
+  { auth: 'required', rateLimit: ACCOUNT_DELETE_RATE_LIMIT, maxBodyBytes: AUTH_BODY_LIMIT },
+  async (ctx) => {
+    requireSession(ctx.auth);
+    const body = await ctx.body(deleteAccountSchema);
+    await deleteAccountWithPassword(ctx.auth.user.id, body.password);
+    return noContent({ headers: { 'Set-Cookie': clearSessionCookie() } });
   },
 );

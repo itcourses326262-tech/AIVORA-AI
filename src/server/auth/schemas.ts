@@ -39,5 +39,13 @@ export const changePasswordSchema = z.object({
 
 export const createApiKeySchema = z.object({ name: z.string().max(400) });
 
+/** A link secret is 43 characters; anything much longer is not one and never reaches the lookup. */
+const linkToken = z.string().max(256);
+
+export const confirmEmailSchema = z.object({ token: linkToken });
+export const forgotPasswordSchema = z.object({ email: z.string().max(320) });
+export const resetPasswordSchema = z.object({ token: linkToken, password: newPassword });
+export const deleteAccountSchema = z.object({ password: z.string().min(1).max(1024) });
+
 /** Small JSON bodies: nothing in these endpoints needs more. */
 export const AUTH_BODY_LIMIT = 8 * 1024;

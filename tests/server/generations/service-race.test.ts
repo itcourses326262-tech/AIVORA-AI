@@ -127,4 +127,26 @@ describe('createGeneration across processes', () => {
     expect(test.db.select().from(generations).all()).toHaveLength(7);
     expectConsistentLedger(test.db, user.id, 7);
   }, 120_000);
+
+  it('never lets paid generations exceed the daily upstream budget, however many requests race', async () => {
+    const user = seedUser(test.db, { creditBalance: 50 });
+    const tallies = await race(
+      test,
+      user.id,
+      Array.from({ length: 3 }, () => ({ attempts: 5, keys: 'distinct' as const })),
+      {
+        FAL_KEY: 'test-key-never-sent-anywhere',
+        RACE_MODEL: 'fal-flux-schnell', // 1 credit per image
+        DAILY_UPSTREAM_BUDGET_CREDITS: '7',
+      },
+    );
+    expect(total(tallies, 'created')).toBe(7);
+    expect(total(tallies, 'service_busy')).toBe(8);
+    expect(total(tallies, 'other')).toBe(0);
+    const rows = test.db.select().from(generations).all();
+    expect(rows).toHaveLength(7);
+    expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBe(7);
+    expect(getBalance(test.db, user.id)).toBe(43); // refused requests were never debited
+    expectConsistentLedger(test.db, user.id, 50);
+  }, 120_000);
 });

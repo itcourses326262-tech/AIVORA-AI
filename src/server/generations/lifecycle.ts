@@ -1,10 +1,24 @@
 import 'server-only';
-import { and, asc, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { refundGeneration } from '@/server/credits';
 import { withTx, type Db, type DbOrTx, type Tx } from '@/server/db';
 import { assets, generations, type GenerationRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
 import type { PersistedOutput } from '@/server/uploads';
+import { isPaidProvider } from './paid';
 
 // Every state change is a compare-and-set on (id, status[, workerId]) inside a synchronous
 // transaction; each function returns false when the row was not in the expected state. The `db`
@@ -30,6 +44,18 @@ export const INTERRUPTED_FAILURE: GenerationFailure = {
   message: 'The generation was interrupted and could not be completed.',
 };
 
+/**
+ * What a job is failed with when it cannot safely be run again: a `provider.submit` was started
+ * (see {@link markSubmitStarted}) and the worker vanished before the provider's job id was stored,
+ * so the provider may already have accepted, and be billing, a request we cannot find. Submitting
+ * again would risk paying for the same picture twice, so the job ends here, fully refunded.
+ */
+export const SUBMIT_INTERRUPTED_FAILURE: GenerationFailure = {
+  code: 'interrupted',
+  message:
+    'The generation was interrupted before the provider confirmed it, so it was stopped to avoid a duplicate charge. Your credits were refunded; please try again.',
+};
+
 export interface ClaimOptions {
   /** A `processing` job that already used this many attempts is not claimed again. Default `MAX_ATTEMPTS`. */
   maxAttempts?: number;
@@ -39,6 +65,37 @@ export interface ClaimOptions {
    * it a second time would submit it, and bill it, twice.
    */
   excludeIds?: readonly string[];
+}
+
+/**
+ * A job whose `provider.submit` was started but whose outcome was never recorded, on a provider
+ * that bills for it. Only the Demo provider may simply be submitted again.
+ */
+export function isIndeterminateSubmit(
+  row: Pick<GenerationRow, 'provider' | 'submitStartedAt' | 'providerJobId'>,
+): boolean {
+  return row.submitStartedAt !== null && row.providerJobId === null && isPaidProvider(row.provider);
+}
+
+/** The SQL twin of {@link isIndeterminateSubmit}. */
+const indeterminateSubmit = and(
+  isNotNull(generations.submitStartedAt),
+  isNull(generations.providerJobId),
+  ne(generations.provider, 'mock'),
+);
+
+/** Fails (and refunds) every indeterminate job among `candidates`; returns how many. */
+function failIndeterminateSubmits(tx: Tx, candidates: SQL | undefined, now: number): number {
+  const doomed = tx
+    .select({ id: generations.id })
+    .from(generations)
+    .where(and(candidates, indeterminateSubmit))
+    .all();
+  let failed = 0;
+  for (const { id } of doomed) {
+    if (failInTx(tx, id, null, SUBMIT_INTERRUPTED_FAILURE, now)) failed += 1;
+  }
+  return failed;
 }
 
 function ownedBy(workerId: string) {
@@ -89,6 +146,8 @@ export function claimNextJob(
     return null;
   }
   return withTx(db, (tx) => {
+    // A job that must not be submitted again is failed here instead of being handed out.
+    failIndeterminateSubmits(tx, claimable, now);
     const candidate = tx
       .select({ id: generations.id })
       .from(generations)
@@ -131,6 +190,43 @@ export function extendLease(
   return row !== undefined;
 }
 
+/**
+ * Compare-and-set, right BEFORE `provider.submit` is called: records that a submit is about to
+ * leave this process. If the worker dies before {@link recordSubmitted} runs, the marker is what
+ * tells the next worker that the provider may be holding (and billing) a request we have no id
+ * for. False when the job is no longer this worker's, or already has a provider job id: then
+ * nothing may be submitted.
+ */
+export function markSubmitStarted(
+  db: Db,
+  id: string,
+  workerId: string,
+  now: number = Date.now(),
+): boolean {
+  const row = db
+    .update(generations)
+    .set({ submitStartedAt: now, updatedAt: now })
+    .where(and(eq(generations.id, id), ownedBy(workerId), isNull(generations.providerJobId)))
+    .returning({ id: generations.id })
+    .get();
+  return row !== undefined;
+}
+
+/**
+ * Takes the marker back after a submit that the provider definitely did not accept (it answered
+ * with a retryable error): the engine is about to try again, and a shutdown during the back-off
+ * must not leave an indeterminate job behind.
+ */
+export function clearSubmitStarted(db: Db, id: string, workerId: string): boolean {
+  const row = db
+    .update(generations)
+    .set({ submitStartedAt: null, updatedAt: Date.now() })
+    .where(and(eq(generations.id, id), ownedBy(workerId), isNull(generations.providerJobId)))
+    .returning({ id: generations.id })
+    .get();
+  return row !== undefined;
+}
+
 /** Stores the provider's async job id and metadata so a restarted worker can resume polling. */
 export function recordSubmitted(
   db: Db,
@@ -141,7 +237,13 @@ export function recordSubmitted(
 ): boolean {
   const row = db
     .update(generations)
-    .set({ providerJobId, providerMeta: meta ?? null, updatedAt: Date.now() })
+    .set({
+      providerJobId,
+      providerMeta: meta ?? null,
+      // The outcome of the submit is on record now: the job is resumable, not indeterminate.
+      submitStartedAt: null,
+      updatedAt: Date.now(),
+    })
     .where(and(eq(generations.id, id), ownedBy(workerId)))
     .returning({ id: generations.id })
     .get();
@@ -186,6 +288,7 @@ export function completeGeneration(
         leaseUntil: null,
         errorCode: null,
         errorMessage: null,
+        submitStartedAt: null,
         updatedAt: now,
       })
       .where(and(eq(generations.id, id), ownedBy(workerId)))
@@ -249,6 +352,7 @@ function failInTx(
       errorMessage: truncate(failure.message, MAX_ERROR_MESSAGE_CHARS),
       finishedAt: now,
       leaseUntil: null,
+      submitStartedAt: null,
       updatedAt: now,
     })
     .where(
@@ -288,7 +392,13 @@ export function markCanceled(db: DbOrTx, userId: string, id: string): boolean {
     const now = Date.now();
     const row = tx
       .update(generations)
-      .set({ status: 'canceled', finishedAt: now, leaseUntil: null, updatedAt: now })
+      .set({
+        status: 'canceled',
+        finishedAt: now,
+        leaseUntil: null,
+        submitStartedAt: null,
+        updatedAt: now,
+      })
       .where(
         and(
           eq(generations.id, id),
@@ -371,12 +481,13 @@ export function requeueStale(
   );
   if (!db.select({ id: generations.id }).from(generations).where(expired).limit(1).get()) return 0;
   return withTx(db, (tx) => {
+    // First the jobs that must not run again: their submit may already be billing upstream.
+    let touched = failIndeterminateSubmits(tx, expired, now);
     const stale = tx
       .select({ id: generations.id, attempts: generations.attempts })
       .from(generations)
       .where(expired)
       .all();
-    let touched = 0;
     for (const job of stale) {
       if (job.attempts >= maxAttempts) {
         if (failInTx(tx, job.id, null, INTERRUPTED_FAILURE, now)) touched += 1;

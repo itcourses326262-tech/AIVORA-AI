@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getClientIp, normalizeIp } from '@/server/security/ip';
-import { resetEnvForTests } from '@/server/env';
+import { getClientIp, normalizeIp, resetProxyHeaderWarningForTests } from '@/server/security/ip';
+import { getEnv, resetEnvForTests } from '@/server/env';
+import { resetLoggerForTests } from '@/server/logger';
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   resetEnvForTests();
+  resetLoggerForTests();
+  resetProxyHeaderWarningForTests();
 });
+
+const SECRET = 'a-production-grade-secret-0123456789abcdef0123';
 
 function withEnv(values: Record<string, string>): void {
   vi.stubEnv('TRUSTED_PROXY_HOPS', '1');
@@ -158,5 +164,69 @@ describe('getClientIp with TRUST_PROXY=true', () => {
     withEnv({ TRUST_PROXY: 'true' });
     expect(getClientIp(request({ 'x-forwarded-for': 'x'.repeat(5000) }))).toBe('unknown');
     expect(getClientIp(request({ 'x-forwarded-for': '1.2.3.4 ; DROP' }))).toBe('unknown');
+  });
+});
+
+describe('the warning about ignored forwarding headers', () => {
+  /** Calls getClientIp for each request and returns the warnings the logger wrote. */
+  function warningsFor(env: Record<string, string>, requests: Request[]): string[] {
+    withEnv({ LOG_LEVEL: 'warn', ...env });
+    resetLoggerForTests();
+    resetProxyHeaderWarningForTests();
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    getEnv(); // the start-up warnings (env.ts) are not what is under test
+    write.mockClear();
+    for (const req of requests) getClientIp(req);
+    return write.mock.calls.map(([chunk]) => (JSON.parse(String(chunk)) as { msg: string }).msg);
+  }
+
+  const behindProxy = () => request({ 'x-forwarded-for': '203.0.113.9' });
+
+  it('is logged ONCE in production when TRUST_PROXY is false but X-Forwarded-For is present', () => {
+    const messages = warningsFor({ NODE_ENV: 'production', SESSION_SECRET: SECRET }, [
+      behindProxy(),
+      behindProxy(),
+      request({ 'x-real-ip': '203.0.113.10' }),
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/all clients share one rate-limit bucket/);
+    expect(messages[0]).toMatch(/set TRUST_PROXY=true behind your proxy/i);
+    expect(messages[0]).toMatch(/X-Forwarded-For/);
+  });
+
+  it('also reacts to X-Real-IP alone', () => {
+    const messages = warningsFor({ NODE_ENV: 'production', SESSION_SECRET: SECRET }, [
+      request({ 'x-real-ip': '203.0.113.10' }),
+    ]);
+    expect(messages).toHaveLength(1);
+  });
+
+  it('never leaks the forwarded address into the log', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    withEnv({ LOG_LEVEL: 'warn', NODE_ENV: 'production', SESSION_SECRET: SECRET });
+    resetLoggerForTests();
+    resetProxyHeaderWarningForTests();
+    getEnv();
+    write.mockClear();
+    getClientIp(request({ 'x-forwarded-for': '203.0.113.99' }));
+    expect(write.mock.calls.map(([chunk]) => String(chunk)).join('')).not.toContain('203.0.113.99');
+  });
+
+  it('stays quiet without forwarding headers, with TRUST_PROXY=true and outside production', () => {
+    expect(warningsFor({ NODE_ENV: 'production', SESSION_SECRET: SECRET }, [request()])).toEqual(
+      [],
+    );
+    expect(
+      warningsFor({ NODE_ENV: 'production', SESSION_SECRET: SECRET, TRUST_PROXY: 'true' }, [
+        behindProxy(),
+      ]),
+    ).toEqual([]);
+    expect(warningsFor({ NODE_ENV: 'development' }, [behindProxy()])).toEqual([]);
+    expect(warningsFor({ NODE_ENV: 'test' }, [behindProxy()])).toEqual([]);
+  });
+
+  it('does not change the answer: the header is still never believed', () => {
+    warningsFor({ NODE_ENV: 'production', SESSION_SECRET: SECRET }, []);
+    expect(getClientIp(behindProxy())).toBe('unknown');
   });
 });

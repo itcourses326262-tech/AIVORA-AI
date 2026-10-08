@@ -1,0 +1,134 @@
+'use client';
+
+import { Coins, Sparkles, TriangleAlert } from 'lucide-react';
+import { useSyncExternalStore, type MouseEvent } from 'react';
+import { creditsText } from '@/lib/generations/format';
+import { useI18n } from '@/lib/i18n/client';
+import { cn, formatCredits } from '@/lib/utils';
+import { Button } from '../ui/button';
+import { Kbd } from '../ui/kbd';
+
+export interface CreditStatus {
+  /** What the request costs; null while there is no model to price. */
+  cost: number | null;
+  balance: number;
+}
+
+/** The person cannot pay for the request: too few credits. */
+export function isShort({ cost, balance }: CreditStatus): boolean {
+  return cost !== null && balance < cost;
+}
+
+/** Where to buy credits (the pricing page is built by another module). */
+export const PRICING_HREF = '/pricing';
+
+/** Says what is missing and links to the page that sells it. Renders nothing when affordable. */
+export function CreditNotice({ status, className }: { status: CreditStatus; className?: string }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  if (!isShort(status) || status.cost === null) return null;
+  return (
+    <div
+      role="status"
+      className={cn(
+        'flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border border-warning/35 bg-warning-soft px-3 py-2.5',
+        className,
+      )}
+    >
+      <p className="flex items-center gap-2 text-sm text-foreground">
+        <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />
+        {t('errors.insufficient_credits')}{' '}
+        {t('studio.cost.short', { missing: creditsText(i18n, status.cost - status.balance) })}
+      </p>
+      <Button href={PRICING_HREF} size="sm" variant="secondary">
+        {t('studio.cost.getCredits')}
+      </Button>
+    </div>
+  );
+}
+
+const noSubscription = () => () => {};
+
+/** ⌘ on Apple devices, Ctrl elsewhere. The server render says Ctrl; the browser corrects it. */
+function useShortcutModifier(): string {
+  return useSyncExternalStore(
+    noSubscription,
+    () => (/mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl'),
+    () => 'Ctrl',
+  );
+}
+
+export interface GenerateButtonProps extends CreditStatus {
+  busy: boolean;
+  /** No model can run this tool (or the catalog has not loaded). */
+  noModel: boolean;
+  onGenerate: (event: MouseEvent<HTMLButtonElement>) => void;
+  size?: 'md' | 'lg';
+  fullWidth?: boolean;
+}
+
+export function GenerateButton({
+  cost,
+  balance,
+  busy,
+  noModel,
+  onGenerate,
+  size = 'lg',
+  fullWidth = true,
+}: GenerateButtonProps) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+    <Button
+      size={size}
+      fullWidth={fullWidth}
+      loading={busy}
+      disabled={noModel || isShort({ cost, balance })}
+      startIcon={busy ? undefined : <Sparkles aria-hidden="true" />}
+      onClick={onGenerate}
+    >
+      {busy
+        ? t('studio.action.starting')
+        : cost === null
+          ? t('studio.generate')
+          : t('studio.action.generate', { price: creditsText(i18n, cost) })}
+    </Button>
+  );
+}
+
+export interface GenerateBarProps extends GenerateButtonProps {
+  className?: string;
+}
+
+/** Cost, balance, the "get credits" way out and the Generate button, pinned under the controls. */
+export function GenerateBar({ className, ...button }: GenerateBarProps) {
+  const i18n = useI18n();
+  const { t, locale } = i18n;
+  const modifier = useShortcutModifier();
+  const { cost, balance } = button;
+  return (
+    <div className={cn('grid gap-3 border-t border-border bg-surface p-4', className)}>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <p className="flex items-center gap-2 text-muted">
+          <Coins aria-hidden="true" className="size-4 text-brand" />
+          <span>{t('studio.cost.label')}</span>
+          <strong className="font-semibold text-foreground tabular-nums">
+            {cost === null ? '—' : creditsText(i18n, cost)}
+          </strong>
+        </p>
+        <p className="text-muted tabular-nums">
+          {t('studio.cost.balance', { balance: formatCredits(balance, locale) })}
+        </p>
+      </div>
+      <CreditNotice status={{ cost, balance }} />
+      <GenerateButton {...button} />
+      <p className="hidden items-center justify-center gap-1.5 text-xs text-subtle lg:flex">
+        <span dir="ltr" className="inline-flex items-center gap-1">
+          <Kbd>{modifier}</Kbd>
+          <Kbd>Enter</Kbd>
+        </span>
+        <span>{t('studio.prompt.shortcut')}</span>
+      </p>
+    </div>
+  );
+}

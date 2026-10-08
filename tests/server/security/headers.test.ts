@@ -41,7 +41,6 @@ describe('securityHeaders', () => {
       'payment',
       'usb',
       'serial',
-      'bluetooth',
       'hid',
       'display-capture',
       'browsing-topics',
@@ -50,6 +49,31 @@ describe('securityHeaders', () => {
     }
     // Muted autoplaying previews in the gallery must keep working.
     expect(policy).not.toContain('autoplay');
+  });
+
+  it('lists only directives browsers recognise (Chrome logs every unknown one in the console)', () => {
+    // `bluetooth` was never a standard Permissions-Policy feature: Chrome reports it as
+    // "Unrecognized feature" on every page load.
+    const policy = headerMap(true).get('Permissions-Policy') ?? '';
+    expect(policy).not.toContain('bluetooth');
+    const KNOWN = new Set([
+      'accelerometer',
+      'browsing-topics',
+      'camera',
+      'display-capture',
+      'geolocation',
+      'gyroscope',
+      'hid',
+      'magnetometer',
+      'microphone',
+      'midi',
+      'payment',
+      'serial',
+      'usb',
+    ]);
+    const features = policy.split(', ').map((entry) => entry.replace(/=\(\)$/, ''));
+    expect(features.length).toBeGreaterThan(0);
+    for (const feature of features) expect(KNOWN.has(feature), feature).toBe(true);
   });
 
   it('allows no frames, no plugins and no foreign base or form targets', () => {

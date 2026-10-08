@@ -5,6 +5,12 @@ import type { DbOrTx } from '@/server/db';
 import { assets, generations, users, type AssetRow, type GenerationRow } from '@/server/db/schema';
 import { toGenerationDTO, toPublicGenerationDTO } from './dto';
 
+/**
+ * The roles an asset may have to serve as the input image of a generation: something the user
+ * uploaded (`input`) or a picture one of their own generations produced (`output`).
+ */
+export const INPUT_ASSET_ROLES = ['input', 'output'] as const;
+
 /** A generation by id, whoever owns it. Undefined when it does not exist. */
 export function findGenerationRow(db: DbOrTx, id: string): GenerationRow | undefined {
   return db.select().from(generations).where(eq(generations.id, id)).get();
@@ -102,13 +108,14 @@ export function hydrateGenerations(
       : db
           .select()
           .from(assets)
-          .where(and(inArray(assets.id, inputIds), eq(assets.role, 'input')))
+          .where(inArray(assets.id, inputIds))
           .all()
           .map((asset) => [asset.id, asset]),
   );
   return rows.map((row) => {
-    // The upload belongs to the generation's owner by construction; checking again keeps a
-    // hand-edited row from ever surfacing someone else's file.
+    // The input (an upload, or an output of an earlier generation of the same user) belongs to the
+    // generation's owner by construction; checking again keeps a hand-edited row from ever
+    // surfacing someone else's file.
     const input = row.inputAssetId ? inputs.get(row.inputAssetId) : undefined;
     return toGenerationDTO(row, {
       outputs: outputs.get(row.id) ?? [],

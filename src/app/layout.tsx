@@ -2,13 +2,18 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { I18nProvider } from '@/lib/i18n/client';
 import { getI18n } from '@/lib/i18n/server';
+import { metadataBaseFor } from '@/lib/site-url';
+import { THEME_COLORS } from '@/lib/theme';
 import { getTheme } from '@/lib/theme-server';
+import { getEnv } from '@/server/env';
 import './globals.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
   const name = t('common.app.name');
   return {
+    // Makes every relative metadata URL (Open Graph images, canonical links) absolute.
+    metadataBase: metadataBaseFor(getEnv().APP_URL),
     title: { default: name, template: `%s · ${name}` },
     description: t('common.app.tagline'),
   };
@@ -16,8 +21,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0b0b16' },
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: THEME_COLORS.dark },
+    { media: '(prefers-color-scheme: light)', color: THEME_COLORS.light },
   ],
 };
 
@@ -30,7 +35,9 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const [{ locale, dir, t }, theme] = await Promise.all([getI18n(), getTheme()]);
   return (
-    <html lang={locale} dir={dir} data-theme={theme}>
+    // `data-scroll-behavior` tells Next the smooth scrolling of globals.css is intended: it then
+    // disables it for the instant of a route change instead of warning about it.
+    <html lang={locale} dir={dir} data-theme={theme} data-scroll-behavior="smooth">
       <body className="min-h-dvh antialiased">
         <a
           href="#main-content"

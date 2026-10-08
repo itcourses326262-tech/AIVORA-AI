@@ -1,5 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_THEME, THEMES, THEME_COOKIE, isTheme, serializeThemeCookie } from '@/lib/theme';
+import {
+  DEFAULT_THEME,
+  THEMES,
+  THEME_COLORS,
+  THEME_COOKIE,
+  isTheme,
+  serializeThemeCookie,
+} from '@/lib/theme';
 
 describe('theme', () => {
   it('defaults to dark and lists light, dark and system', () => {
@@ -22,5 +31,21 @@ describe('theme', () => {
     );
     expect(serializeThemeCookie('dark', { secure: true })).toMatch(/; Secure$/);
     expect(serializeThemeCookie('dark')).not.toMatch(/HttpOnly/i);
+  });
+});
+
+describe('THEME_COLORS (the browser chrome color)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/app/globals.css'), 'utf8');
+
+  /** `--background` of the first rule whose selector contains `selector`. */
+  function background(selector: string): string | undefined {
+    const start = css.indexOf(selector);
+    if (start < 0) return undefined;
+    return /--background:\s*(#[0-9a-fA-F]{6})\s*;/.exec(css.slice(start))?.[1]?.toLowerCase();
+  }
+
+  it("equals each theme's --background token, so the chrome never clashes with the page", () => {
+    expect(THEME_COLORS.dark).toBe(background(":root[data-theme='dark']"));
+    expect(THEME_COLORS.light).toBe(background(":root[data-theme='light']"));
   });
 });

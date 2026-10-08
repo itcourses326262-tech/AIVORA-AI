@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type {
   CreateGenerationRequest,
   GenerationDTO,
@@ -28,9 +28,12 @@ import {
   isValidIdempotencyKey,
   type RequestFingerprint,
 } from './idempotency';
+import { assertWithinUpstreamBudget } from './budget';
 import { findPublicRow, selectOwnedRows, selectPublicRows } from './list';
+import { isPaidProvider } from './paid';
 import { markCanceled } from './lifecycle';
 import {
+  INPUT_ASSET_ROLES,
   countActiveGenerations,
   findGenerationRow,
   findOwnedGenerationRow,
@@ -86,7 +89,12 @@ function toDTO(db: Db, row: GenerationRow): GenerationDTO {
   return dto;
 }
 
-/** The uploaded image must exist, be an input image and belong to the caller; no hint which failed. */
+/**
+ * The input image must exist, be an IMAGE (never a video) and belong to the caller; it is either
+ * something they uploaded (role `input`) or a picture one of their own generations produced (role
+ * `output`), which is the core iteration flow: edit or animate a result. Nothing says which of
+ * "missing", "somebody else's" and "a video" it was.
+ */
 function assertOwnedInputImage(db: Db, userId: string, assetId: string): void {
   const asset = db
     .select({ id: assets.id })
@@ -95,7 +103,7 @@ function assertOwnedInputImage(db: Db, userId: string, assetId: string): void {
       and(
         eq(assets.id, assetId),
         eq(assets.userId, userId),
-        eq(assets.role, 'input'),
+        inArray(assets.role, INPUT_ASSET_ROLES),
         eq(assets.kind, 'image'),
       ),
     )
@@ -124,6 +132,8 @@ function insertQueued(
     idempotencyKey?: string;
     cost: number;
     maxActive: number;
+    /** DAILY_UPSTREAM_BUDGET_CREDITS for a request on a paid provider; 0 for none. */
+    upstreamBudget: number;
     values: typeof generations.$inferInsert;
     fingerprint: RequestFingerprint;
   },
@@ -152,6 +162,9 @@ function insertQueued(
           { limit: input.maxActive },
         );
       }
+      // The platform's own money, checked in the transaction that spends the user's: concurrent
+      // requests cannot overshoot the budget together.
+      assertWithinUpstreamBudget(tx, { cost: input.cost, budget: input.upstreamBudget });
       debitCredits(tx, { userId, amount: input.cost, generationId: input.id });
       return { row: tx.insert(generations).values(input.values).returning().get(), created: true };
     });
@@ -169,8 +182,9 @@ function insertQueued(
  * Validates the request, moderates the prompt, checks the model is available, that the input asset
  * belongs to the user and the active-generation limit, then in ONE transaction debits the credits
  * and inserts the `queued` generation, and wakes the worker. Errors: `validation_failed`,
- * `moderation_blocked`, `insufficient_credits`, `too_many_active`, `not_found` (input image),
- * `conflict` (model unavailable, or an idempotency key reused with a different request).
+ * `moderation_blocked`, `insufficient_credits`, `too_many_active`, `service_busy` (the daily
+ * upstream budget, paid providers only), `not_found` (input image), `conflict` (model unavailable,
+ * or an idempotency key reused with a different request).
  */
 export async function createGeneration(
   userId: string,
@@ -241,6 +255,7 @@ export async function createGeneration(
     idempotencyKey,
     cost,
     maxActive: env.MAX_ACTIVE_PER_USER,
+    upstreamBudget: isPaidProvider(model.provider) ? env.DAILY_UPSTREAM_BUDGET_CREDITS : 0,
     fingerprint,
     values: {
       id,

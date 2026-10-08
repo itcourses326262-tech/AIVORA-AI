@@ -358,7 +358,7 @@ describe('createGeneration: the input image', () => {
     expect(rows()).toHaveLength(0);
   });
 
-  it('refuses an output image as input', async () => {
+  it("accepts the user's own result as the input (the iteration flow); see service-input-result.test.ts", async () => {
     const user = createUser(harness.db);
     const source = insertGeneration(harness.db, { userId: user.id, status: 'succeeded' });
     const output = createAsset(harness.db, {
@@ -366,9 +366,8 @@ describe('createGeneration: the input image', () => {
       role: 'output',
       generationId: source.id,
     });
-    expect(await failure(createGeneration(user.id, request(output.id)))).toMatchObject({
-      code: 'not_found',
-    });
+    const { generation } = await createGeneration(user.id, request(output.id));
+    expect(generation.input?.id).toBe(output.id);
   });
 
   it('treats a malformed asset id like any other id that matches nothing', async () => {

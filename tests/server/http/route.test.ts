@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/server/auth', () => ({ authenticate: mocks.authenticate }));
 vi.mock('@/server/security/origin', () => ({ assertSameOrigin: mocks.assertSameOrigin }));
-vi.mock('@/server/security/ip', () => ({ getClientIp: mocks.getClientIp }));
+vi.mock('@/server/security/ip', () => ({
+  getClientIp: mocks.getClientIp,
+  UNKNOWN_IP: 'unknown',
+}));
 vi.mock('@/server/security/rate-limit', () => ({ getRateLimiter: () => ({ hit: mocks.hit }) }));
 // Routes that do not need a user must never open the database.
 vi.mock('@/server/db', () => ({
@@ -21,7 +24,12 @@ vi.mock('@/server/db', () => ({
 }));
 
 import type { AuthContext } from '@/server/auth';
-import { GENERAL_RATE_LIMIT, route } from '@/server/http/route';
+import {
+  ANONYMOUS_UNKNOWN_FACTOR,
+  ANONYMOUS_UNKNOWN_SCOPE,
+  GENERAL_RATE_LIMIT,
+  route,
+} from '@/server/http/route';
 import { resetLoggerForTests } from '@/server/logger';
 
 const BASE = 'http://localhost:3000/api/v1/things';
@@ -380,6 +388,96 @@ describe('rate limiting', () => {
     expect(response.headers.get('retry-after')).toBe('1');
   });
 
+  describe('when the client address is unknown (no trusted proxy)', () => {
+    beforeEach(() => mocks.getClientIp.mockReturnValue('unknown'));
+
+    it('gives anonymous callers a dedicated, clearly larger budget per route class', async () => {
+      const response = await route(
+        { auth: 'optional', rateLimit: limited },
+        async () => 'ok',
+      )(request());
+      expect(ANONYMOUS_UNKNOWN_FACTOR).toBeGreaterThanOrEqual(5);
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith(
+        `create:${ANONYMOUS_UNKNOWN_SCOPE}`,
+        30 * ANONYMOUS_UNKNOWN_FACTOR,
+        60,
+      );
+      expect(response.headers.get('x-ratelimit-limit')).toBe(String(30 * ANONYMOUS_UNKNOWN_FACTOR));
+    });
+
+    it('applies to the general default as well, and to routes that read no credentials', async () => {
+      await route({ auth: 'none' }, async () => 'x')(request());
+      expect(mocks.hit).toHaveBeenCalledWith(
+        `general:${ANONYMOUS_UNKNOWN_SCOPE}`,
+        300 * ANONYMOUS_UNKNOWN_FACTOR,
+        60,
+      );
+    });
+
+    it('never makes a signed-in caller spend it: cookie and API key are keyed by user', async () => {
+      mocks.authenticate.mockResolvedValue(sessionAuth);
+      await route(
+        { auth: 'optional', rateLimit: limited },
+        async () => 'ok',
+      )(request({ headers: withSession }));
+      mocks.authenticate.mockResolvedValue(keyAuth);
+      await route(
+        { auth: 'optional', rateLimit: limited },
+        async () => 'ok',
+      )(request({ headers: withBearer }));
+      expect(mocks.hit.mock.calls).toEqual([
+        ['create:user:usr_1', 30, 60],
+        ['create:user:usr_1', 30, 60],
+      ]);
+    });
+
+    it('counts rejected credentials as anonymous', async () => {
+      mocks.authenticate.mockResolvedValue(null);
+      await route(
+        { auth: 'optional', rateLimit: limited },
+        async () => 'ok',
+      )(request({ headers: { cookie: 'aivore_session=forged' } }));
+      expect(mocks.authenticate).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith(`create:${ANONYMOUS_UNKNOWN_SCOPE}`, 300, 60);
+    });
+
+    it('leaves an explicit by:ip budget exactly as the route sized it (addressRoute)', async () => {
+      await route(
+        { auth: 'none', rateLimit: { ...limited, by: 'ip' } },
+        async () => 'ok',
+      )(request());
+      expect(mocks.hit).toHaveBeenCalledWith('create:ip:unknown', 30, 60);
+    });
+
+    it('leaves an explicit by:user budget unscaled for its anonymous callers', async () => {
+      await route(
+        { auth: 'optional', rateLimit: { ...limited, by: 'user' } },
+        async () => 'ok',
+      )(request());
+      expect(mocks.hit).toHaveBeenCalledWith('create:ip:unknown', 30, 60);
+    });
+
+    it('does not count anonymous requests refused with 401 on a required route', async () => {
+      const response = await route(
+        { auth: 'required', rateLimit: limited },
+        async () => 'ok',
+      )(request());
+      expect(response.status).toBe(401);
+      expect(mocks.hit).not.toHaveBeenCalled();
+    });
+
+    it('answers 429 from the anonymous bucket without touching the handler', async () => {
+      mocks.hit.mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 2000 });
+      const ran = vi.fn();
+      const response = await route({ auth: 'optional', rateLimit: limited }, async () => ran())(
+        request(),
+      );
+      expect(response.status).toBe(429);
+      expect(ran).not.toHaveBeenCalled();
+    });
+  });
+
   it('applies IP limits before authentication so floods never reach the credential lookup', async () => {
     mocks.hit.mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 1000 });
     const response = await route(
@@ -419,10 +517,17 @@ describe('rate limiting', () => {
       expect(mocks.hit).toHaveBeenCalledWith('general:user:usr_1', 300, 60);
     });
 
-    it('limits optional-auth routes by IP, before looking at credentials', async () => {
+    it('limits anonymous callers of optional-auth routes by IP', async () => {
+      await route({ auth: 'optional' }, async () => 'x')(request());
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith('general:ip:203.0.113.7', 300, 60);
+    });
+
+    it('limits signed-in callers of optional-auth routes by USER and never spends the IP bucket', async () => {
       mocks.authenticate.mockResolvedValue(keyAuth);
       await route({ auth: 'optional' }, async () => 'x')(request({ headers: withBearer }));
-      expect(mocks.hit).toHaveBeenCalledWith('general:ip:203.0.113.7', 300, 60);
+      expect(mocks.hit).toHaveBeenCalledTimes(1);
+      expect(mocks.hit).toHaveBeenCalledWith('general:user:usr_1', 300, 60);
     });
 
     it('answers 429 once the budget is spent', async () => {
@@ -878,6 +983,21 @@ describe('logging', () => {
       level: 'debug',
       status: 404,
       code: 'not_found',
+    });
+  });
+
+  it('does not log the deliberate 503 service_busy as an error (it has its own throttled warning)', async () => {
+    const lines = captureLogs();
+    const response = await route({ auth: 'none' }, async () => {
+      throw AppError.of('service_busy', 'at capacity', { retryAfterSec: 90 });
+    })(request());
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('90');
+    expect(lines.filter((line) => line.level === 'error')).toEqual([]);
+    expect(lines.find((line) => line.msg === 'Request completed')).toMatchObject({
+      level: 'debug',
+      status: 503,
+      code: 'service_busy',
     });
   });
 

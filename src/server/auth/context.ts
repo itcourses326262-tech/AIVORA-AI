@@ -1,9 +1,11 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import type { Locale } from '@/lib/i18n/locales';
+import type { UserRow } from '@/server/db/schema';
 import { SESSION_COOKIE_NAME, sessionTokenFromCookieHeader } from './cookies';
 import { isApiKeyShape, resolveApiKey } from './api-keys';
 import { toSessionUser } from './dto';
+import { isEmailVerificationRequired } from './email-policy';
 import { resolveSession } from './sessions';
 
 export interface SessionUser {
@@ -24,6 +26,17 @@ export interface AuthContext {
   sessionExpiresAt?: number;
   /** Session only: true when this request extended the session, so the cookie should be re-sent. */
   sessionRefreshed?: boolean;
+  /**
+   * True when the account must confirm its email address (EMAIL_VERIFICATION policy) and has not.
+   * Such an account may sign in and browse but not create generations: the create-generation route
+   * answers `email_not_verified` (403). Absent or false otherwise.
+   */
+  mustVerifyEmail?: boolean;
+}
+
+/** An unconfirmed address matters only while the policy requires confirmation. */
+function mustConfirm(user: Pick<UserRow, 'emailVerifiedAt'>): boolean {
+  return user.emailVerifiedAt === null && isEmailVerificationRequired();
 }
 
 const BEARER = /^Bearer\s+(\S+)\s*$/i;
@@ -46,7 +59,12 @@ export async function authenticate(req: Request): Promise<AuthContext | null> {
     if (!isApiKeyShape(key)) return null;
     const resolved = resolveApiKey(key);
     if (!resolved) return null;
-    return { user: toSessionUser(resolved.user), via: 'api_key', apiKeyId: resolved.keyId };
+    return {
+      user: toSessionUser(resolved.user),
+      via: 'api_key',
+      apiKeyId: resolved.keyId,
+      mustVerifyEmail: mustConfirm(resolved.user),
+    };
   }
 
   const token = sessionTokenFromCookieHeader(req.headers.get('cookie'));
@@ -59,6 +77,7 @@ export async function authenticate(req: Request): Promise<AuthContext | null> {
     sessionId: session.sessionId,
     sessionExpiresAt: session.expiresAt,
     sessionRefreshed: session.refreshed,
+    mustVerifyEmail: mustConfirm(session.user),
   };
 }
 

@@ -70,9 +70,10 @@ MAX_UPLOAD_MB=10
 MODERATION_BLOCKLIST=                      # extra comma-separated terms (in addition to built-ins)
 MODERATION_PROVIDER=none                   # none | openai
 LOG_LEVEL=info                             # debug | info | warn | error | silent
-TRUST_PROXY=false                          # honour X-Forwarded-For for the client IP (only behind a proxy you control)
+TRUST_PROXY=false                          # honour X-Forwarded-For for the client IP (only behind a proxy you control, which must APPEND to it). Without it every client is the address "unknown": signed-in users are still limited per account, anonymous callers share one larger budget per route (§6.1, §16); production logs a warning once when forwarding headers arrive anyway
 TRUSTED_PROXY_HOPS=1                       # with TRUST_PROXY: trusted proxies in front of the app; the client is the X-Forwarded-For entry that many hops from the RIGHT
 RATE_LIMIT_DISABLED=false                  # DANGER: switches every rate limit off, for e2e/load tests only (loud warning at start-up)
+DAILY_UPSTREAM_BUDGET_CREDITS=0            # cost protection: most credits that may be committed to PAID (non-Demo) generations per rolling 24 h across all users; over it POST /generations is 503 service_busy. 0 = off (§17)
 ```
 
 ## 3. Repository layout & ownership
@@ -104,15 +105,15 @@ src/
     db/{schema.ts,index.ts,tx.ts,migrate.ts}
     http/{route.ts,errors.ts,respond.ts,request.ts}
     auth/{index.ts,password.ts,sessions.ts,api-keys.ts,cookies.ts,context.ts,users.ts,tokens.ts}
-    security/{rate-limit.ts,origin.ts,ssrf.ts,ip.ts,headers.ts}
+    security/{rate-limit.ts,origin.ts,ssrf.ts,ip.ts,ipaddr.ts,headers.ts}
     credits/index.ts
     moderation/index.ts
     prompt/{enhancer.ts,heuristic.ts}
     providers/{types.ts,errors.ts,registry.ts,http.ts,mock/**,openai/**,fal/**,replicate/**}
     storage/{types.ts,index.ts,local.ts,s3.ts}
     uploads/{index.ts,sniff.ts,image.ts}
-    generations/{service.ts,lifecycle.ts,dto.ts,queries.ts}
-    jobs/{runner.ts,worker.ts,start.ts}
+    generations/{service.ts,lifecycle.ts,dto.ts,queries.ts,list.ts,idempotency.ts,budget.ts,paid.ts}
+    jobs/{runner.ts,job-run.ts,input.ts,outputs.ts,backoff.ts,failure.ts,runtime.ts,wake.ts,worker.ts,start.ts}
 ```
 
 ### Ownership map (parallel agents edit ONLY files they own; everything else is read-only to them)
@@ -134,6 +135,7 @@ src/
 | `account-docs`      | `app/(app)/account/**`, `app/(app)/docs/**`, `components/account/**`, `lib/i18n/messages/account.ts`, `public/openapi.json` generation script |
 | `devops`            | `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.github/**`, `README.md`, `docs/*.md` (except this file's sections owned by foundation) |
 | `e2e`               | `e2e/**`, `playwright.config.ts` |
+| `hardening`         | after the backend phase: `server/http/{route,request}.ts`, `server/security/**`, `server/generations/**`, `server/jobs/**`, additive `server/env.ts`, `server/db/schema.ts` + `drizzle/`, `lib/errors.ts` + `lib/i18n/messages/errors.ts`, the `followsInputAspect` flag of `lib/catalog/models/fal.ts`, `app/layout.tsx`, `lib/theme.ts`, `.env.example`, this file's consolidation (§17) |
 
 **Rules for parallel agents**
 
@@ -160,7 +162,7 @@ All `id` are text PKs from `newId`. All timestamps integer ms.
 - `sessions`: `id, userId→users (cascade), tokenHash (unique), expiresAt, createdAt, lastSeenAt, userAgent?, ip?`
 - `api_keys`: `id, userId→users (cascade), name, prefix (display, e.g. "avk_ab12cd34"), keyHash (unique), lastUsedAt?, revokedAt?, createdAt`
 - `credit_ledger`: `id, userId, delta (int, ≠ 0), balanceAfter (int), reason ('signup_bonus'|'generation'|'refund'|'admin_grant'|'purchase'|'adjustment'), generationId?, note?, idempotencyKey? (unique when not null), createdAt`
-- `generations`: `id, userId, tool, kind ('image'|'video'), modelId, provider, status ('queued'|'processing'|'succeeded'|'failed'|'canceled'), prompt, negativePrompt?, params (json: GenerationParams), inputAssetId?→assets, cost (int), progress (0–100), providerJobId?, providerMeta (json?), errorCode?, errorMessage?, attempts (int), workerId?, leaseUntil?, idempotencyKey? (unique per user), isPublic (bool), isFavorite (bool), createdAt, updatedAt, startedAt?, finishedAt?`; indexes: `(userId, createdAt desc)`, `(status, leaseUntil)`, `(isPublic, createdAt desc)`, unique `(userId, idempotencyKey)`.
+- `generations`: `id, userId, tool, kind ('image'|'video'), modelId, provider, status ('queued'|'processing'|'succeeded'|'failed'|'canceled'), prompt, negativePrompt?, params (json: GenerationParams), inputAssetId?→assets, cost (int), progress (0–100), providerJobId?, providerMeta (json?), submitStartedAt?, errorCode?, errorMessage?, attempts (int), workerId?, leaseUntil?, idempotencyKey? (unique per user), isPublic (bool), isFavorite (bool), createdAt, updatedAt, startedAt?, finishedAt?`; indexes: `(userId, createdAt desc)`, `(status, leaseUntil)`, `(isPublic, createdAt desc)`, `(createdAt)` (the daily upstream budget sums the last 24 h), unique `(userId, idempotencyKey)`. `submitStartedAt` (ms) is the "submit started" marker of §6.6/§8: set in a compare-and-set right before `provider.submit`, cleared by the statement that stores `providerJobId` (and on completion, failure, cancellation and after a retryable submit error). While it is set and `providerJobId` is null, a paid provider may be holding a request we have no id for. `workerId` holds the per-claim identity `<runner id>/<n>`. `errorCode` is one of `invalid_input content_policy rate_limited unavailable timeout internal interrupted` (§5 Errors).
 - `assets`: `id, userId, generationId?→generations (cascade), role ('input'|'output'), kind ('image'|'video'), index (int, output order), storageKey, thumbKey?, mimeType, bytes, width?, height?, durationMs?, sha256?, createdAt`
 - Soft rule: deleting a generation deletes its output assets rows **and** storage objects (best-effort), keeps ledger rows (`generationId` set null via app code, not FK cascade).
 
@@ -201,6 +203,7 @@ interface ModelSpec {
     durations?: number[]; defaultDuration?: number;            // video, seconds
     resolutions?: Resolution[]; defaultResolution?: Resolution;
     supportsNegativePrompt: boolean; supportsSeed: boolean; supportsStrength: boolean;
+    followsInputAspect?: boolean;   // the result keeps the input image's proportions (set on fal-nano-banana-pro-edit, fal-flux-dev-img2img, fal-wan-2-6-i2v): validation accepts an aspectRatio and ignores it, the UI hides the control
   };
   pricing:                                                      // credits (ints)
     | { type: 'image'; perImage: number }
@@ -235,7 +238,7 @@ interface UserDTO { id; email; name; role; locale: 'ar'|'en'; creditBalance: num
 interface AssetDTO { id; kind: Kind; mimeType; width?: number; height?: number; durationMs?: number; bytes: number;
                      url: string /* /api/v1/media/:id */; thumbUrl?: string /* /api/v1/media/:id?variant=thumb */ }
 interface GenerationDTO { id; tool: Tool; kind: Kind; modelId; prompt; negativePrompt?: string; params: GenerationParams;
-  status: GenerationStatus; progress: number; cost: number; error?: { code: string; message: string };
+  status: GenerationStatus; progress: number; cost: number; error?: { code: string; message: string /* English; localize by code */ };
   outputs: AssetDTO[]; input?: AssetDTO; isPublic: boolean; isFavorite: boolean;
   createdAt; startedAt?; finishedAt?; owner?: { name: string } /* only on public feeds */ }
 interface ModelDTO extends Omit<ModelSpec,'provider'|'providerModel'> { provider: ProviderId; available: boolean; unavailableReason?: 'not_configured' }
@@ -244,6 +247,9 @@ interface ApiKeyDTO { id; name; prefix; createdAt; lastUsedAt?: number; revokedA
 interface Page<T> { data: T[]; nextCursor: string | null }
 // Envelope: success → { data: T } (lists: { data: T[], nextCursor }), error → { error: { code, message, details? } }
 interface CreateGenerationRequest { tool; modelId; prompt; negativePrompt?; params?: Partial<GenerationParams>; inputAssetId?; isPublic? }
+// inputAssetId (required exactly when the tool needs an image): an IMAGE asset of the caller, either an upload (role 'input') or a
+// picture one of their own generations produced (role 'output': "edit / animate this result"). Missing, someone else's and videos
+// are the same 404 not_found. A generation started from a result shows that picture as `GenerationDTO.input`; public DTOs never do.
 ```
 
 `src/lib/api-types.ts` also exports the enumerations as const arrays (`GENERATION_STATUSES`, `LEDGER_REASONS`, `USER_ROLES`,
@@ -266,12 +272,22 @@ expected envelope is `invalid_response`; unknown server codes are replaced by `c
 `AppError(code, status, message, details?)` with codes → default status:
 `bad_request 400, validation_failed 422, unauthorized 401, forbidden 403, not_found 404, conflict 409,
 payload_too_large 413, unsupported_media_type 415, moderation_blocked 422, insufficient_credits 402,
-rate_limited 429, too_many_active 429, signup_disabled 403, provider_error 502, internal 500`.
+rate_limited 429, too_many_active 429, signup_disabled 403, provider_error 502, service_busy 503, internal 500`
+(the accounts/billing modules add their own codes in `lib/errors.ts`; the table of record is `ERROR_STATUS`).
+`service_busy` is the deliberate 503 of the daily upstream budget guard (§17): `details.retryAfterSec` is also sent as `Retry-After`, and the
+route wrapper logs it at debug, not as an error (the guard logs one throttled warning itself).
 UI maps `code` → localized text via `errors.<code>` i18n keys (API `message` is English). As built: the constructor is exactly
 `new AppError(code, status, message, details?, { cause }?)`; `AppError.of(code, message, details?)` uses the default status
 (`ERROR_STATUS[code]`). `NotImplementedError extends AppError` (`internal`, 501). The browser-only codes `network_error` and
 `invalid_response` (`CLIENT_ERROR_CODES`) plus `AnyErrorCode`, `isErrorCode`, `errorCodeOf(unknown)` and `codeForStatus(status)`
 live in the same file; the `errors` message namespace must contain every `AnyErrorCode` plus `unknown` (enforced by `satisfies`).
+
+**Generation failure codes.** `GenerationDTO.error.code` is not an `AppError` code: the job runner writes `invalid_input`, `content_policy`,
+`rate_limited`, `unavailable` (also provider `auth`, so users never learn which credential is wrong), `timeout` and `internal`, and the
+lifecycle writes `interrupted` (a paid provider's submit was in flight when the worker died: the job is stopped and refunded instead of being
+submitted a second time). `error.message` is always English and user-safe; localize by code. Only `rate_limited`, `internal` and `interrupted`
+have an `errors.<code>` text (`interrupted` through `GENERATION_FAILURE_CODES`, the code list that exists only for failed generations); the
+others have studio texts (`studio.generations.failure.*`) and fall back to the English message.
 
 ### i18n — `src/lib/i18n/*`
 
@@ -310,18 +326,27 @@ route<P = Record<string, never>>(opts: { auth: 'required'|'optional'|'none'; rat
 // Wrapper: request-id header, catches AppError/ZodError/unknown → envelope, logs 5xx, applies rate limit & origin check via security/*,
 // sets `Cache-Control: no-store` on API responses by default.
 // As built: request id = a sane inbound `X-Request-Id` or a UUID, echoed on every response. `undefined` return → 204. Order:
-// getClientIp → IP rate limit (before auth, so floods never reach the credential lookup) → authenticate (only when the request
-// carries an Authorization header or the `aivore_session` cookie, so anonymous calls never touch the DB; 'none' never calls it)
+// getClientIp → explicit per-address limit (`by: 'ip'`, before auth, so floods never reach the credential lookup) → authenticate (only when
+// the request carries an Authorization header or the `aivore_session` cookie, so anonymous calls never touch the DB; 'none' never calls it)
 // → admin check (403) → assertSameOrigin (mutating methods, when `csrf ?? auth.via==='session'`; pass `csrf: true` on login/register)
-// → per-user rate limit → handler. A rate-limit rejection is 429 + `Retry-After`; `X-RateLimit-Limit/Remaining/Reset` are sent whenever a
-// limit applies. `admin: true` without `auth: 'required'` throws when the route module loads. 5xx are logged at error (with the error,
-// never the query string or credentials), everything else at debug. Unknown errors and `internal` AppErrors reach the client as
-// `{ error: { code: 'internal', message: 'Internal server error' } }`.
-// Rate limiting: a route that omits `rateLimit` gets `GENERAL_RATE_LIMIT` (`{ name: 'general', limit: 300, windowSec: 60 }`, by user for
-// `required` routes, by IP otherwise; one shared bucket per user/IP across all such routes), so a forgotten option can never leave an endpoint
-// unthrottled. A route with its own `rateLimit` uses only that one. `rateLimit: false` is the explicit opt-out (used by `/api/health`; consider
-// it for high-frequency routes such as media streaming). Every route therefore calls `getRateLimiter()`; tests that exercise `route()` for real use
-// the in-memory limiter (see §6.2) or mock `@/server/security/rate-limit`.
+// → identity rate limit (user, address or the anonymous-unknown bucket, see below) → handler. A rate-limit rejection is 429 + `Retry-After`;
+// `X-RateLimit-Limit/Remaining/Reset` are sent whenever a limit applies (the limit shown is the one of the bucket that was spent). `admin: true`
+// without `auth: 'required'` throws when the route module loads. 5xx are logged at error (with the error, never the query string or
+// credentials; the deliberate 503 `service_busy` is the one exception), everything else at debug. Unknown errors and `internal` AppErrors
+// reach the client as `{ error: { code: 'internal', message: 'Internal server error' } }`.
+// Rate limiting: a route that omits `rateLimit` gets `GENERAL_RATE_LIMIT` (`{ name: 'general', limit: 300, windowSec: 60 }`; one shared bucket per
+// user/address across all such routes), so a forgotten option can never leave an endpoint unthrottled. A route with its own `rateLimit` uses only
+// that one. `rateLimit: false` is the explicit opt-out (used by `/api/health` and by the media route, which spends its own budget). Every route
+// therefore calls `getRateLimiter()`; tests that exercise `route()` for real use the in-memory limiter (see §6.2) or mock `@/server/security/rate-limit`.
+// Keying (`by` left out, the normal case): a SIGNED-IN caller (session cookie or API key, resolved even on `optional` routes) spends `<name>:user:<id>`
+// and never touches an anonymous bucket, however many anonymous requests came before; an anonymous caller spends `<name>:ip:<address>`; with an
+// UNKNOWN address (no trusted proxy: `getClientIp` is 'unknown' for everybody) anonymous callers share `<name>:anonymous-unknown`, whose limit is
+// `ANONYMOUS_UNKNOWN_FACTOR` (10) times the route's, one bucket per route class, so one script cannot starve signed-in users and cannot lock the
+// whole site out of a route either. Requests with rejected credentials count as anonymous (they cost one HMAC and one indexed read first). An
+// EXPLICIT `by: 'ip'` is the per-address budget of login/register/the public feed: counted before authentication, for everybody, unscaled, so such a
+// route sizes the unknown-address case itself (`addressRoute` in `server/auth`); an explicit `by: 'user'` keys signed-in callers by account and
+// anonymous ones by address, also unscaled. A spoofed `X-Forwarded-For` changes nothing while `TRUST_PROXY=false`: the request is the same
+// anonymous-unknown caller (§16).
 // Body size: `maxBodyBytes` (default 1 MiB, or a function evaluated per request for limits that come from `getEnv()`, since modules must not
 // read the environment at import) is enforced on the request itself, not only inside `ctx.body()`. A declared `Content-Length` above it is 413
 // before the handler runs, and `ctx.req` is a request whose body stream fails with `payload_too_large` the moment more than the cap has been
@@ -431,7 +456,7 @@ As built (real code; owner `providers-mock` extends it additively):
   string are never logged; the debug line has only method, host, path, status and duration. Adapter tests build contexts with `fakeProviderContext`.
 - `providers/registry.ts`: `getProvider`, `listProviders`, `isProviderAvailable(id, env)`, `setProviderOverrides(partial | null)` (replaces the whole
   override set). It imports `mockProvider` (`./mock`), `openaiProvider` (`./openai`), `falProvider` (`./fal`), `replicateProvider` (`./replicate`):
-  keep those export names. Until the real adapters exist the three real stubs report `isConfigured() === false`, so no model is offered through them.
+  keep those export names. `falProvider` is real (below); `openaiProvider` and `replicateProvider` are still stubs that report `isConfigured() === false`, so no model is offered through them.
 
 **Demo (mock) provider, as built** (`providers/mock/**` and `lib/catalog/models/mock.ts`, real; the module key is `providers-mock`). `mockProvider`
 serves `aivore-demo-image` (text-to-image + image-to-image; 1 credit per image; aspect ratios 1:1, 16:9, 9:16, 4:3, 3:4; count 1-4; negative prompt, seed and
@@ -460,6 +485,29 @@ strength) and `aivore-demo-video` (text-to-video + image-to-video; 3 or 5 s; 2 c
   `content_policy` (wins over `__fail__`); `__slow__` makes it take 25 s; `__sync__` makes `submit` return `{ mode: 'sync', outputs }` at once (with
   `__fail__` or `__content__` it throws that error from `submit`). The same list is in the header of `providers/mock/index.ts`.
 
+**fal provider, as built** (`providers/fal/**`, `lib/catalog/models/fal.ts`; module key `provider-fal`). `isConfigured` is `Boolean(env.FAL_KEY)`. It uses fal's QUEUE API and
+is always async: `submit` POSTs the per-model body to `https://queue.fal.run/<endpoint>` with `Authorization: Key <FAL_KEY>`; `providerJobId` is fal's `request_id` and `meta` is
+`{ v: 1, requestId, statusUrl, responseUrl, cancelUrl }` (URLs always https on `queue.fal.run`/`*.fal.run`, rebuilt when missing or damaged; the key is only ever sent to those hosts and
+never lands in `meta`, logs or errors). `poll` does one status GET (IN_QUEUE → pending, IN_PROGRESS → running; fal reports no progress percentage) and, on COMPLETED, fetches the
+result; it returns `failed` for FAILED/ERROR/CANCELED, for a COMPLETED status that carries an error, and for a typed fal error payload or plain 4xx on the result fetch, but THROWS a
+`ProviderError` when the state could not be read: retryable for a network error, 429 and a bare 5xx/408 (so the engine polls again and a generated, billed result is not destroyed), not
+retryable for `auth`. `cancel` PUTs the stored
+`cancelUrl` (400 ALREADY_COMPLETED counts as done). Error mapping is by fal's `type`/`error_type`/`X-Fal-Error-Type` codes, never by regex over text (messages echo the prompt and never
+reach users): 401/402/403 → `auth`, 429 → `rate_limited`, 408/504/timeouts → `timeout`, 5xx → `unavailable`, `content_policy_violation` → `content_policy`, bad image
+errors → `invalid_input`. Images the safety checker flagged are dropped (all flagged = `content_policy`), as is a text-only answer (a refusal). **A submit that ends without any HTTP
+status (network error, timeout, lost response body) is final and not retried** (`retryable: false`), because fal has no idempotency key and the request may have been accepted. Input
+images go inline as base64 data URIs (4 MiB cap, re-encoded/flattened where the model needs it; FLUX img2img input is shrunk under 1 MP, sides multiples of 16, because fal bills
+output megapixels). Moderation is a product default: `safety_tolerance: '2'` on Nano Banana Pro (+ Edit), FLUX.2 pro and Veo, `auto_fix: false` on both Veo endpoints (a prompt that
+fails the content rules is rejected as `content_policy` and refunded instead of being rewritten and generated); Wan and FLUX.1 keep fal's defaults. The single constant is
+`SAFETY_TOLERANCE` in `adapters/shared.ts`.
+Catalog: nine models with `fal-`-prefixed public ids so they cannot collide with other providers: text-to-image `fal-flux-schnell` (1 credit/img, count 1-4, badge fast), `fal-flux-2-pro`
+(8, count 1), `fal-nano-banana-pro` (38); image-to-image `fal-nano-banana-pro-edit` (38), `fal-flux-dev-img2img` (10, the only one with strength); text-to-video `fal-wan-2-6-t2v`
+(25/s at 720p, 38/s at 1080p, 5/10/15 s) and `fal-veo-3-1-fast` (38/s at 720p, 4/6/8 s, audio); image-to-video `fal-wan-2-6-i2v` and `fal-veo-3-1-fast-i2v` (same prices). 1 credit is about
+USD 0.004 of UPSTREAM cost, every price is the upstream price divided by 0.004 and rounded up per unit. `fal-nano-banana-pro-edit`, `fal-flux-dev-img2img` and `fal-wan-2-6-i2v` keep
+the input image's proportions and carry `limits.followsInputAspect` (the Veo image-to-video model honours the chosen 16:9/9:16). **Verification status: nothing was called live** (the
+build sandbox's egress policy blocks every fal host); endpoint ids, fields and enums come from the generated types of `@fal-ai/client` 1.11.0-alpha.5, the queue protocol from its source,
+prices from fal page excerpts of 2026-10-08, some months old (`fal-flux-dev-img2img` is priced at the higher of two conflicting quotes, marked `UNVERIFIED:` in the catalog), see §17.
+
 **Provider verification rule**: real-provider owners must try to verify endpoints, request/response shapes and model ids
 against the official docs (WebFetch/WebSearch, load via ToolSearch). Anything not verifiable is isolated behind the adapter,
 marked `// UNVERIFIED:` and listed in `openIssues`. Never invent model ids — fewer, verified models beat many guesses.
@@ -478,37 +526,73 @@ getStorage(): StorageDriver     // by env STORAGE_DRIVER; local driver is path-t
 keys: `u/<userId>/<generationId|uploads>/<assetId>.<ext>`; thumbs `…/<assetId>.thumb.webp`
 uploads/: acceptUpload(file: File, userId): Promise<AssetRecord>   // size limit, magic-byte sniff (png/jpeg/webp only), sharp decode (rejects polyglots/decompression bombs via limitInputPixels), strips EXIF, normalizes to ≤ 4096px, stores + thumb, creates asset row (role 'input')
 persistOutput(storage, input): Promise<PersistedOutput>   // used by the engine: store bytes, probe dims with sharp (images), make thumb (images). It does NOT insert the asset row: completeGeneration inserts the rows in the same tx that marks the generation succeeded
-GET /api/v1/media/:assetId[?variant=thumb] — access: owner (session or API key) OR generation.isPublic; Range support (206) for video; ETag; Cache-Control private vs public; `X-Content-Type-Options: nosniff`; Content-Disposition inline (or attachment with ?download=1); for S3 either stream or 302 to short-lived signed URL
+GET /api/v1/media/:assetId[?variant=thumb] — access: owner (session or API key) OR an OUTPUT of a public generation whose owner's account is enabled; Range support (206) for video; ETag; Cache-Control private vs public; `X-Content-Type-Options: nosniff`; Content-Disposition inline (or attachment with ?download=1); S3 is streamed through the app (never a 302, see "as built")
 POST /api/v1/uploads (multipart `file`) → { data: AssetDTO }
 ```
 
-As built (stubs, see §15): `storage/types.ts` (real) exports `StorageDriver`, `StorageRange`, `StorageReadResult`, `StoredObjectInfo` and
-`STORAGE_KEY_PATTERN`. `storage/index.ts` is real wiring: `getStorage()` (lazy, kept on `globalThis`, chosen by `STORAGE_DRIVER`) and
-`setStorageOverride(driver | null)` for tests; it calls the stubs `createLocalStorage(rootDir)` (`local.ts`) and `createS3Storage(env)` (`s3.ts`).
+Signatures fixed by the stub step (the real modules follow, see "Storage and uploads, as built" below): `storage/types.ts` exports `StorageDriver`, `StorageRange`, `StorageReadResult`, `StoredObjectInfo` and
+`STORAGE_KEY_PATTERN`. `storage/index.ts` is wiring: `getStorage()` (lazy, kept on `globalThis`, chosen by `STORAGE_DRIVER`) and
+`setStorageOverride(driver | null)` for tests; it calls `createLocalStorage(rootDir)` (`local.ts`) and `createS3Storage(env)` (`s3.ts`).
 `uploads/index.ts`: `acceptUpload(file, userId): Promise<AssetRecord>` (`AssetRecord = AssetRow`),
 `persistOutput(storage, { userId, generationId, index, kind, bytes, mimeType, durationMs?, width?, height? }): Promise<PersistedOutput>` where
 `PersistedOutput = { assetId, index, kind, storageKey, thumbKey?, mimeType, bytes, width?, height?, durationMs?, sha256? }`, and
 `removeAssetObjects(storage, assets)` (best effort, for deletes). `uploads/sniff.ts`: `sniffImageType(bytes)`, `extensionForMime`, `UPLOAD_MIME_TYPES`;
 `uploads/image.ts`: `normalizeUpload`, `probeImage`, `makeThumbnail`. `toAssetDTO(row)` lives in `generations/dto.ts` (real).
 
+**Storage and uploads, as built** (real code, module key `storage`; additive to the signatures above).
+- `storage/types.ts`: `StorageRange.start` may be negative = suffix range (`{ start: -500 }` is the last 500 bytes, `end` omitted); `RangeNotSatisfiableError(size)` (an `AppError` `bad_request`, status
+  416, `details.size`) and `isRangeNotSatisfiable()`. `storage/keys.ts` (`isValidStorageKey`/`assertStorageKey`/`MAX_STORAGE_KEY_LENGTH`) is `STORAGE_KEY_PATTERN` plus: no empty, `.`, `..` or
+  dot-leading segments, at most 512 characters, segments at most 200. `storage/range.ts` `resolveStorageRange(range, size)` gives inclusive offsets or throws the 416 error.
+- `LocalDriver`: every path is resolved under the canonical root and any symlink on the way (directory or final file, dangling ones too) is refused, opens use `O_NOFOLLOW`; writes go through a hidden temp
+  file, fsync, rename (a failed stream leaves nothing); the mime type lives in a hidden `.<name>.meta` sidecar; it fsyncs every write and does not remove empty directories after deletes.
+  `S3Driver` (`createS3Storage(env, { client?, partBytes? })`): `PutObject` for small bodies, multipart (one part in memory, aborted on failure) for streams, ranged GET, HEAD, delete, presigned
+  `signedUrl`; ONLY `NoSuchKey` and `NotFound` map to `not_found` (get), `null` (head) and a silent no-op (delete), `NoSuchBucket` and other 404 codes surface as errors; checksums are sent only
+  `WHEN_REQUIRED` (UNVERIFIED on MinIO/R2). The S3 driver was only tested against an injected client and a canned SDK response, never a real endpoint.
+- `acceptUpload(file, userId)`: reads in chunks and cancels at `MAX_UPLOAD_MB` whatever size the file claims; magic-byte sniff (PNG/JPEG/WebP only); structure checks (truncation, trailing data, APNG
+  and animated WebP are refused; JPEGs with appended pictures such as gain maps pass, JPEGs with other trailing data, e.g. Samsung Motion Photos, are rejected as polyglots); sharp decode under a 50 MP limit
+  with `failOn: 'error'`, EXIF orientation applied, all metadata stripped, scaled to at most 4096 px, a 512 px WebP thumbnail, `assets` row with role `input`; nothing of the original bytes survives. A failed
+  write removes what was already stored. `persistOutput(storage, input)` takes bytes or a stream plus optional `thumbBytes`; the real type comes from the BYTES, not the provider's claim: images are probed
+  with sharp (SVG and other non-browser formats are refused), videos are recognised by container (ftyp MP4/MOV, EBML WebM, animated GIF with a first-frame thumbnail); a claimed `video/mp4` or
+  `video/quicktime` is believed only when the bytes open with `ftyp` or one of the atoms `moov mdat free wide skip pnot` (`startsWithQuickTimeAtom`; add to `LEADING_ATOMS` if a real provider turns out
+  to open with another box). It throws `bad_request` (or `payload_too_large`) for unusable output, which the engine turns into a failed, refunded generation; it never inserts the asset row, leaves nothing
+  in storage when it throws and releases the provider download stream on every failure path. `deleteAssetObjects(assets)` (uses `getStorage()`) is what the engine calls after deleting rows. Mime allowlist:
+  png, jpeg, webp, gif, avif, mp4, webm, mov (`servableMimeType`); `extensionForMime` gives `bin` for anything else.
+- `POST /api/v1/uploads`: auth required, 20/min per user (`uploads`), body cap `(MAX_UPLOAD_MB + 1)` MiB read through `ctx.formData()` and enforced while streaming, exactly one multipart field `file`; 201
+  `{ data: AssetDTO }`; errors 401, 403 (CSRF), 413, 415 (type or not multipart), 422 (not exactly one file), 400, 429.
+- `GET|HEAD /api/v1/media/:assetId[?variant=thumb][&download=1|true]`, auth optional. **Visibility** (`app/api/v1/media/access.ts`, `findVisibleAsset`): the owner (cookie or API key) sees every asset of
+  theirs; everybody else sees only an asset with role `output` of a generation with `isPublic = true` **whose owner's account is enabled** (`users.disabledAt` is null: a disabled account's shared results
+  are offline everywhere, media URLs included, exactly like the public feed and share page; `enable` brings them back); input assets are never shared, even when the generation made from them is.
+  Everything else, malformed ids included, is the same 404 body (never 403), also for 304 and Range requests. An unknown `variant` is 422. `Range` gives 206, or 416 with `Content-Range: bytes */size`;
+  multi-range, malformed ranges, other units and a stale `If-Range` fall back to 200; `ETag "<assetId>-original|thumb"` + `If-None-Match` give 304. Content-Type comes only from the allowlist (an unknown
+  stored type is `application/octet-stream` and forced to download); `nosniff` and `Cross-Origin-Resource-Policy` are always set; the attachment filename is built from the asset id, never from user text;
+  `Cache-Control` is `private, max-age=3600` (+ `Vary: Cookie, Authorization`) for owners and `public, max-age=300` for shared output. **S3 is streamed through the app**, never redirected to a signed
+  URL: the CSP allows `img-src`/`media-src` for `'self'` only, and streaming keeps authorization on every request. No route-level CSP is set on media (next.config headers override it).
+- **Media rate limit** (`rateLimit: false` on the route, spent inside `withMediaRateLimit`): 1200/min per signed-in user, 1200/min per client address for anonymous viewers when the address is known, and
+  anonymous viewers whose address is unknown (`TRUST_PROXY=false`) are NOT counted at all, because one shared bucket would let a single script lock every anonymous viewer of a public page out;
+  throttle those at the reverse proxy or CDN (public assets are cacheable for 5 minutes). 429 carries `Retry-After`; `X-RateLimit-*` is sent on every counted answer, 404/416/422 included.
+- Not built: a sweeper or per-user quota for uploads that are never used (role `input` assets that no generation references are never cleaned up, and deleting a generation keeps its input upload on
+  purpose); `tests/helpers/fakes.ts` `fakeStorage` is laxer than the real drivers
+  (400 instead of 416 for bad ranges, no suffix ranges, accepts `a/./b` keys).
+
 ### 6.6 `server/generations` + `server/jobs` (owner `engine`)
 
 ```ts
 // service.ts (called by routes)
 createGeneration(userId, req: CreateGenerationRequest, opts?: { idempotencyKey?: string }): Promise<{ generation: GenerationDTO; created: boolean }>
-   // validate (lib/validation) → moderation → ensure model available → input asset owned by user → active-limit → cost
-   // → ONE sync DB tx: debit credits + insert generation('queued') (idempotency key returns existing) → wake worker
+   // validate (lib/validation) → ensure model available → input image owned by user (upload or own output) → moderation (prompt, negative prompt, hasInputImage) → cost
+   // → ONE sync DB tx: replay check → active-limit → daily upstream budget (paid providers) → debit credits + insert generation('queued') → wake worker
 getGeneration(userId, id) / listGenerations(userId, { kind?, status?, favorite?, q?, ids?, limit, cursor? }) / listPublicGenerations({ kind?, limit, cursor? })
 updateGeneration(userId, id, { isPublic?, isFavorite? }) / deleteGeneration(userId, id) / cancelGeneration(userId, id)  // cancel: queued|processing → canceled + refund
 getPublicGeneration(id): GenerationDTO | null           // for /s/[id]
 // lifecycle.ts (used by runner; all state changes are compare-and-set, sync tx)
 claimNextJob(workerId, leaseMs): GenerationRow | null              // BEGIN IMMEDIATE; queued (or expired-lease processing) → processing, attempts++
 extendLease(id, workerId, leaseMs): boolean
-recordSubmitted(id, workerId, providerJobId, meta): boolean
+markSubmitStarted(id, workerId): boolean                           // CAS right BEFORE provider.submit (the "submit started" marker, §8)
+recordSubmitted(id, workerId, providerJobId, meta): boolean        // stores the job id AND clears the marker
 updateProgress(id, workerId, progress): void
 completeGeneration(id, workerId, outputs: PersistedOutput[]): boolean   // processing→succeeded; inserts asset rows; partial refund if fewer outputs than count
 failGeneration(id, workerId|null, error: { code; message }): boolean    // processing|queued→failed + full refund (idempotent)
-requeueStale(): number                                                   // expired leases → queued, or failed+refund when attempts ≥ MAX_ATTEMPTS
+requeueStale(): number                                                   // expired leases → queued, or failed+refund when attempts ≥ MAX_ATTEMPTS; a paid job with the marker and no job id → failed 'interrupted' + refund
 // runner.ts
 class JobRunner { constructor(deps: { db; storage; providers; env; log; now? }); start(); stop(): Promise<void>; wake(); tick(): Promise<number> }
    // loop: claim up to WORKER_CONCURRENCY jobs; processJob is RESUMABLE (providerJobId present → straight to polling);
@@ -518,7 +602,7 @@ class JobRunner { constructor(deps: { db; storage; providers; env; log; now? });
 start.ts: startWorker() singleton on globalThis (HMR-safe); instrumentation.ts calls it only when NEXT_RUNTIME==='nodejs' && WORKER_MODE==='inline'
 scripts/worker.ts: standalone entry for WORKER_MODE=external (graceful SIGTERM)
 ```
-As built (stubs, see §15): the `lifecycle.ts` functions take the connection first, like the credits functions
+Signatures fixed by the stub step (all real now): the `lifecycle.ts` functions take the connection first, like the credits functions
 (`claimNextJob(db, workerId, leaseMs, now?)`, `extendLease(db, id, workerId, leaseMs, now?)`, `recordSubmitted(db, id, workerId, providerJobId, meta?)`,
 `updateProgress(db, id, workerId, progress)`, `completeGeneration(db, id, workerId, outputs: PersistedOutput[])`,
 `failGeneration(db, id, workerId | null, error)`, `requeueStale(db, now?)`), and stay synchronous. `service.ts` functions are async except
@@ -526,7 +610,7 @@ As built (stubs, see §15): the `lifecycle.ts` functions take the connection fir
 `updateGeneration(userId, id, UpdateGenerationRequest)` and `cancelGeneration` return the `GenerationDTO`. `queries.ts` (`findGenerationRow`,
 `findOwnedGenerationRow`, `countActiveGenerations`, `hydrateGenerations`) is internal to the engine. `dto.ts` is real: `toGenerationDTO(row, { outputs, input?, owner? })`
 never exposes provider, provider job id/meta, worker, lease, attempts, idempotency key or owner id. `JobRunnerDeps = { db, storage, providers: { getProvider }, env, log, now? }`;
-`jobs/worker.ts` `createJobRunner(overrides?)` and `jobs/start.ts` `startWorker()` / `stopWorker()` are real wiring over the stub `JobRunner`.
+`jobs/worker.ts` `createJobRunner(overrides?)` and `jobs/start.ts` `startWorker()` / `stopWorker()` wire the real `JobRunner`.
 
 Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /generations/:id/cancel`, `GET /explore` (public feed, no auth).
 `GET /generations?ids=a,b,c` supports cheap batch polling by the UI (UI polls active ones every 1.5–4 s with backoff and pauses when the tab is hidden).
@@ -534,15 +618,19 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
 
 **Engine, as built** (real code, module key `engine`; the paragraph above describes the signatures the stubs fixed).
 - **`createGeneration`**: `validateGenerationRequest` (422 `validation_failed`, `details.issues`), then the idempotent-replay lookup, then model availability, the input image, moderation, and finally ONE synchronous
-  `BEGIN IMMEDIATE` transaction (replay check, active count, `debitCredits`, insert `queued`), then `wakeWorkers()`. Nothing is awaited inside the transaction, so the active-generation limit (429 `too_many_active`,
-  `details.limit`) and the balance (402 `insufficient_credits`) are race-safe across processes; the unique `(userId, idempotencyKey)` index is only a backstop. A replay returns the ORIGINAL generation (`created: false`,
+  `BEGIN IMMEDIATE` transaction (replay check, active count, daily upstream budget, `debitCredits`, insert `queued`), then `wakeWorkers()`. Nothing is awaited inside the transaction, so the active-generation limit (429 `too_many_active`,
+  `details.limit`), the platform's daily upstream budget (503 `service_busy`, paid providers only, `generations/budget.ts`, §17) and the balance (402 `insufficient_credits`) are race-safe across processes; the unique `(userId, idempotencyKey)` index is only a backstop. A replay returns the ORIGINAL generation (`created: false`,
   HTTP 200 plus `Idempotent-Replayed: true`) even if the user is now at the limit or out of credits; the same key with a different request (tool, model, prompt, negative prompt, params, input asset) is 409 `conflict`
   with `details.reason: 'idempotency_key_reused'`. Keys are 1-128 visible ASCII characters. A model whose provider is not configured is 409 `conflict` with `details: { reason: 'model_unavailable', modelId }`; an
-  input asset that is missing, someone else's or not an `input` image is the same 404 `not_found`. Only the prompt is moderated, never the negative prompt. The id is `newId('gen', createdAt)`.
+  input asset that is missing, someone else's or not an IMAGE is the same 404 `not_found` (`details.path: 'inputAssetId'`); the asset may be an upload (role `input`) or an output of one of the caller's own
+  generations (role `output`: edit or animate a result), never a video and never anybody else's, public or not. Moderation: `moderatePrompt(prompt, { negativePrompt, hasInputImage })`. The prompt is moderated like a
+  prompt; the negative prompt is NOT (a negative such as "nsfw, nude" is exactly what users should write) but is handed to the moderation module, which blocks one that excludes two or more garment/censorship
+  groups to steer a person-prompt toward nudity (`sexual_explicit`); and an `image-to-*` request counts as a photo edit (`hasInputImage`): any nudity or undress wording is blocked as `non_consensual_sexual`.
+  The id is `newId('gen', createdAt)`.
 - **Reads and writes**: `getGeneration`/`updateGeneration`/`cancelGeneration`/`deleteGeneration` answer 404 for other users' ids and for malformed ids alike. `updateGeneration` only ever writes `isPublic` and
   `isFavorite`. `cancelGeneration` is idempotent for a canceled generation and 409 `conflict` for a succeeded or failed one. `deleteGeneration` first cancels and refunds a queued or processing generation (same
   transaction), detaches its ledger rows (`generationId` becomes null), removes the output asset rows and then, best effort, the stored files; uploaded inputs are kept. `listGenerations` filters `kind`, `status`,
-  `favorite`, `q` (LIKE with escaped wildcards) and `ids` (batch polling: at most 50, other users' and malformed ids drop out, no cursor), pages by keyset `(createdAt, id)` (stable under equal timestamps) and
+  `favorite`, `q` (LIKE with escaped wildcards) and `ids` (batch polling: the service takes at most 50 and silently drops other users' and unknown ids, no cursor; the ROUTE is stricter and answers 422 for an empty list, more than 50 or any id that is not a well-formed `gen_` id), pages by keyset `(createdAt, id)` (stable under equal timestamps) and
   hydrates with a fixed number of queries. `listPublicGenerations`/`getPublicGeneration` return only `isPublic` + `succeeded` generations of enabled accounts, with `owner.name` and without the input image and
   without the favorite flag (always `false`).
 - **`lifecycle.ts`** additions: `markCanceled(db|tx, userId, id)` (owner-scoped cancel + full refund), `releaseJob(db, id, workerId)` (processing -> queued without counting the attempt, keeps the provider job
@@ -559,8 +647,9 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
   same pass in a loop (`wake()` or a finished job cuts the idle wait); `stop()` stops claiming, waits up to the grace period, then aborts the rest, which hand their jobs back with `releaseJob`; `abandon()` is the
   synchronous version for `process.on('exit')`, which `startWorker()` registers (inline mode), so a restarted server resumes its jobs at once instead of after the lease. `jobs/wake.ts` (`onWake`, `wakeWorkers`) is how
   the service reaches the runner of its own process; with `WORKER_MODE=external` the worker finds new jobs on its idle poll (1 s).
-- **One job** (`jobs/job-run.ts`): input image loaded from storage for `image-to-*` (on every claim, because providers need it on `poll` too) -> `provider.submit` (retryable `ProviderError`s are retried with
-  2 s, 4 s ... backoff up to `MAX_ATTEMPTS` tries, honouring `retryAfterMs`) -> sync outputs, or `recordSubmitted` + poll (images 1 -> 3 s, videos 3 -> 10 s, x1.5 per poll, +-20% jitter; retryable poll errors are
+- **One job** (`jobs/job-run.ts`): input image (an upload or an earlier result of the same user, role `input` or `output`) loaded from storage for `image-to-*` (on every claim, because providers need it on `poll` too; gone or not
+  the user's = `invalid_input` with a refund) -> `markSubmitStarted` (CAS, see "Duplicate paid jobs" below) -> `provider.submit` (retryable `ProviderError`s are retried with
+  2 s, 4 s ... backoff up to `MAX_ATTEMPTS` tries, honouring `retryAfterMs`; the marker is cleared before each back-off) -> sync outputs, or `recordSubmitted` + poll (images 1 -> 3 s, videos 3 -> 10 s, x1.5 per poll, +-20% jitter; retryable poll errors are
   tolerated up to `maxPollErrors` in a row) -> outputs: `bytes` as they are, `url`/`thumbUrl` through `safeFetch` (https only, `image/*`/`video/*`, 64 MB per image, 500 MB per video; one retry after a transient
   failure) -> `persistOutput` -> `completeGeneration`. At most `params.count` outputs are kept; an output that cannot be downloaded or is not a usable image/video is skipped (the missing share is refunded), none usable
   = `failed`. Before every poll the row is re-read: `canceled` or deleted -> `provider.cancel` (best effort) and stop without persisting; taken over by another worker -> stop without touching anything. The upstream
@@ -571,7 +660,17 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
   the provider's own number squeezed into 10-85 (+4 per poll when it reports none), 90 while storing, 100 on completion; it never goes backwards.
 - **Failure codes** stored in `generations.errorCode` / `GenerationDTO.error.code`: `invalid_input`, `content_policy`, `rate_limited`, `unavailable` (also provider `auth`, so users never learn which credential is
   wrong), `timeout`, `internal` (provider `unknown` and every unexpected error, always with the generic message "The generation failed unexpectedly."; details only in the log). The message is the provider's
-  `userMessage` or text written by the engine, never an upstream message. A job interrupted `MAX_ATTEMPTS` times is `unavailable`: "The generation was interrupted and could not be completed."
+  `userMessage` or text written by the engine, never an upstream message. A job interrupted `MAX_ATTEMPTS` times is `unavailable`: "The generation was interrupted and could not be completed." A paid job whose
+  submit may have reached the provider before a crash is `interrupted` (below).
+- **Duplicate paid jobs (submit guard).** fal has no idempotency key, so re-submitting a job that was already accepted creates a second PAID request. Before it calls `provider.submit` the run writes
+  `generations.submitStartedAt` in a compare-and-set (`markSubmitStarted`: only for the worker that owns the job, only while `providerJobId` is null); `recordSubmitted` stores the job id and clears it in one
+  statement; completion, failure, cancellation and a retryable submit error clear it too. A job found with the marker set, no `providerJobId` and a paid provider (`isPaidProvider`: anything but `mock`) is
+  INDETERMINATE: on claim (`claimNextJob`, e.g. a job handed back by a graceful shutdown while the submit was in flight), on requeue (`requeueStale`, expired lease: the crash case; this wins over the attempt limit)
+  it is failed with code `interrupted` and the message "The generation was interrupted before the provider confirmed it, so it was stopped to avoid a duplicate charge. Your credits were refunded; please try
+  again." and refunded in full (idempotent `refund:<id>`), and it is never submitted. A synchronous paid provider is treated the same way (a crash between the response and `completeGeneration` loses the result:
+  one charge, one refund). The Demo provider costs nothing and simply submits again. If the frozen worker wakes up later and its submit returns a job id, `recordSubmitted` finds the row failed and the run cancels
+  that orphaned upstream job (`provider.cancel`, best effort; a row that someone else failed counts like a canceled one). Cost of the guard: a deploy that stops a worker exactly while a submit is in flight fails
+  that one job (refunded) instead of risking a double charge.
 - **Routes** (all through `route()`; limits are named buckets): `POST /generations` 30/min per user (`generations-create`, body <= 64 KiB, 201 created / 200 replay, both with a `Location` header); `GET /generations` and `GET /generations/:id`
   600/min per user (`generations-read`, generous because the studio polls `?ids=` every 1.5-4 s from every open tab) plus 60/min per user for `?q=` searches (`generations-search`); `PATCH`/`DELETE`/`cancel` 60/min per
   user (`generations-write`); `GET /explore` 60/min per client address (`explore`, `auth: 'none'`, so credentials are never read; `Cache-Control: public, max-age=15, stale-while-revalidate=45`; default page 24),
@@ -586,17 +685,43 @@ Routes: `POST|GET /generations`, `GET|PATCH|DELETE /generations/:id`, `POST /gen
 ### 6.7 `server/moderation`, `server/prompt` (owner `catalog`)
 
 ```ts
-moderatePrompt(text: string, opts?): Promise<{ allowed: boolean; category?: string; reason?: string }>  // built-in conservative multilingual (en+ar) blocklist + MODERATION_BLOCKLIST + optional OpenAI moderation; fail-open ONLY for the remote check, never for the local list
+moderatePrompt(text: string, opts?): Promise<{ allowed: boolean; category?: ModerationCategory; reason?: string }>  // built-in conservative multilingual (en+ar) blocklist + MODERATION_BLOCKLIST + optional OpenAI moderation; fail-open ONLY for the remote check, never for the local list
 enhancePrompt({ prompt, kind, locale? }): Promise<{ prompt: string; engine: 'openai'|'anthropic'|'heuristic'; translated: boolean }>
    // LLM path: translate Arabic→English when the target models are English-centric + enrich (subject, style, lighting, composition); returns ONLY the prompt; heuristic path appends tasteful descriptors, never calls network
 ```
-`lib/validation/generation.ts`: `validateGenerationRequest(req, env?) → { ok: true; model; params /* normalized */; cost } | { ok: false; errors }` – checks tool/model compatibility, prompt length, allowed aspect ratio/duration/resolution/count, requires `inputAssetId` iff tool needs an image, clamps defaults.
+`lib/validation/generation.ts`: `validateGenerationRequest(req, env?) → { ok: true; model; prompt; negativePrompt?; params /* normalized */; cost } | { ok: false; errors: GenerationValidationIssue[] }` – checks tool/model compatibility, prompt length, allowed aspect ratio/duration/resolution/count, requires `inputAssetId` iff tool needs an image, clamps defaults.
 
-As built (stubs, see §15): `moderatePrompt(text, { signal?, fetch? }): Promise<{ allowed; category?; reason? }>`;
-`enhancePrompt(EnhancePromptRequest, { env?, fetch?, signal? }): Promise<EnhancePromptResponse>` and the sync
-`enhanceHeuristically(EnhancePromptRequest): EnhancePromptResponse` (`prompt/heuristic.ts`). `lib/validation/generation.ts` keeps the real zod
-schema and adds the stub `validateGenerationRequest(request, env?: { ENABLE_MOCK_PROVIDER?: boolean }): GenerationValidationResult`, i.e.
-`{ ok: true; model; params; cost } | { ok: false; errors: ValidationIssue[] }` (the structural `env` type keeps `lib/` free of server imports; pass `getEnv()`).
+As built (real code, module key `catalog`; additive to the signatures above):
+- **Validation** (`lib/validation/{generation,generation-params,prompt,visible-text}.ts`). `validateGenerationRequest(request, env?: { ENABLE_MOCK_PROVIDER?: boolean })` (the structural `env` type keeps `lib/` free of server
+  imports; pass `getEnv()`; Demo models are unknown when the Demo provider is off) never throws for bad input and reports ALL problems at once, in request-field order. **Result shape**: `{ ok: true; model; prompt /* trimmed */;
+  negativePrompt? /* trimmed, absent when blank or invisible */; params /* defaults filled, every value one the model allows */; cost /* computeCost of params */ }` or `{ ok: false; errors: GenerationValidationIssue[] }`,
+  each issue `{ path, code, message }` where `path` is the request field in the same dotted form as `ValidationDetails.issues` (`prompt`, `params.count`, `inputAssetId`, ...; `{ issues: result.errors }` is a valid
+  422 `details`) and `code` is one of `invalid_request invalid_type required unknown_field unknown_tool unknown_model model_tool_mismatch too_long not_allowed out_of_range unsupported unpriced`.
+  Also exported: `validateForModel(request, model)`, `defaultParamsFor(model)`, `createGenerationRequestSchema` (the zod shape of the body, strict: unknown keys are rejected), `GenerationValidationCode`,
+  `enhancePromptRequestSchema`/`MAX_ENHANCE_PROMPT_CHARS` (2000), `visibleText`/`hasVisibleText`/`INVISIBLE_CHARS`. Rules the studio and API clients must know: an option the model does not offer
+  (negative prompt, seed, strength, duration, resolution) is a 422, never silently dropped; `params.strength` is also refused for tools without an input image; a blank negative prompt counts as absent; a prompt
+  with no visible character (zero-width, bidi, soft hyphen, Hangul filler, blank braille...) is `required`; prompt length is counted in characters (code points); a model with `limits.followsInputAspect` accepts any
+  known `aspectRatio` for an image-input tool and ignores it (`params.aspectRatio` stays the model default), garbage is still `not_allowed`. `lib/tools` also exports `isTool`, `getToolsForKind`, `toolNeedsImage`,
+  `filterModelsForTool`.
+- **Moderation** (`server/moderation/**`). `moderatePrompt(text, { negativePrompt?, hasInputImage?, signal?, fetch?, env?, remoteTimeoutMs? })`. Text is normalized (Unicode, accents, zero-width/bidi,
+  Arabic diacritics/tatweel/hamza variants, look-alike letters, repeated letters, leetspeak, spelled-out letters `p o r n`, a stated age under 18) and matched by whole token (Scunthorpe-safe) against English and Arabic rules
+  in `terms.ts`/`vocabulary.ts` with combination rules for ambiguous words. Categories (`ModerationCategory`, `MODERATION_CATEGORIES`): `sexual_minors` (never relaxed), `non_consensual_sexual`, `sexual_explicit`,
+  `graphic_violence`, `hate`, `terrorism`, `blocklist` (`MODERATION_BLOCKLIST` gets the same obfuscation resistance). `hasInputImage` (image-to-*) makes any nudity or undress wording block as
+  `non_consensual_sexual`; `negativePrompt` is blocked only when it excludes two or more garment/censorship groups for a person-prompt (an ordinary "nsfw, nude, child" passes). Text over `MAX_MODERATED_CHARS`
+  (20000) throws 422. `MODERATION_PROVIDER=openai` adds a call to `https://api.openai.com/v1/moderations` (only categories that map to this policy block; fail-open on error, timeout, bad response and missing
+  key, never for the local rules). A result carries only the category and a generic reason, the log never the prompt. Known limits: reversed text, words split by other words, images/OCR, dialects; the lists
+  are a starting point for a native-speaking reviewer; keep `MODERATION_PROVIDER=openai` on for a real deployment. Known conservative side effects: a main prompt that spells out "no nudity" is blocked (put it in
+  the negative field), `son`/`daughter`/`baby` count as minors next to sexual wording, Arabic `نيك` is blocked even as the name Nick.
+- **Prompt enhancer** (`server/prompt/**`). `enhancePrompt(EnhancePromptRequest, { env?, fetch?, signal?, timeoutMs? })` over OpenAI Chat Completions and the Anthropic Messages API (plain fetch, 8 s timeout, models
+  from env), `PROMPT_ENHANCER=auto` tries OpenAI, then Anthropic, then the heuristic engine; a forced engine falls back only to the heuristic one. The draft is data (wrapped in `<draft>` tags, angle brackets stripped),
+  the output is cleaned (fences, preambles, labels, quotes, 1000 characters), a refusal or leaked draft marker falls through to the next engine, `translated` is true only when Arabic went in and non-Arabic came out.
+  `enhanceHeuristically` never touches the network, keeps the user's language and is idempotent. UNVERIFIED (written without the vendors' docs, stubbed-fetch tests only): the OpenAI moderation model name and
+  endpoint, the chat-completions shape and the Anthropic Messages shape (`// UNVERIFIED:` in `moderation/remote.ts` and `prompt/llm.ts`).
+- **Routes**: `GET /api/v1/models` (auth optional, `Cache-Control: private, max-age=30`): the catalog as `ModelDTO[]` (`Omit<ModelSpec, 'provider' | 'providerModel'>` plus `provider`, `available` from
+  `isProviderAvailable`, `unavailableReason: 'not_configured'` when not; `limits.followsInputAspect` is passed through; the upstream model id never leaves the server), Demo models only while
+  `ENABLE_MOCK_PROVIDER` is on, sorted available first, then images before videos, then by label. `GET /api/v1/tools` (auth optional, `public, max-age=300`): the four `ToolSpec`s. Both share the `catalog`
+  budget of 240/min. `POST /api/v1/prompt/enhance` (auth required, 20/min per user in `prompt-enhance`, body <= 16 KiB): `{ prompt 1..2000, kind, locale? }` → `{ prompt, engine, translated }`; the draft is moderated
+  first (422 `moderation_blocked`, `details.category`), so the enhancer cannot launder a blocked prompt.
 
 ## 7. HTTP API (v1) — summary
 
@@ -604,31 +729,33 @@ Base `/api/v1`. Auth: session cookie (UI) **or** `Authorization: Bearer avk_…`
 
 | Method | Path | Auth | Notes |
 | ------ | ---- | ---- | ----- |
-| POST | `/auth/register` `/auth/login` `/auth/logout` | none/required | sets/clears cookie |
-| GET | `/auth/me` | optional | `{data: UserDTO|null}` |
+| POST | `/auth/register` `/auth/login` `/auth/logout` | none (CSRF-checked: send `Origin`) | sets/clears cookie; 201/200/204 |
+| POST | `/auth/logout-all` | session only | every device; 204 |
+| GET | `/auth/me` | optional | `{data: UserDTO|null}`, never 401 |
 | GET PATCH | `/account` | required | name, locale |
-| POST | `/account/password` | required | |
+| POST | `/account/password` | session only | 204; wrong current password is 422 |
 | GET | `/account/ledger` | required | paginated |
 | GET POST | `/keys` · DELETE `/keys/:id` | session only | key returned once |
-| GET | `/models` `/tools` | optional | availability + pricing |
-| POST | `/prompt/enhance` | required | |
-| POST | `/uploads` | required | multipart |
-| GET | `/media/:assetId` | optional | owner or public |
-| POST GET | `/generations` | required | Idempotency-Key |
+| GET | `/models` `/tools` | optional | availability + pricing; `limits.followsInputAspect` |
+| POST | `/prompt/enhance` | required | 422 `moderation_blocked` for a blocked draft |
+| POST | `/uploads` | required | multipart `file`; 201 `AssetDTO` |
+| GET HEAD | `/media/:assetId` | optional | owner, or an output of a public generation of an enabled account |
+| POST GET | `/generations` | required | `Idempotency-Key`; 201 (200 on replay); 402/429/503 |
 | GET PATCH DELETE | `/generations/:id` | required | |
 | POST | `/generations/:id/cancel` | required | |
 | GET | `/explore` | none | public feed |
-| GET | `/openapi.json` | none | served from `public/openapi.json`-equivalent |
+| GET | `/openapi.json` | none | not built yet (`account-docs`, from `public/openapi.json`) |
 | GET | `/api/health` | none | bare (not enveloped) `HealthDTO` `{status:'ok', db:true, worker, version}`; `{status:'error', db:false, …}` with HTTP 503 when `SELECT 1` fails |
 
 ## 8. Generation lifecycle
 
 ```
-POST /generations ─► validate ─► moderate ─► [tx: debit + insert queued] ─► 202/201 GenerationDTO(status=queued)
-worker: claim (queued→processing, lease) ─► provider.submit ─► sync outputs | async providerJobId ─► poll … ─► download/persist outputs
+POST /generations ─► validate ─► moderate ─► [tx: active limit + daily budget + debit + insert queued] ─► 201 GenerationDTO(status=queued)
+worker: claim (queued→processing, lease) ─► mark "submit started" ─► provider.submit ─► sync outputs | async providerJobId (stored, marker cleared) ─► poll … ─► download/persist outputs
       ─► completeGeneration (processing→succeeded)           | any failure/timeout ─► failGeneration (→failed + refund)
 cancel: queued|processing → canceled + refund (runner notices on next poll → provider.cancel best-effort)
 crash: lease expires → requeueStale → queued (resumes polling if providerJobId present) or failed+refund after MAX_ATTEMPTS
+       … but a PAID job with the "submit started" marker and no providerJobId → failed 'interrupted' + full refund, never re-submitted (the Demo provider just runs again)
 ```
 Terminal states are final. Every transition is a compare-and-set on `(id, status[, workerId])`. Refunds are
 idempotent. A succeeded job never gets refunded (except proportional partial output shortfall).
@@ -639,7 +766,9 @@ idempotent. A succeeded job never gets refunded (except proportional partial out
 - CSRF: SameSite=Lax cookie + Origin check on mutating cookie-auth requests.
 - No user-supplied URLs fetched server-side except provider output URLs through `safeFetch`; uploads only via multipart.
 - Secrets never reach the client bundle or logs; API keys & session tokens only stored hashed.
-- Rate limits (defaults): login 10/min per IP+email, register 5/h per IP, create generation 30/min per user, uploads 20/min, enhance 20/min, general 300/min (`route()` applies this one to every route that declares no `rateLimit`, see §6.1).
+- Authz on assets: the owner, or an OUTPUT of a public generation whose owner's account is enabled (inputs are never shared; a disabled account's shared results are offline everywhere); a generation may start from the caller's own images only (uploads and own results, never videos).
+- Rate limits (defaults): login 10/min per IP+email, register 5/h per IP, create generation 30/min per user, uploads 20/min, enhance 20/min, general 300/min (`route()` applies this one to every route that declares no `rateLimit`, see §6.1). Signed-in callers are keyed by account on every route; without a trusted proxy anonymous callers share one larger budget per route (§6.1, §16). The complete table is in §17.
+- Cost protection: `DAILY_UPSTREAM_BUDGET_CREDITS` caps what can be committed to paid providers per rolling 24 h (§17); a paid job that may already be billing is never submitted twice (§6.6).
 - Input limits everywhere (body size, prompt length, upload size/pixels). Output encoding handled by React; no `dangerouslySetInnerHTML` with user data.
 - Security headers via `next.config.ts` (from `security/headers.ts`); media served with `nosniff`.
 
@@ -710,7 +839,8 @@ All seven items are done; §13 to §15 record what was built.
   lower-cased `string[]`, `MODERATION_BLOCKLIST` a `string[]`; `SESSION_SECRET` is never undefined (dev default + one warning
   outside production/test). Production requires `SESSION_SECRET` ≥ 32 chars and refuses the built-in default. Cross-field rules:
   `STORAGE_DRIVER=s3` needs bucket and keys; `PROMPT_ENHANCER=openai|anthropic` and `MODERATION_PROVIDER=openai` need their API
-  key. All problems are reported together in one `EnvError` (`problems: string[]`). `TRUST_PROXY` (default false) was added.
+  key. All problems are reported together in one `EnvError` (`problems: string[]`). `TRUST_PROXY` (default false) was added, later `TRUSTED_PROXY_HOPS`, `RATE_LIMIT_DISABLED` (§16) and
+  `DAILY_UPSTREAM_BUDGET_CREDITS` (integer 0..1e9, default 0 = off, §17).
   `resetEnvForTests()` forgets the memoized value.
 - **Logger**: JSON lines (`time`, `level`, `msg`, fields). `debug/info` → stdout, `warn/error` → stderr. Level from `LOG_LEVEL`.
   Values under keys containing password, token (suffix), authorization, api key, secret, cookie, credential, signature or an
@@ -723,10 +853,9 @@ All seven items are done; §13 to §15 record what was built.
   drizzle's `__drizzle_migrations` bookkeeping (so several processes can start together; exactly one applies), and reads
   `<cwd>/drizzle` by default. `next.config.ts` (`outputFileTracingIncludes`) copies `drizzle/` into `.next/standalone/`; Docker must keep it next to
   `server.js`. `npm run db:migrate` (`scripts/migrate.ts`) runs the same code. A test fails when `schema.ts` and `drizzle/` drift.
-- **Stubs created by the kernel step** (owner `auth-security`, replace fully, keep these exports because `route()` imports them):
-  `server/auth` (`SessionUser`, `AuthContext`, `authenticate(req)`, still exported from the `@/server/auth` barrel); `server/security/rate-limit.ts` →
-  `RateLimitResult`, `RateLimiter`, `InMemoryRateLimiter`, `getRateLimiter()`, `setRateLimiter()` (a working in-memory baseline, not a throwing stub); `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
-  `getClientIp(req): string` (the stub always returns `'unknown'`). `SESSION_COOKIE_NAME` is exported by `server/http/request.ts`. The rest of the stubs are listed in §15.
+- **Exports the kernel step fixed for `route()`** (all real since `auth-security`, §16): `server/auth` (`SessionUser`, `AuthContext`, `authenticate(req)`, exported from the `@/server/auth` barrel); `server/security/rate-limit.ts` →
+  `RateLimitResult`, `RateLimiter`, `InMemoryRateLimiter`, `getRateLimiter()`, `setRateLimiter()`; `server/security/origin.ts` → `assertSameOrigin(req): void`; `server/security/ip.ts` →
+  `getClientIp(req): string`, `UNKNOWN_IP`. `SESSION_COOKIE_NAME` is exported by `server/http/request.ts`. §15 lists which stubs remain (openai and replicate).
 - **Test helpers** (`tests/helpers`; the HTTP, factory and fake helpers are described in §15): `db.ts` (`createTestDb({ file? })` → `{ db, path, close }`, fully migrated; `seedUser`; `freshDb()`),
   `credits.ts` (`ledgerInOrder`, `expectConsistentLedger` — the balance/chain invariants), `isolated-env.ts` (`ISOLATED_ENV_KEYS`), `model-spec.ts` (`modelSpecProblems(model)`: besides identity, tools, limits and the default request it prices EVERY request validation would accept — each count of an image model, each duration at each resolution of a video model — and enforces image `maxCount` 1-4;
   provider owners should assert it is `[]` for the models they add), and two child-process workers (`credits-race-worker.ts`,
@@ -736,18 +865,19 @@ All seven items are done; §13 to §15 record what was built.
 
 ## 15. Stubs, test helpers and app shell (as built)
 
-**Stub files.** Each starts with `// OWNER: <key> — replace this stub`, keeps the exact exports below, and throws `NotImplementedError` from
-`@/lib/errors` (types, interfaces, constants and error classes are real). The owner replaces the whole file and may add exports, not remove them.
+**Stub files (history).** The kernel step created each file below as `// OWNER: <key> — replace this stub` with the exact exports, throwing `NotImplementedError` from `@/lib/errors`. After the backend phase
+EVERY row is real except `provider-openai` and `provider-replicate` (their `index.ts` still export a stub whose `isConfigured` is always false, so they offer no models). The table records who owns what.
 Files marked *real* are finished wiring or contracts and carry a different `// OWNER:` header.
 
 | Owner | Files |
 | ----- | ----- |
-| `auth-security` | `server/auth/{context,users,sessions,api-keys,cookies,password}.ts`, `server/security/ssrf.ts`, `scripts/admin.ts` (stubs); `server/auth/tokens.ts` (*real*, storage contract); `server/auth/index.ts` (*real* barrel); `server/security/{origin,ip}.ts` (kernel stubs); `server/security/rate-limit.ts` (working in-memory baseline, see §6.2) |
+| `auth-security` | all *real* (§16): `server/auth/**` (`tokens.ts` is the storage contract), `server/security/{origin,ip,ipaddr,rate-limit,ssrf,headers}.ts`, `scripts/admin.ts` (logic in `server/auth/admin/**`), `app/api/v1/{auth,account,keys}/**` |
 | `providers-mock` | `server/providers/{types,errors,http,registry}.ts` (*real*), `server/providers/mock/**` (*real*, exports `mockProvider`, see §6.4; `isConfigured` is `env.ENABLE_MOCK_PROVIDER`) |
-| `provider-openai`, `provider-fal`, `provider-replicate` | `server/providers/{openai,fal,replicate}/index.ts` (stubs exporting `openaiProvider`, `falProvider`, `replicateProvider`; `isConfigured` is always false) |
-| `storage` | `server/storage/{local,s3}.ts`, `server/uploads/{index,sniff,image}.ts` (stubs); `server/storage/{types,index}.ts` (*real*) |
-| `engine` | all *real* (see §6.6 "Engine, as built"): `server/generations/{service,lifecycle,queries,list,idempotency,dto}.ts`, `server/jobs/{runner,job-run,input,outputs,backoff,failure,runtime,wake,worker,start}.ts`, `instrumentation.ts`, `scripts/worker.ts`, `app/api/v1/{generations,explore}/**` |
-| `catalog` | `server/moderation/index.ts`, `server/prompt/{enhancer,heuristic}.ts` (stubs), `validateGenerationRequest` in `lib/validation/generation.ts` (stub next to the real schema) |
+| `provider-fal` | *real* (§6.4 "fal provider, as built"): `server/providers/fal/**`, `lib/catalog/models/fal.ts` |
+| `provider-openai`, `provider-replicate` | `server/providers/{openai,replicate}/index.ts` are still stubs exporting `openaiProvider`, `replicateProvider` (`isConfigured` is always false) |
+| `storage` | all *real* (§6.5 "Storage and uploads, as built"): `server/storage/**`, `server/uploads/**`, `app/api/v1/{uploads,media}/**` |
+| `engine` | all *real* (see §6.6 "Engine, as built"): `server/generations/{service,lifecycle,queries,list,idempotency,dto,budget,paid}.ts`, `server/jobs/{runner,job-run,input,outputs,backoff,failure,runtime,wake,worker,start}.ts`, `instrumentation.ts`, `scripts/worker.ts`, `app/api/v1/{generations,explore}/**` |
+| `catalog` | all *real* (§6.7): `server/moderation/**`, `server/prompt/**`, `lib/validation/**`, `lib/tools/**`, `app/api/v1/{models,tools,prompt}/**` |
 
 **Test helpers** (`tests/helpers`, import with relative paths):
 - `db.ts`: `createTestDb({ file? })`, `seedUser`, and `freshDb()`, which registers `beforeEach`/`afterEach` hooks so code that calls `getDb()` itself
@@ -765,7 +895,10 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
 **App shell.**
 - `app/layout.tsx` is async: `<html lang dir data-theme>` come from `getI18n()` (cookie `aivore_locale`, then `Accept-Language`, then `ar`) and `getTheme()` (cookie `aivore_theme`:
   `light | dark | system`, default `dark`; `lib/theme.ts` has the constants and `serializeThemeCookie`). Rendering the theme on the server means no inline script and no flash; it also makes every page
-  dynamic. It provides `I18nProvider`, a localized skip link (`common.a11y.skipToContent`) and `generateMetadata`/`viewport`. **Every page or layout must render exactly one
+  dynamic. It provides `I18nProvider`, a localized skip link (`common.a11y.skipToContent`) and `generateMetadata`/`viewport`: `metadataBase` is the origin of `APP_URL` (`lib/site-url.ts`
+  `metadataBaseFor`, undefined for anything that is not an http(s) URL, so a bad value cannot break every page's metadata), and `viewport.themeColor` is `THEME_COLORS` of `lib/theme.ts`
+  (`dark #0b0b16`, `light #f6f6fb`, equal to each theme's `--background` token; a test keeps them in step). `<html>` also carries `data-scroll-behavior="smooth"`: globals.css sets
+  `scroll-behavior: smooth`, and this attribute is how Next is told that is intended (it then switches it off for the instant of a route change instead of warning). **Every page or layout must render exactly one
   `<main id="main-content">`**, the skip link's target. Theme and locale switchers write the cookies and refresh.
 - `app/globals.css` (ui-kit extends it): imports Tailwind and the self-hosted `@fontsource-variable/{inter,cairo}` (families `Inter Variable`, `Cairo Variable`; the build emits woff2 per unicode-range
   subset, including `cairo-arabic`), defines `--background/--foreground/--muted/--ring` for `:root[data-theme=dark|light]` and `data-theme=system` (via `prefers-color-scheme`) and maps them to
@@ -817,8 +950,8 @@ Files marked *real* are finished wiring or contracts and carry a different `// O
 - **Auth guard** (`src/lib/auth-guard.ts`, server-only; `src/lib/next-path.ts`, isomorphic). Layouts cannot know the request path, so **every `(app)` page starts with `const user = await requireUser('/its/own/path')`** (use the real path, e.g.
   `` `/gallery/${id}` ``): a visitor is redirected on the server to `/login?next=<path>`. `(app)/layout` is only the safety net: with no user it renders `<RedirectToLogin/>` (client redirect that adds `?next=` from the browser URL) instead of the page, so
   content is never shown to a visitor. `getOptionalUser()` is for places where a visitor is fine (marketing). One lookup per request (`React.cache`). A failing `getCurrentUser()` is logged and treated as "no user" **only when `NODE_ENV === 'development'`**; in production
-  and tests it throws. Also **only in development**, while auth is still the unimplemented stub (`NotImplementedError`), `requireUser`/`getAppUser` return `PREVIEW_USER` (`preview@aivore.local`, 50 credits) so the shell and pages can be built and previewed before auth lands;
-  the marketing side still sees "no user". Login/register pages should send the user on with `safeNextPath(searchParams.next)` (only same-site absolute paths pass; never `/login|/register`) and `loginUrl(path)` builds the redirect.
+  and tests it throws. (History: **only in development**, while auth was still the unimplemented stub (`NotImplementedError`), `requireUser`/`getAppUser` returned `PREVIEW_USER` (`preview@aivore.local`, 50 credits) so the shell and pages could be
+  previewed before auth landed; auth is real now, so that branch no longer triggers.) The marketing side sees "no user" for a visitor. Login/register pages should send the user on with `safeNextPath(searchParams.next)` (only same-site absolute paths pass; never `/login|/register`) and `loginUrl(path)` builds the redirect.
 - **`useUser()`** (`src/lib/user-context.tsx`, client; `UserProvider initialUser` is mounted by `AppShell` and `SiteChrome`): `{ user: CurrentUser | null, creditBalance, refresh(), setCreditBalance(n) }`. `refresh()` calls `GET /api/v1/auth/me`
   (deduplicated, never rejects; 401 or `{data:null}` clears the user; other failures keep the current values) and also runs when the tab becomes visible after 60 s. Call `refresh()` (or `setCreditBalance(n)` when the response already carries the balance)
   after anything that spends or grants credits. A new server value (after `router.refresh()`) replaces local state only when it differs.
@@ -904,8 +1037,14 @@ Ports and brackets are stripped, IPv4-mapped IPv6 becomes IPv4, and IPv6 collaps
 *Without a trusted proxy every visitor is the one address `unknown`.* A per-address budget sized for one client would then be a switch anybody can pull for everybody (11 failed logins a minute and nobody signs in), so the credential
 routes treat that case on purpose: **login** has no address-wide budget (what remains is the 10 / min per EMAIL inside `loginUser`, which bounds guessing against one account but also lets someone lock that one account out for a minute,
 and the password hash gate, which caps concurrent scrypt work), **logout** has none (one indexed delete), **register** has a shared 60 / hour (it caps how many free-credit accounts one hour can mint: 60 times `SIGNUP_BONUS_CREDITS`),
-**/auth/me** a shared 1200 / min for anonymous callers, and the public **/explore** feed (engine module) the same 1200 / min instead of its 60 / min per address. Everything keyed by user (keys, account, logout-all) is unaffected. Routes of other modules that rely on the default `general` bucket for anonymous callers still share one bucket in
-this mode (see the open issues of this module): the real fix is to run behind a proxy with `TRUST_PROXY=true`.
+**/auth/me** a shared 1200 / min for anonymous callers, and the public **/explore** feed (engine module) the same 1200 / min instead of its 60 / min per address. Everything keyed by user (keys, account, logout-all) is unaffected.
+**Every other route** (`route()` itself, hardening module; §6.1): a signed-in caller (cookie or API key, resolved even on `optional` routes such as `/models` and `/tools`) is keyed by account and never spends an anonymous bucket;
+anonymous callers of a route that leaves `by` unset share one `<route class>:anonymous-unknown` bucket of `ANONYMOUS_UNKNOWN_FACTOR` (10) times its limit (catalog 2400/min, general 3000/min, one bucket per class), so a script can exhaust
+the anonymous budget of a class (anonymous visitors then get 429 there) but can never starve a signed-in user; a spoofed `X-Forwarded-For`/`X-Real-IP` is ignored and neither buys a fresh bucket nor frames another address. Before this,
+1000 anonymous `GET /models` made the next signed-in `GET /models` a 429 for the whole site. Anonymous traffic with forged cookies or keys counts as anonymous. The media route counts anonymous unknown-address viewers not at all (§6.5).
+The real fix for per-client limits is still a proxy with `TRUST_PROXY=true`. In production the server logs ONE warning per process (`all clients share one rate-limit bucket ... set TRUST_PROXY=true behind your proxy`) the first time a request
+carries `X-Forwarded-For` or `X-Real-IP` while `TRUST_PROXY=false` (Next.js fills `X-Forwarded-For` with the socket address itself, so the hint also appears on a server reached directly; ignore it there), next to the start-up
+warning of `getEnv()`. Security-critical limits stay keyed on the target as well: login on the email (10/min, inside `loginUser`), so one attacker cannot lock everybody out, only the one account he is guessing.
 
 **Rate limiter** (`security/rate-limit.ts`). Same interface, fixed windows; additionally the key table is capped (100 000 keys, least recently used evicted, so a flood of unique keys cannot grow memory or reset the counter
 of a client that keeps hitting), expired windows are swept lazily, and a window further away than its own length (clock stepped back) restarts. State is per process. `RATE_LIMIT_DISABLED=true` makes `getRateLimiter()`
@@ -922,12 +1061,82 @@ covers the whole download (redirects and body) with `timeoutMs`. Errors are `App
 loopback, nothing else) and `setSsrfResolverForTests(fn | null)`; production code must not use either.
 
 **Headers** (`security/headers.ts`, still free of imports because `next.config.ts` loads it). CSP: `default-src 'self'`, scripts `'self' 'unsafe-inline'` (a static header cannot carry a nonce; `'unsafe-eval'` in development only),
-no frames, objects or foreign base/form targets, `frame-ancestors 'none'`; HSTS in production; `Permissions-Policy` switches off camera, microphone, geolocation, payment, USB, serial, Bluetooth, HID, display capture, sensors and
-Topics; `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `COOP: same-origin`.
+no frames, objects or foreign base/form targets, `frame-ancestors 'none'`; HSTS in production; `Permissions-Policy` switches off camera, microphone, geolocation, payment, USB, serial, HID, MIDI, display capture, sensors and
+Topics (`bluetooth` was removed: it is not a Permissions-Policy feature and Chrome logged "Unrecognized feature" on every page; a test only allows directives it knows); `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `COOP: same-origin`.
 
-**Admin CLI** (`npm run admin -- <command>`, `scripts/admin.ts` → `server/auth/admin/cli.ts`). `create-user`, `grant-credits`, `set-role`, `disable` (also signs the user out everywhere), `enable`, `list-users [--json] [--search] [--limit]`,
+**Admin CLI** (`npm run admin -- <command>`, `scripts/admin.ts` → `server/auth/admin/cli.ts`). `create-user`, `grant-credits`, `set-role`, `disable` (also signs the user out everywhere and takes everything the account shared offline: feed, share page and media URLs; `enable` brings the results back but NOT the browser sessions, API keys work again at once), `enable`, `list-users [--json] [--search] [--limit]`,
 `reset-password` (signs out everywhere); `--help` lists the options. Passwords come from `--password-stdin`, `--password` (warns: shell history), `AIVORE_ADMIN_PASSWORD` or a hidden prompt, never printed. Demoting or disabling the last
 active admin needs `--force`. Exit codes: 0 done, 1 failed (unknown user, rejected input, database error), 2 wrong usage.
 
 **Tests.** Helpers named `passwordFixture()`, `cleanSecurityState()` (tests/server/auth/support.ts) and `routeTestState()` (tests/app/api/v1/auth/support.ts) avoid the `use…` prefix that ESLint treats as a React hook. Route tests send
 `createSession(...).headers` (cookie plus matching Origin) for browser calls and `authorization: Bearer avk_…` for API calls. Hashing is the slow part: build users with a shared real hash (`createUser(db, { passwordHash })`) instead of registering.
+
+## 17. Backend as built (consolidated, owner `hardening`)
+
+One page for operators and API consumers; the per-module detail is in §6.1 to §6.7 and §16. Routes added by later modules (email confirmation, password reset, account export and deletion, billing) are
+documented in their own sections. Every route goes through `route()` (§6.1): JSON envelope, `X-Request-Id`, `Cache-Control: no-store` unless stated, CSRF check for cookie-authenticated mutations (non-browser clients
+send `Origin: <APP_URL>` on login/register), 429 with `Retry-After` and `X-RateLimit-*` when a limit applies. "Per user" = per account for signed-in callers; the unknown-address column is for `TRUST_PROXY=false`.
+
+**Endpoints, auth and limits** (budgets are per 60 s unless stated):
+
+| Route | Auth | Limit (bucket) | Notes |
+| ----- | ---- | -------------- | ----- |
+| `POST /auth/register` | none, CSRF | 5 / h / address (`auth-register`); unknown address: 60 / h shared | 201 `UserDTO` + `aivore_session` and `aivore_locale` cookies, 50 credits (`SIGNUP_BONUS_CREDITS`) in the same transaction |
+| `POST /auth/login` | none, CSRF | 10 / address (`auth-login`) + 10 / address + email (inside); unknown: only the 10 / email | one generic 401 for every failure; new token each time |
+| `POST /auth/logout` · `POST /auth/logout-all` | none, CSRF · session | 30 / address, unknown: none · 10 / user | 204; idempotent |
+| `GET /auth/me` | optional | 120 / user, address when anonymous (`auth-me`); unknown: 1200 shared | `{data: UserDTO}` or `{data: null}`, never 401 |
+| `GET·PATCH /account`, `GET /account/ledger` | required | 60 · 20 · 60 / user | PATCH `{name?, locale?}` only |
+| `POST /account/password` | session only | 5 / user | 204 |
+| `GET·POST /keys`, `DELETE /keys/:id` | session only | 60 · 10 · 10 / user | secret returned once; at most 20 active keys |
+| `GET /models`, `GET /tools` | optional | 240 / user or address, one `catalog` bucket; unknown: 2400 shared | `private, max-age=30` · `public, max-age=300` |
+| `POST /prompt/enhance` | required | 20 / user (`prompt-enhance`) | body <= 16 KiB; blocked draft is 422 |
+| `POST /uploads` | required | 20 / user (`uploads`) | multipart `file`, `(MAX_UPLOAD_MB + 1)` MiB, PNG/JPEG/WebP |
+| `GET·HEAD /media/:assetId` | optional | 1200 / user or address (`media`); unknown anonymous: not counted | Range 206/416, ETag 304; owner or output of a public generation of an enabled account |
+| `POST /generations` | required | 30 / user (`generations-create`) | body <= 64 KiB, `Idempotency-Key`, 201 (200 on replay); 402, 403 `email_not_verified` (where email confirmation is on), 409, 422, 429 `too_many_active`, 503 `service_busy` |
+| `GET /generations`, `GET /generations/:id` | required | 600 / user (`generations-read`) + 60 / user for `?q=` (`generations-search`) | `?ids=` batch polling (<= 50) |
+| `PATCH·DELETE /generations/:id`, `POST /generations/:id/cancel` | required | 60 / user (`generations-write`) | DELETE 204; cancel is idempotent for a canceled generation |
+| `GET /explore` | none | 60 / address (`explore`); unknown: 1200 shared | `public, max-age=15, stale-while-revalidate=45`; default page 24 |
+| `GET /api/health` | none | unlimited | bare `HealthDTO`; 503 when the database fails; `worker` is the configured `WORKER_MODE`, not liveness |
+
+**Environment variables of the backend phase** (all in `.env.example`; `getEnv()` validates them all at the first call and reports every problem together):
+`TRUST_PROXY` (default false: trust `X-Forwarded-For`, the proxy must append to it), `TRUSTED_PROXY_HOPS` (1..10), `RATE_LIMIT_DISABLED` (DANGER, e2e/load tests only, loud start-up warning),
+`DAILY_UPSTREAM_BUDGET_CREDITS` (below), `FAL_KEY` (makes the nine `fal-*` models available), `ENABLE_MOCK_PROVIDER` (Demo models; turn off in production once real keys exist), `WORKER_MODE`
+(`inline` | `external` | `off`), `MODERATION_PROVIDER` / `PROMPT_ENHANCER` and their keys. Start-up warnings (once per process): insecure `SESSION_SECRET` outside production, `RATE_LIMIT_DISABLED`, a non-empty
+`ADMIN_EMAILS` (the first registrant of that address becomes admin), and in production `TRUST_PROXY=false`; plus the first-request warning about ignored forwarding headers (§16).
+
+**Daily upstream budget** (`DAILY_UPSTREAM_BUDGET_CREDITS`, `generations/budget.ts`; 0 = off). Committed credits = the sum of `cost` of generations on PAID providers (anything but `mock`) created in the last 24 hours
+(strictly younger than 24 h) whose status is `queued`, `processing` or `succeeded`: failed and canceled generations were refunded in full and free their share at once, a refund never frees more than its generation
+took, a partial refund keeps the full cost committed. `createGeneration` on a paid model checks `committed + cost <= budget` INSIDE the transaction that debits the user and inserts the row (after the replay and
+active-limit checks, before the debit), so concurrent requests cannot overshoot together (tested across processes); exactly reaching the budget is allowed. Otherwise: 503 `service_busy`, `details.retryAfterSec`
+also as `Retry-After` (an estimate of when enough of the oldest committed generations leave the window, clamped to 60 s .. 1 h; 1 h when the request alone exceeds the budget), nothing debited or stored, one
+throttled `warn` per minute ("Daily upstream budget reached", numbers only). A replay of an earlier request is answered even when the budget is now spent. The Demo provider is never counted or blocked. There is
+no admin command for it (`scripts/admin.ts` is unchanged): read the log line, or sum the table with the query in `committedUpstreamCredits`.
+
+**Failure semantics** (credits are always conserved: every debit is matched by a refund or a delivered result, tested with ledger-chain checks):
+- Refused before anything is stored (422 validation or moderation, 404 input image, 409 model unavailable or key reuse, 402, 429 active limit, 503 budget): nothing debited.
+- Provider failure, timeout, unusable or no output, storage failure, input image gone, retries exhausted: `failed` with a full idempotent refund (`refund:<id>`) and a user-safe code/message (§5). Fewer outputs than
+  `count`: `succeeded` plus `floor(cost * missing / count)` refunded (`refund:partial:<id>`). A timed-out job is failed and refunded BEFORE the best-effort upstream cancel.
+- Cancel or delete of a queued OR processing generation: `canceled` and a FULL refund, also after the provider accepted the job (policy of §8, not changed). Each such cancel logs "Canceled a generation after it
+  was submitted to the provider" (ids and cost, never the prompt) so a create-and-cancel loop shows up as a high ratio of those lines to "Generation succeeded".
+- Worker crash: the lease (60 s, heartbeat every 15 s) expires and the job is requeued and RESUMED by polling when the provider job id was stored, failed `unavailable` after `MAX_ATTEMPTS` claims, or, for a paid
+  provider whose submit was in flight, failed `interrupted` and refunded (§6.6). Graceful stop (SIGTERM, `stop()`, inline process exit) hands jobs back at once. `kill -9` is noticed after the lease (up to 60 s).
+- Queued jobs never expire: with `WORKER_MODE=off` or a dead external worker the credits stay debited until the user cancels (which refunds); four stuck jobs hit `MAX_ACTIVE_PER_USER`.
+- Disabled accounts: sessions end, the account cannot log in (403 only after the right password), its shared results disappear from the feed, share page and media URLs.
+
+**Known limitations and open issues**
+1. **fal was never called live**: the build sandbox's network policy blocks every fal host, so submit/poll/cancel, the real response shapes, the CDN downloads and the acceptance of inline base64 inputs (about 5.6 MB of
+   JSON) are verified only against the types of `@fal-ai/client`, its source and stubbed fakes. Before enabling fal in production run one cheap `fal-flux-schnell` and one image-to-image call from a host that can reach it.
+   If fal answers 401/403 the cause is the key itself (format, scope or balance), not the code.
+2. **Model prices are months-old excerpts** (fal model pages, 2026-10-08) and `fal-flux-dev-img2img` is priced at the higher of two conflicting quotes (10 credits instead of 8, `UNVERIFIED:` in the catalog); newer
+   families (Nano Banana 2, Wan 3.0, Seedance 2.x, Kling v3, Veo 3.1 Lite) are not offered because their prices could not be read. Re-check a price on the model page before changing a number.
+3. **Submit is not idempotent** (fal has no idempotency key): fixed as far as the engine can, see "Duplicate paid jobs" in §6.6. What remains: a submit that fails without an HTTP answer is final (the generation fails, refunded)
+   instead of being retried, a worker killed mid-submit fails that one job (refunded) instead of re-submitting, and the platform eats the upstream charge of such a request.
+4. **Full refund after the provider accepted a job** (cancel and delete) is a policy that lets a create-and-cancel loop cost the platform money while the user pays nothing; options are to refund fully only while queued or
+   before `providerJobId`, or only after `provider.cancel` confirmed, or to keep a small share. Until decided, operators can alert on the log line above, and `DAILY_UPSTREAM_BUDGET_CREDITS` bounds the damage.
+5. **Rate limits are per process** (several instances each enforce their own budget; swap a shared store in with `setRateLimiter`). Without `TRUST_PROXY=true` anonymous callers cannot be told apart: they share one
+   budget per route class (10x larger than per address), so a script can exhaust the anonymous budget of a class, and the shared `register` budget (60 / h) is a sign-up lockout lever; signed-in users are never affected.
+6. **Not live-verified, by design**: the S3 driver (injected client only), the OpenAI/Anthropic enhancer and OpenAI moderation endpoints (`// UNVERIFIED:`), `next build`/`next dev` of the integration run. The OpenAI and
+   Replicate adapters are stubs. `public/openapi.json` and `GET /openapi.json` do not exist yet.
+7. `safeFetch` buffers a whole download (up to 500 MB per video), so the worst case is `WORKER_CONCURRENCY` x 500 MB; a provider's `progress` is read as a percentage 0-100; `/api/health` does not report worker liveness
+   (`isWorkerRunning()` in `jobs/start.ts` exists for it); unused uploads and per-user storage are not limited or swept; the session cookie is `Secure` whenever `NODE_ENV=production` (HTTPS required).
+8. Moderation is a conservative starting point (§6.7): reversed text, split words, images/OCR and dialects are not covered; the Arabic list needs a native-speaking reviewer; keep `MODERATION_PROVIDER=openai` on for a real deployment.

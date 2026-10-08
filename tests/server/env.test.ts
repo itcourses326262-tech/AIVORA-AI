@@ -61,7 +61,39 @@ describe('parseEnv defaults', () => {
       TRUST_PROXY: false,
       TRUSTED_PROXY_HOPS: 1,
       RATE_LIMIT_DISABLED: false,
+      DAILY_UPSTREAM_BUDGET_CREDITS: 0,
+      SMTP_URL: undefined,
+      SMTP_HOST: undefined,
+      SMTP_PORT: undefined,
+      SMTP_USER: undefined,
+      SMTP_PASS: undefined,
+      SMTP_SECURE: false,
+      EMAIL_FROM: undefined,
+      EMAIL_VERIFICATION: 'auto',
+      DISPOSABLE_EMAIL_DOMAINS: [],
+      SIGNUPS_PER_IP_PER_DAY: 5,
+      BILLING_GATEWAY: 'auto',
+      MOYASAR_SECRET_KEY: undefined,
+      MOYASAR_PUBLISHABLE_KEY: undefined,
+      MOYASAR_WEBHOOK_SECRET: undefined,
+      MOYASAR_API_BASE: 'https://api.moyasar.com/v1',
+      MOYASAR_ALLOW_LIVE_IN_DEV: false,
+      MOYASAR_ALLOW_TEST_IN_PRODUCTION: false,
+      VAT_RATE_PERCENT: 15,
     });
+  });
+
+  it('DAILY_UPSTREAM_BUDGET_CREDITS: 0 (the default) disables the guard, anything else is a whole number', () => {
+    expect(parseEnv({}).DAILY_UPSTREAM_BUDGET_CREDITS).toBe(0);
+    expect(parseEnv({ DAILY_UPSTREAM_BUDGET_CREDITS: '' }).DAILY_UPSTREAM_BUDGET_CREDITS).toBe(0);
+    expect(parseEnv({ DAILY_UPSTREAM_BUDGET_CREDITS: '5000' }).DAILY_UPSTREAM_BUDGET_CREDITS).toBe(
+      5000,
+    );
+    for (const bad of ['-1', '12.5', 'lots', '1000000001']) {
+      expect(() => parseEnv({ DAILY_UPSTREAM_BUDGET_CREDITS: bad }), bad).toThrow(
+        /DAILY_UPSTREAM_BUDGET_CREDITS/,
+      );
+    }
   });
 
   it('treats blank values as unset, as .env.example ships them', () => {

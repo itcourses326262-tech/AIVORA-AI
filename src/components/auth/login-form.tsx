@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { FormError } from '@/components/ui/form-error';
@@ -43,6 +44,12 @@ export function LoginForm({ next, aside }: LoginFormProps) {
           autoComplete="current-password"
           inputRef={form.inputRef('password')}
         />
+        <Link
+          href="/forgot-password"
+          className="hit-area -mt-2 w-fit rounded-sm text-sm font-medium text-brand underline-offset-4 hover:underline"
+        >
+          {t('auth.login.forgot')}
+        </Link>
         <Button type="submit" size="lg" fullWidth loading={form.submitting} className="mt-1">
           {form.submitting ? t('auth.login.submitting') : t('auth.login.submit')}
         </Button>

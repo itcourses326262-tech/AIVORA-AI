@@ -3,9 +3,19 @@ import { isAppError } from '@/lib/errors';
 import type { GenerationFailure } from '@/server/generations/lifecycle';
 import { isProviderError, type ProviderErrorCode } from '@/server/providers/errors';
 
-/** The error codes a failed generation can carry (`GenerationDTO.error.code`). */
+/**
+ * The error codes a failed generation can carry (`GenerationDTO.error.code`). `interrupted` is
+ * written by the lifecycle (not by a running job) when a paid provider's submit was in flight at a
+ * crash, see `SUBMIT_INTERRUPTED_FAILURE`.
+ */
 export type FailureCode =
-  'invalid_input' | 'content_policy' | 'rate_limited' | 'unavailable' | 'timeout' | 'internal';
+  | 'invalid_input'
+  | 'content_policy'
+  | 'rate_limited'
+  | 'unavailable'
+  | 'timeout'
+  | 'internal'
+  | 'interrupted';
 
 /** A failure the runner decided on itself, with text that is safe to show to the user. */
 export class JobFailure extends Error {

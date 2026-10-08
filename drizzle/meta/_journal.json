@@ -8,6 +8,27 @@
       "when": 1791467181350,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791490677544,
+      "tag": "0001_wonderful_rockslide",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791490922833,
+      "tag": "0002_bumpy_alex_power",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791491059705,
+      "tag": "0003_dashing_toro",
+      "breakpoints": true
     }
   ]
 }

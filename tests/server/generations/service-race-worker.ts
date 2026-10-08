@@ -4,6 +4,8 @@
 // barrier.ts) until every process is ready.
 //
 //   service-race-worker <barrierDir> <userId> <attempts> <same|distinct> <tag>
+//
+// RACE_MODEL (optional) names the model to request; it defaults to the Demo image model.
 import { AppError } from '@/lib/errors';
 import { getDb } from '@/server/db';
 import { createGeneration } from '@/server/generations/service';
@@ -29,7 +31,7 @@ for (let attempt = 0; attempt < Number(attempts); attempt += 1) {
       userId,
       {
         tool: 'text-to-image',
-        modelId: 'aivore-demo-image',
+        modelId: process.env.RACE_MODEL ?? 'aivore-demo-image',
         prompt: keyMode === 'same' ? 'one shared prompt' : `prompt ${tag} ${attempt}`,
       },
       { idempotencyKey: keyMode === 'same' ? 'shared-key' : `${tag}-${attempt}` },

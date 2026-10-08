@@ -653,7 +653,9 @@ function* allowedRequests(model: ModelSpec, tool: Tool): Generator<Allowed> {
 
   yield { label: 'defaults', request: base, expected: defaultParamsFor(model) };
 
-  for (const aspectRatio of limits.aspectRatios) {
+  // A model whose result keeps the input's proportions accepts a ratio and ignores it.
+  const ignoresAspect = limits.followsInputAspect === true && needsImage(tool);
+  for (const aspectRatio of ignoresAspect ? ASPECT_RATIOS : limits.aspectRatios) {
     for (const count of counts) {
       for (const durationSec of durations) {
         for (const resolution of resolutions) {
@@ -666,7 +668,9 @@ function* allowedRequests(model: ModelSpec, tool: Tool): Generator<Allowed> {
           yield {
             label: JSON.stringify(params),
             request: { ...base, params },
-            expected: params,
+            expected: ignoresAspect
+              ? { ...params, aspectRatio: limits.defaultAspectRatio }
+              : params,
           };
         }
       }
@@ -743,8 +747,9 @@ describe('every model x tool x allowed parameter combination', () => {
         const withParams = (params: Record<string, unknown>) =>
           ({ params }) as Partial<CreateGenerationRequest>;
 
+        const ignoresAspect = limits.followsInputAspect === true && needsImage(tool);
         for (const ratio of ASPECT_RATIOS) {
-          if (!limits.aspectRatios.includes(ratio)) {
+          if (!limits.aspectRatios.includes(ratio) && !ignoresAspect) {
             add(
               `aspect ${ratio}`,
               withParams({ aspectRatio: ratio }),

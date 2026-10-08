@@ -91,7 +91,7 @@ describe('normalizeError', () => {
     expect(body.error.details).toMatchObject({ issues: [{ path: 'a' }] });
   });
 
-  it('extracts Retry-After from rate limit errors only', () => {
+  it('extracts Retry-After from rate limit and service_busy errors only', () => {
     expect(
       normalizeError(AppError.of('rate_limited', 'Slow down', { retryAfterSec: 12 })).retryAfterSec,
     ).toBe(12);
@@ -102,6 +102,10 @@ describe('normalizeError', () => {
     expect(
       normalizeError(AppError.of('rate_limited', 'x', { retryAfterSec: 'soon' })).retryAfterSec,
     ).toBeUndefined();
+    expect(
+      normalizeError(AppError.of('service_busy', 'busy', { retryAfterSec: 600 })).retryAfterSec,
+    ).toBe(600);
+    expect(normalizeError(AppError.of('service_busy', 'busy')).retryAfterSec).toBeUndefined();
   });
 });
 
@@ -125,5 +129,14 @@ describe('errorResponse', () => {
     const response = errorResponse(AppError.of('rate_limited', 'Slow down', { retryAfterSec: 30 }));
     expect(response.status).toBe(429);
     expect(response.headers.get('retry-after')).toBe('30');
+  });
+
+  it('answers service_busy with 503 and Retry-After', async () => {
+    const response = errorResponse(AppError.of('service_busy', 'busy', { retryAfterSec: 900 }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('900');
+    expect(await response.json()).toEqual({
+      error: { code: 'service_busy', message: 'busy', details: { retryAfterSec: 900 } },
+    });
   });
 });

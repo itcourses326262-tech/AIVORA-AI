@@ -9,6 +9,7 @@ export default defineMessages({
       submitting: 'Logging in…',
       noAccount: 'New to AIVORE?',
       createAccount: 'Create an account',
+      forgot: 'Forgot password?',
     },
     register: {
       title: 'Create your account',
@@ -72,6 +73,108 @@ export default defineMessages({
     layout: {
       backToHome: 'Back to home',
     },
+    forgot: {
+      title: 'Forgot your password?',
+      subtitle:
+        'Enter the email you signed up with and we will send you a link to choose a new password.',
+      submit: 'Send reset link',
+      submitting: 'Sending…',
+      backToLogin: 'Back to log in',
+      sentTitle: 'Check your email',
+      sentBody:
+        'If there is an account for {email}, a link to reset its password is on its way. It works for one hour.',
+      sentHint: 'Nothing yet? Look in your spam folder, or try again in a few minutes.',
+      useAnother: 'Use a different email',
+    },
+    reset: {
+      title: 'Choose a new password',
+      subtitle: 'Pick one you do not use anywhere else. All your devices will be signed out.',
+      newPassword: 'New password',
+      submit: 'Save new password',
+      submitting: 'Saving…',
+      successTitle: 'Password updated',
+      successBody: 'You are signed out everywhere. Log in with your new password.',
+      logIn: 'Log in',
+      requestNew: 'Request a new link',
+      problem: {
+        invalid: {
+          title: 'This link does not work',
+          body: 'The link is incomplete or not valid. Request a new one and use the link in the newest email.',
+        },
+        expired: {
+          title: 'This link has expired',
+          body: 'Reset links work for one hour. Request a new one.',
+        },
+        used: {
+          title: 'This link was already used',
+          body: 'For your safety each link works once. Request a new one if you still need to reset your password.',
+        },
+      },
+    },
+    verify: {
+      confirming: 'Confirming your email…',
+      successTitle: 'Email confirmed',
+      successBody: 'Thank you. Your account is fully active.',
+      alreadyBody: 'This address was already confirmed. You are all set.',
+      bonus: '{credits} were added to your balance.',
+      openStudio: 'Open the studio',
+      logIn: 'Log in',
+      resend: 'Send me a new link',
+      resendSent: 'A new link is on its way. Check your inbox.',
+      loginToRequest: 'Log in to request a new link.',
+      networkTitle: 'Could not confirm yet',
+      networkBody: 'We could not reach the server. Check your connection and try again.',
+      retry: 'Try again',
+      problem: {
+        invalid: {
+          title: 'This link does not work',
+          body: 'The link is incomplete or not valid. Use the link in the newest email we sent you.',
+        },
+        expired: {
+          title: 'This link has expired',
+          body: 'Confirmation links stop working after a while. Request a new one.',
+        },
+        used: {
+          title: 'This link was already used',
+          body: 'If you already confirmed your email you are all set. Otherwise request a new link.',
+        },
+      },
+    },
+    banner: {
+      label: 'Email confirmation',
+      message:
+        'Confirm {email} to start creating. Until then you can look around, but you cannot generate.',
+      messageBonus: 'Confirm {email} to unlock your {credits} free and start creating.',
+      resend: 'Resend link',
+      resendIn: 'Resend in {time}',
+      sent: 'Confirmation email sent. Check your inbox.',
+    },
+    dataRights: {
+      export: {
+        title: 'Download your data',
+        description:
+          'A JSON file with your profile, credit history, generations and file links. You can download it up to three times a day.',
+        button: 'Download my data',
+        preparing: 'Preparing…',
+        failed: 'We could not prepare the download.',
+      },
+      delete: {
+        title: 'Delete account',
+        description:
+          'Permanently removes your account, generations and files. Credit and payment records are kept for accounting, without your name or email. This cannot be undone.',
+        button: 'Delete my account…',
+        confirmTitle: 'Delete your account?',
+        confirmBody:
+          'Everything you created will be removed, your remaining balance ({credits}) will be lost and any subscription will be canceled. This cannot be undone.',
+        passwordLabel: 'Enter your password to confirm',
+        submit: 'Delete forever',
+        submitting: 'Deleting…',
+        cancel: 'Keep my account',
+        wrongPassword: 'That password is not correct.',
+        billingError:
+          'We could not cancel your subscription right now, so nothing was deleted. Please try again in a moment.',
+      },
+    },
   },
   ar: {
     login: {
@@ -81,6 +184,7 @@ export default defineMessages({
       submitting: 'جارٍ تسجيل الدخول…',
       noAccount: 'جديد في AIVORE؟',
       createAccount: 'أنشئ حسابًا',
+      forgot: 'نسيت كلمة المرور؟',
     },
     register: {
       title: 'أنشئ حسابك',
@@ -143,6 +247,106 @@ export default defineMessages({
     },
     layout: {
       backToHome: 'العودة إلى الرئيسية',
+    },
+    forgot: {
+      title: 'نسيت كلمة المرور؟',
+      subtitle: 'أدخل البريد الإلكتروني الذي سجّلت به وسنرسل لك رابطًا لاختيار كلمة مرور جديدة.',
+      submit: 'إرسال رابط إعادة التعيين',
+      submitting: 'جارٍ الإرسال…',
+      backToLogin: 'العودة إلى تسجيل الدخول',
+      sentTitle: 'تحقق من بريدك',
+      sentBody:
+        'إن كان هناك حساب مرتبط بالبريد {email}، فقد أُرسل إليه رابط لإعادة تعيين كلمة المرور، وهو صالح لمدة ساعة.',
+      sentHint: 'لم يصلك شيء؟ تحقق من مجلد الرسائل غير المرغوب فيها، أو حاول مجددًا بعد دقائق.',
+      useAnother: 'استخدام بريد آخر',
+    },
+    reset: {
+      title: 'اختر كلمة مرور جديدة',
+      subtitle: 'اختر كلمة مرور لا تستخدمها في أي مكان آخر. سيتم تسجيل خروجك من جميع الأجهزة.',
+      newPassword: 'كلمة المرور الجديدة',
+      submit: 'حفظ كلمة المرور',
+      submitting: 'جارٍ الحفظ…',
+      successTitle: 'تم تحديث كلمة المرور',
+      successBody: 'سُجّل خروجك من جميع الأجهزة. سجّل الدخول بكلمة مرورك الجديدة.',
+      logIn: 'تسجيل الدخول',
+      requestNew: 'اطلب رابطًا جديدًا',
+      problem: {
+        invalid: {
+          title: 'هذا الرابط لا يعمل',
+          body: 'الرابط غير مكتمل أو غير صالح. اطلب رابطًا جديدًا واستخدم الرابط الموجود في أحدث رسالة.',
+        },
+        expired: {
+          title: 'انتهت صلاحية هذا الرابط',
+          body: 'روابط إعادة التعيين صالحة لمدة ساعة واحدة. اطلب رابطًا جديدًا.',
+        },
+        used: {
+          title: 'استُخدم هذا الرابط من قبل',
+          body: 'لحمايتك، يعمل كل رابط مرة واحدة فقط. اطلب رابطًا جديدًا إن كنت لا تزال بحاجة إلى إعادة تعيين كلمة المرور.',
+        },
+      },
+    },
+    verify: {
+      confirming: 'جارٍ تأكيد بريدك الإلكتروني…',
+      successTitle: 'تم تأكيد البريد الإلكتروني',
+      successBody: 'شكرًا لك. حسابك مفعّل بالكامل.',
+      alreadyBody: 'تم تأكيد هذا البريد من قبل. كل شيء جاهز.',
+      bonus: 'أُضيف {credits} إلى رصيدك.',
+      openStudio: 'افتح الاستوديو',
+      logIn: 'تسجيل الدخول',
+      resend: 'أرسل لي رابطًا جديدًا',
+      resendSent: 'تم إرسال رابط جديد. تحقق من بريدك.',
+      loginToRequest: 'سجّل الدخول لطلب رابط جديد.',
+      networkTitle: 'تعذّر التأكيد حتى الآن',
+      networkBody: 'تعذّر الاتصال بالخادم. تحقق من اتصالك وحاول مرة أخرى.',
+      retry: 'حاول مرة أخرى',
+      problem: {
+        invalid: {
+          title: 'هذا الرابط لا يعمل',
+          body: 'الرابط غير مكتمل أو غير صالح. استخدم الرابط الموجود في أحدث رسالة أرسلناها إليك.',
+        },
+        expired: {
+          title: 'انتهت صلاحية هذا الرابط',
+          body: 'تنتهي صلاحية روابط التأكيد بعد مدة. اطلب رابطًا جديدًا.',
+        },
+        used: {
+          title: 'استُخدم هذا الرابط من قبل',
+          body: 'إن كنت قد أكّدت بريدك فكل شيء جاهز، وإلا فاطلب رابطًا جديدًا.',
+        },
+      },
+    },
+    banner: {
+      label: 'تأكيد البريد الإلكتروني',
+      message:
+        'أكّد بريدك {email} لتبدأ الإنشاء. يمكنك التصفح حتى ذلك الحين، لكن لا يمكنك التوليد.',
+      messageBonus: 'أكّد بريدك {email} لتحصل على {credits} مجانًا وتبدأ الإنشاء.',
+      resend: 'إعادة إرسال الرابط',
+      resendIn: 'إعادة الإرسال بعد {time}',
+      sent: 'تم إرسال رسالة التأكيد. تحقق من بريدك.',
+    },
+    dataRights: {
+      export: {
+        title: 'نزّل بياناتك',
+        description:
+          'ملف JSON يضم ملفك الشخصي وسجل الرصيد وعمليات التوليد وروابط ملفاتك. يمكنك تنزيله حتى ثلاث مرات يوميًا.',
+        button: 'تنزيل بياناتي',
+        preparing: 'جارٍ التجهيز…',
+        failed: 'تعذّر تجهيز التنزيل.',
+      },
+      delete: {
+        title: 'حذف الحساب',
+        description:
+          'يحذف حسابك وعمليات التوليد والملفات نهائيًا. تبقى سجلات الرصيد والمدفوعات للمحاسبة دون اسمك أو بريدك. لا يمكن التراجع عن ذلك.',
+        button: 'حذف حسابي…',
+        confirmTitle: 'هل تريد حذف حسابك؟',
+        confirmBody:
+          'سيُحذف كل ما أنشأته، وسيضيع رصيدك المتبقي ({credits})، وسيُلغى أي اشتراك. لا يمكن التراجع عن ذلك.',
+        passwordLabel: 'أدخل كلمة المرور للتأكيد',
+        submit: 'حذف نهائيًا',
+        submitting: 'جارٍ الحذف…',
+        cancel: 'الإبقاء على حسابي',
+        wrongPassword: 'كلمة المرور غير صحيحة.',
+        billingError: 'تعذّر إلغاء اشتراكك الآن، لذلك لم يُحذف شيء. حاول مرة أخرى بعد قليل.',
+      },
     },
   },
 });

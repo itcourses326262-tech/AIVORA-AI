@@ -1,5 +1,8 @@
 import 'server-only';
 import { z } from 'zod';
+import { billingConfigProblems } from '@/lib/billing/gateway-config';
+import { DEFAULT_VAT_RATE_PERCENT } from '@/lib/billing/plans';
+import { BILLING_GATEWAY_SETTINGS } from '@/lib/billing/types';
 import { LOG_LEVELS, getLogger } from './logger';
 
 /**
@@ -96,6 +99,68 @@ const envSchema = z
     TRUSTED_PROXY_HOPS: whole(1, 1, 10),
     /** Turns every rate limit off. For end-to-end and load tests only; see `warnAboutRiskySettings`. */
     RATE_LIMIT_DISABLED: flag(false),
+    /**
+     * Cost protection: the most credits that may be committed to generations on paid (non-Demo)
+     * providers per rolling 24 hours, across all users. 0 disables the guard. See
+     * `assertWithinUpstreamBudget`.
+     */
+    DAILY_UPSTREAM_BUDGET_CREDITS: whole(0, 0, 1_000_000_000),
+    /** Outgoing email. `SMTP_URL` (`smtp://user:pass@host:587`, `smtps://` for implicit TLS) or the parts. */
+    SMTP_URL: text(
+      z.url({ protocol: /^smtps?$/, error: 'must be an smtp:// or smtps:// URL' }).optional(),
+    ),
+    SMTP_HOST: text(z.string().optional()),
+    SMTP_PORT: text(
+      z.coerce
+        .number({ error: 'must be a port number' })
+        .int({ error: 'must be a port number' })
+        .min(1, { error: 'must be a port number' })
+        .max(65_535, { error: 'must be a port number' })
+        .optional(),
+    ),
+    SMTP_USER: text(z.string().optional()),
+    SMTP_PASS: text(z.string().optional()),
+    /** Implicit TLS from the first byte (port 465). Off means STARTTLS when the server offers it. */
+    SMTP_SECURE: flag(false),
+    /** The `From` header, `AIVORE <no-reply@example.com>`. Required once SMTP is configured. */
+    EMAIL_FROM: text(
+      z
+        .string()
+        .max(320)
+        .regex(/^[^\r\n]+$/, { error: 'must be a single line' })
+        .regex(/@/, { error: 'must contain an email address' })
+        .optional(),
+    ),
+    /** `auto`: required exactly when SMTP is configured. `required`/`off` force the policy. */
+    EMAIL_VERIFICATION: choice(['auto', 'required', 'off'], 'auto'),
+    /** Extra throwaway-mail domains (comma separated), on top of the built-in list. */
+    DISPOSABLE_EMAIL_DOMAINS: lowerList,
+    /** Accounts one client address may create per rolling 24 hours. 0 turns the cap off. */
+    SIGNUPS_PER_IP_PER_DAY: whole(5, 0, 10_000),
+    /**
+     * Billing. `auto` is Moyasar in production when MOYASAR_SECRET_KEY is set (off otherwise) and
+     * the in-process fake everywhere else. The fake can never be selected in production, see
+     * `lib/billing/gateway-config.ts`.
+     */
+    BILLING_GATEWAY: choice(BILLING_GATEWAY_SETTINGS, 'auto'),
+    MOYASAR_SECRET_KEY: text(z.string().optional()),
+    /** Validated, but the hosted checkout does not need it (card data never touches this app). */
+    MOYASAR_PUBLISHABLE_KEY: text(z.string().optional()),
+    /** Shared secret configured on the Moyasar webhook (its `secret_token`). Webhooks fail closed without it. */
+    MOYASAR_WEBHOOK_SECRET: text(z.string().optional()),
+    MOYASAR_API_BASE: text(
+      z
+        .url({
+          protocol: /^https?$/,
+          error: 'must be an https URL such as https://api.moyasar.com/v1',
+        })
+        .default('https://api.moyasar.com/v1')
+        .transform((value) => value.replace(/\/+$/, '')),
+    ),
+    MOYASAR_ALLOW_LIVE_IN_DEV: flag(false),
+    MOYASAR_ALLOW_TEST_IN_PRODUCTION: flag(false),
+    /** Saudi VAT included in every price (the split is stored on each order). */
+    VAT_RATE_PERCENT: whole(DEFAULT_VAT_RATE_PERCENT, 0, 30),
   })
   .transform((env) => ({
     ...env,
@@ -163,6 +228,57 @@ function crossFieldProblems(source: Readonly<Record<string, string | undefined>>
   if (get('MODERATION_PROVIDER') === 'openai') {
     need('OPENAI_API_KEY', 'when MODERATION_PROVIDER=openai');
   }
+
+  const smtpUrl = get('SMTP_URL');
+  const smtpHost = get('SMTP_HOST');
+  if (smtpUrl !== undefined && smtpHost !== undefined) {
+    problems.push(
+      'SMTP_URL: set either SMTP_URL or SMTP_HOST (with SMTP_PORT, SMTP_USER, SMTP_PASS), not both',
+    );
+  }
+  if (smtpUrl !== undefined || smtpHost !== undefined) {
+    need('EMAIL_FROM', 'when SMTP is configured');
+  }
+  if (get('SMTP_USER') !== undefined) need('SMTP_PASS', 'when SMTP_USER is set');
+  if (production && get('EMAIL_VERIFICATION') === 'required' && !smtpUrl && !smtpHost) {
+    problems.push(
+      'EMAIL_VERIFICATION: required needs SMTP_URL (or SMTP_HOST) in production, otherwise nobody could ever verify their address',
+    );
+  }
+  problems.push(...billingProblems(get));
+  return problems;
+}
+
+/** Billing rules (gateway choice, key safety, API host); see `lib/billing/gateway-config.ts`. */
+function billingProblems(get: (name: string) => string | undefined): string[] {
+  const nodeEnv = get('NODE_ENV');
+  const setting = get('BILLING_GATEWAY');
+  const flagOn = (name: string) => /^(true|1|yes|on)$/i.test(get(name) ?? '');
+  const problems = billingConfigProblems({
+    nodeEnv: nodeEnv === 'production' || nodeEnv === 'test' ? nodeEnv : 'development',
+    gateway: BILLING_GATEWAY_SETTINGS.find((candidate) => candidate === setting) ?? 'auto',
+    secretKey: get('MOYASAR_SECRET_KEY'),
+    publishableKey: get('MOYASAR_PUBLISHABLE_KEY'),
+    webhookSecret: get('MOYASAR_WEBHOOK_SECRET'),
+    allowLiveInDev: flagOn('MOYASAR_ALLOW_LIVE_IN_DEV'),
+    allowTestInProduction: flagOn('MOYASAR_ALLOW_TEST_IN_PRODUCTION'),
+  });
+  // The API host receives our secret key in an Authorization header, so it must be Moyasar's.
+  // Tests may point it at a local stub.
+  const base = get('MOYASAR_API_BASE');
+  if (base !== undefined && nodeEnv !== 'test') {
+    try {
+      const url = new URL(base);
+      const host = url.hostname.toLowerCase();
+      if (url.protocol !== 'https:' || !(host === 'moyasar.com' || host.endsWith('.moyasar.com'))) {
+        problems.push(
+          'MOYASAR_API_BASE: must be an https URL on moyasar.com (it receives our secret key)',
+        );
+      }
+    } catch {
+      // Not a URL: the field rule above already reports it.
+    }
+  }
   return problems;
 }
 
@@ -217,7 +333,7 @@ function warnAboutRiskySettings(env: Env): void {
   }
   if (env.NODE_ENV === 'production' && !env.TRUST_PROXY) {
     log.warn(
-      'TRUST_PROXY=false: the client address is not available to the app, so every visitor shares one rate-limit bucket. Run behind a reverse proxy you control and set TRUST_PROXY=true.',
+      'TRUST_PROXY=false: the client address is not available to the app, so anonymous visitors share one rate-limit budget per route (signed-in users are limited per account). Run behind a reverse proxy you control and set TRUST_PROXY=true.',
     );
   }
 }

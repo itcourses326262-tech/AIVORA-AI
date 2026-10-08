@@ -4,12 +4,17 @@ import { isAppError } from '@/lib/errors';
 import {
   UsageError,
   createUser,
+  deleteUser,
   disableUser,
   enableUser,
+  forceVerify,
   grantCreditsTo,
   listUsers,
+  purgeDeleted,
+  resendVerification,
   resetPassword,
   setRole,
+  usersStats,
   type CommandContext,
 } from './commands';
 import { processIo, type CliIo } from './io';
@@ -32,6 +37,19 @@ Commands:
   list-users      [--limit <n>] [--search <text>] [--json]
   reset-password  --email <email> [--password-stdin | --password <value>]
                   signs the user out everywhere
+  users-stats     [--json]                       accounts, confirmed emails, new sign-ups, credits
+                  (also: users stats)
+  resend-verification <email>                    mails a new confirmation link (no resend gap)
+  force-verify    <email>                        confirms the address without the link; grants
+                                                 the sign-up bonus if the account has none
+  delete-user     <email> | --id <usr_...> [--yes] [--force]
+                  deletes the account like the user's own request (without the password);
+                  without --yes it only shows what would go. --force: even the last admin
+  purge-deleted                                  finishes the clean-up of deleted accounts whose
+                                                 files could not all be removed at the time
+
+For resend-verification, force-verify and delete-user the email may be given as --email <email>
+or as the first argument.
 
 Passwords are read, in this order, from --password-stdin (first line of stdin), --password,
 the AIVORE_ADMIN_PASSWORD environment variable, or a hidden prompt. Avoid --password: it
@@ -42,6 +60,8 @@ Exit codes: 0 done, 1 the command failed (unknown user, rejected input, database
 
 interface CommandSpec {
   options: NonNullable<ParseArgsConfig['options']>;
+  /** The first argument without a flag is this option (`force-verify me@example.com`). */
+  positional?: 'email';
   run: (context: CommandContext) => void | Promise<void>;
 }
 
@@ -82,6 +102,20 @@ const COMMANDS: Record<string, CommandSpec> = {
     run: listUsers,
   },
   'reset-password': { options: { ...email, ...password }, run: resetPassword },
+  'users-stats': { options: { json: { type: 'boolean' } }, run: usersStats },
+  'resend-verification': { options: email, positional: 'email', run: resendVerification },
+  'force-verify': { options: email, positional: 'email', run: forceVerify },
+  'delete-user': {
+    options: {
+      ...email,
+      id: { type: 'string' },
+      yes: { type: 'boolean' },
+      force: { type: 'boolean' },
+    },
+    positional: 'email',
+    run: deleteUser,
+  },
+  'purge-deleted': { options: {}, run: purgeDeleted },
 };
 
 /**
@@ -89,7 +123,10 @@ const COMMANDS: Record<string, CommandSpec> = {
  * or reads globals, so tests drive it with a fake {@link CliIo}.
  */
 export async function runAdminCli(args: string[], io: CliIo = processIo): Promise<number> {
-  const [name, ...rest] = args;
+  // `users stats` reads better than `users-stats`; both work.
+  const [first, ...others] = args;
+  const [name, ...rest] =
+    first === 'users' && others[0] === 'stats' ? ['users-stats', ...others.slice(1)] : args;
   if (name === undefined || name === '--help' || name === '-h' || name === 'help') {
     io.out(USAGE);
     return name === undefined ? EXIT_USAGE : EXIT_OK;
@@ -101,10 +138,24 @@ export async function runAdminCli(args: string[], io: CliIo = processIo): Promis
   }
 
   try {
-    const parsed = parseArgs({ args: rest, options: spec.options, allowPositionals: false });
+    const parsed = parseArgs({
+      args: rest,
+      options: spec.options,
+      allowPositionals: spec.positional !== undefined,
+    });
     const values: CommandContext['values'] = {};
     for (const [key, value] of Object.entries(parsed.values)) {
       if (typeof value === 'string' || typeof value === 'boolean') values[key] = value;
+    }
+    if (spec.positional !== undefined) {
+      const [positional, ...extra] = parsed.positionals;
+      if (extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}"`);
+      if (positional !== undefined) {
+        if (values[spec.positional] !== undefined) {
+          throw new UsageError(`Give --${spec.positional} or the argument, not both`);
+        }
+        values[spec.positional] = positional;
+      }
     }
     await spec.run({ io, values });
     return EXIT_OK;

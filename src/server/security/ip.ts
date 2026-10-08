@@ -1,6 +1,7 @@
 import 'server-only';
 import { isIP } from 'node:net';
-import { getEnv } from '@/server/env';
+import { getEnv, type Env } from '@/server/env';
+import { getLogger } from '@/server/logger';
 import { ipv4FromMapped, parseIpv6 } from './ipaddr';
 
 export const UNKNOWN_IP = 'unknown';
@@ -60,6 +61,32 @@ function forwardedIp(header: string, hops: number): string | null {
   return entry === undefined ? null : normalizeIp(entry);
 }
 
+const WARNED_KEY = Symbol.for('aivore.proxy-headers-warned');
+type GlobalWithWarning = typeof globalThis & { [WARNED_KEY]?: boolean };
+
+/**
+ * With `TRUST_PROXY=false` the forwarding headers are ignored on purpose. When a production
+ * server still receives them, a reverse proxy is almost certainly in front of it and every client
+ * ends up as `unknown`: say so once per process, instead of leaving the operator to discover it as
+ * a rate-limit complaint. (Next.js itself fills `X-Forwarded-For` with the socket address, so the
+ * hint also appears on a server that is reached directly; there it is harmless to ignore.)
+ */
+function warnIfForwardingHeadersAreIgnored(req: Request, env: Env): void {
+  if (env.NODE_ENV !== 'production') return;
+  const scope = globalThis as GlobalWithWarning;
+  if (scope[WARNED_KEY]) return;
+  if (!req.headers.has('x-forwarded-for') && !req.headers.has('x-real-ip')) return;
+  scope[WARNED_KEY] = true;
+  getLogger().warn(
+    'X-Forwarded-For/X-Real-IP are present but ignored because TRUST_PROXY=false: all clients share one rate-limit bucket (anonymous visitors one larger budget per route, signed-in users are limited per account). Set TRUST_PROXY=true behind your proxy (and TRUSTED_PROXY_HOPS when proxies are chained); ignore this when the app is reached directly.',
+  );
+}
+
+/** Lets the "warn once" tests start from a clean slate. */
+export function resetProxyHeaderWarningForTests(): void {
+  (globalThis as GlobalWithWarning)[WARNED_KEY] = undefined;
+}
+
 /**
  * Client address for rate limits and logs.
  *
@@ -82,7 +109,10 @@ function forwardedIp(header: string, hops: number): string | null {
  */
 export function getClientIp(req: Request): string {
   const env = getEnv();
-  if (!env.TRUST_PROXY) return connectionIp(req) ?? UNKNOWN_IP;
+  if (!env.TRUST_PROXY) {
+    warnIfForwardingHeadersAreIgnored(req, env);
+    return connectionIp(req) ?? UNKNOWN_IP;
+  }
 
   const forwarded = req.headers.get('x-forwarded-for');
   const ip = forwarded ? forwardedIp(forwarded, env.TRUSTED_PROXY_HOPS) : null;

@@ -11,11 +11,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { sql } from 'drizzle-orm';
+import { getTableName, is, sql } from 'drizzle-orm';
+import { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { migrate as drizzleMigrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDb } from '@/server/db';
 import { runMigrations } from '@/server/db/migrate';
+import * as schema from '@/server/db/schema';
 import { users } from '@/server/db/schema';
 import { createTestDb, seedUser, type TestDb } from '../../helpers/db';
 
@@ -35,6 +37,18 @@ afterEach(() => {
   while (scratch.length) rmSync(scratch.pop() as string, { recursive: true, force: true });
 });
 
+const schemaTableNames = (): string[] =>
+  Object.values(schema)
+    .filter((value): value is SQLiteTable => is(value, SQLiteTable))
+    .map((table) => getTableName(table));
+
+const journalLength = (): number =>
+  (
+    JSON.parse(readFileSync(join(ROOT, 'drizzle/meta/_journal.json'), 'utf8')) as {
+      entries: unknown[];
+    }
+  ).entries.length;
+
 const tableNames = (db: TestDb['db']) =>
   (
     db.$client
@@ -50,15 +64,8 @@ describe('runMigrations', () => {
     const result = runMigrations(db);
     expect(result.applied).toBe(result.total);
     expect(result.total).toBeGreaterThanOrEqual(1);
-    expect(tableNames(db)).toEqual([
-      '__drizzle_migrations',
-      'api_keys',
-      'assets',
-      'credit_ledger',
-      'generations',
-      'sessions',
-      'users',
-    ]);
+    // Derived from schema.ts, so a module that adds a table does not have to edit this test.
+    expect(tableNames(db)).toEqual(['__drizzle_migrations', ...schemaTableNames()].sort());
     db.$client.close();
   });
 
@@ -103,7 +110,7 @@ describe('runMigrations', () => {
     runMigrations(mine);
     expect(() => drizzleMigrate(mine, { migrationsFolder: join(ROOT, 'drizzle') })).not.toThrow();
     expect(mine.$client.prepare('select count(*) as n from __drizzle_migrations').get()).toEqual({
-      n: 1,
+      n: journalLength(),
     });
     mine.$client.close();
 

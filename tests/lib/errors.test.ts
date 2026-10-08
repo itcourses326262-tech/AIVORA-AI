@@ -29,10 +29,14 @@ describe('error codes', () => {
       rate_limited: 429,
       too_many_active: 429,
       signup_disabled: 403,
+      email_not_verified: 403,
+      email_not_allowed: 422,
+      signup_limit: 429,
       provider_error: 502,
+      service_busy: 503,
       internal: 500,
     });
-    expect(ERROR_CODES).toHaveLength(15);
+    expect(ERROR_CODES).toHaveLength(19);
   });
 
   it('recognizes codes without being fooled by inherited object keys', () => {

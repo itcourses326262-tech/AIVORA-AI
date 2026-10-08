@@ -14,8 +14,11 @@ export const dynamic = 'force-dynamic';
 /**
  * `POST /api/v1/auth/register` `{ email, password, name, locale? }` -> 201 `{ data: UserDTO }`
  * plus the `aivore_session` and `aivore_locale` cookies. The signup bonus is granted in the same
- * transaction as the account. `csrf: true` because there is no session yet to trigger the
- * same-origin check: browsers must send a matching `Origin`.
+ * transaction as the account, unless emails must be confirmed (EMAIL_VERIFICATION): then a
+ * confirmation link is mailed and the bonus follows the confirmation. Also refused here:
+ * throwaway-mail domains (`email_not_allowed`) and a client address past its daily cap
+ * (`signup_limit`). `csrf: true` because there is no session yet to trigger the same-origin
+ * check: browsers must send a matching `Origin`.
  */
 export const POST = addressRoute(
   { auth: 'none', csrf: true, maxBodyBytes: AUTH_BODY_LIMIT },

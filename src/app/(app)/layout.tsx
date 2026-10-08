@@ -4,7 +4,9 @@ import type { ReactNode } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { RedirectToLogin } from '@/components/layout/redirect-to-login';
 import { SIDEBAR_COOKIE } from '@/components/layout/sidebar-cookie';
+import { VerifyEmailBanner } from '@/components/layout/verify-email-banner';
 import { getAppUser } from '@/lib/auth-guard';
+import { getVerificationState } from '@/server/auth/verification';
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -24,11 +26,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       </main>
     );
   }
+  // While the server requires a confirmed email, an unconfirmed account sees why it cannot generate.
+  const verification = getVerificationState(user.id);
   return (
     <AppShell
       initialUser={user}
       defaultCollapsed={cookieStore.get(SIDEBAR_COOKIE)?.value === 'collapsed'}
     >
+      {verification?.required && !verification.verified ? (
+        <VerifyEmailBanner
+          email={verification.email}
+          bonusCredits={verification.bonusCredits}
+          resendAfterSec={verification.resendAfterSec}
+        />
+      ) : null}
       {children}
     </AppShell>
   );

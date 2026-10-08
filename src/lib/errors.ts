@@ -21,7 +21,11 @@ export const ERROR_STATUS = {
   rate_limited: 429,
   too_many_active: 429,
   signup_disabled: 403,
+  email_not_verified: 403,
+  email_not_allowed: 422,
+  signup_limit: 429,
   provider_error: 502,
+  service_busy: 503,
   internal: 500,
 } as const;
 
@@ -30,6 +34,15 @@ export type ErrorCode = keyof typeof ERROR_STATUS;
 /** Codes produced by the browser-side API client itself, never by the server. */
 export const CLIENT_ERROR_CODES = ['network_error', 'invalid_response'] as const;
 export type ClientErrorCode = (typeof CLIENT_ERROR_CODES)[number];
+
+/**
+ * Failure codes only a FAILED generation carries (`GenerationDTO.error.code`): the job runner writes
+ * them, no request ever fails with them. `interrupted`: a paid provider's submit was in flight when
+ * the worker died, so the job was stopped (and refunded) rather than submitted a second time. Their
+ * text lives in the `errors` namespace next to the request errors.
+ */
+export const GENERATION_FAILURE_CODES = ['interrupted'] as const;
+export type GenerationFailureCode = (typeof GENERATION_FAILURE_CODES)[number];
 
 /** Every code the UI can be asked to display. */
 export type AnyErrorCode = ErrorCode | ClientErrorCode;

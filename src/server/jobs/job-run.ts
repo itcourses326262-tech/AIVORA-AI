@@ -3,9 +3,11 @@ import { getModel } from '@/lib/catalog';
 import { clamp } from '@/lib/utils';
 import type { GenerationRow } from '@/server/db/schema';
 import {
+  clearSubmitStarted,
   completeGeneration,
   extendLease,
   failGeneration,
+  markSubmitStarted,
   recordSubmitted,
   releaseJob,
   updateProgress,
@@ -158,6 +160,7 @@ export class JobRun {
     const { rt } = this;
     for (let attempt = 1; ; attempt += 1) {
       this.checkAlive();
+      this.markSubmitStarted();
       try {
         const result = await provider.submit(input, this.context());
         this.throwIfInterrupted();
@@ -168,8 +171,32 @@ export class JobRun {
           throw error;
         }
         this.log.warn('Provider submit failed; retrying', { attempt, code: error.code });
+        // A retryable error means the provider did not accept the request (that is what lets us
+        // send it again), so there is nothing in flight while we wait.
+        this.unmarkSubmit();
         await rt.sleep(retryDelayMs(attempt, rt.random, error.retryAfterMs), this.guard.signal);
       }
+    }
+  }
+
+  /**
+   * Written BEFORE the request leaves the process. Fetch has no idempotency key on most providers,
+   * so a crash between "the provider accepted it" and "we stored its id" would otherwise make the
+   * next worker submit, and pay for, the same request again; with the marker it knows to stop.
+   */
+  private markSubmitStarted(): void {
+    const { rt, job } = this;
+    if (markSubmitStarted(rt.db, job.id, rt.workerId, rt.now())) return;
+    this.ownershipLost();
+    this.throwIfInterrupted();
+  }
+
+  private unmarkSubmit(): void {
+    const { rt, job } = this;
+    try {
+      clearSubmitStarted(rt.db, job.id, rt.workerId);
+    } catch (error) {
+      this.log.warn('Could not clear the submit marker', { err: error });
     }
   }
 
@@ -350,10 +377,17 @@ export class JobRun {
     if (this.reason) throw new Interrupted(this.reason);
   }
 
-  /** Reads why the row stopped being ours: canceled or deleted by the user, or taken over. */
+  /**
+   * Reads why the row stopped being ours: canceled, deleted or failed by someone else (a stalled
+   * run that another runner gave up on is failed and refunded: the provider job this run holds
+   * must then be canceled upstream, or nobody ever would), or simply taken over.
+   */
   private ownershipLost(): void {
-    const row = findGenerationRow(this.rt.db, this.job.id);
-    this.interrupt(!row || row.status === 'canceled' ? 'canceled' : 'lost');
+    this.interrupt(this.reasonForRow(findGenerationRow(this.rt.db, this.job.id)));
+  }
+
+  private reasonForRow(row: GenerationRow | undefined): Interruption {
+    return !row || row.status === 'canceled' || row.status === 'failed' ? 'canceled' : 'lost';
   }
 
   /** Throws unless the job is still ours, still `processing` and inside its deadline. */
@@ -361,9 +395,9 @@ export class JobRun {
     const { rt, job } = this;
     this.throwIfInterrupted();
     const row = findGenerationRow(rt.db, job.id);
-    if (!row || row.status === 'canceled') this.interrupt('canceled');
-    else if (row.status !== 'processing' || row.workerId !== rt.workerId) this.interrupt('lost');
-    else if (rt.now() >= this.deadline) this.interrupt('timeout');
+    if (!row || row.status !== 'processing' || row.workerId !== rt.workerId) {
+      this.interrupt(this.reasonForRow(row));
+    } else if (rt.now() >= this.deadline) this.interrupt('timeout');
     this.throwIfInterrupted();
   }
 

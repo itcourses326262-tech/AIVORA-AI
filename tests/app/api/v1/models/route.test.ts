@@ -196,16 +196,30 @@ describe('GET /api/v1/models', () => {
     expect(cacheControl).not.toMatch(/public|no-store/);
   });
 
+  // A known client address needs a trusted proxy; without one every anonymous caller shares the
+  // larger anonymous-unknown budget (tests/server/http/route-rate-limit.test.ts).
+  const asKnownClient = () => {
+    vi.stubEnv('TRUST_PROXY', 'true');
+    resetEnvForTests();
+    return { 'x-forwarded-for': '203.0.113.9' };
+  };
+  const listAs = (headers: Record<string, string>) =>
+    invokeRoute<{ data: ModelDTO[] }>(GET, { url: '/api/v1/models', headers });
+
   it('has its own named rate limit instead of the general bucket', async () => {
-    const first = await list();
+    const first = await listAs(asKnownClient());
     expect(first.headers.get('x-ratelimit-limit')).toBe('240');
     expect(first.headers.get('x-ratelimit-remaining')).toBe('239');
     expect(first.headers.get('x-request-id')).toBeTruthy();
   });
 
   it('throttles a client that exceeds the budget, with Retry-After', async () => {
-    for (let i = 0; i < 240; i += 1) expect((await list()).status).toBe(200);
-    const blocked = await invokeRoute<{ error: { code: string } }>(GET, { url: '/api/v1/models' });
+    const client = asKnownClient();
+    for (let i = 0; i < 240; i += 1) expect((await listAs(client)).status).toBe(200);
+    const blocked = await invokeRoute<{ error: { code: string } }>(GET, {
+      url: '/api/v1/models',
+      headers: client,
+    });
     expect(blocked.status).toBe(429);
     expect(blocked.json.error.code).toBe('rate_limited');
     expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);

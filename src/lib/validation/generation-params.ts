@@ -1,5 +1,10 @@
 import { isAspectRatio } from '@/lib/catalog/aspect';
-import type { GenerationParams, ModelSpec, Tool } from '@/lib/catalog/types';
+import {
+  ASPECT_RATIOS,
+  type GenerationParams,
+  type ModelSpec,
+  type Tool,
+} from '@/lib/catalog/types';
 import { isRecord } from '@/lib/utils';
 
 export type GenerationValidationCode =
@@ -66,7 +71,18 @@ export function normalizeParams(
   const { aspectRatio, count, durationSec, resolution, seed, strength } = raw;
 
   if (aspectRatio !== undefined) {
-    if (isAspectRatio(aspectRatio) && limits.aspectRatios.includes(aspectRatio)) {
+    if (limits.followsInputAspect === true && toolNeedsImage !== false) {
+      // The result keeps the proportions of the input image, so any known ratio is accepted (a
+      // client may still hold one picked for another model) and ignored: `params` keeps the
+      // model default, so two requests that differ only in it are the same request.
+      if (!isAspectRatio(aspectRatio)) {
+        report(
+          'params.aspectRatio',
+          'not_allowed',
+          `aspectRatio must be one of ${ASPECT_RATIOS.join(', ')}`,
+        );
+      }
+    } else if (isAspectRatio(aspectRatio) && limits.aspectRatios.includes(aspectRatio)) {
       params.aspectRatio = aspectRatio;
     } else {
       report(

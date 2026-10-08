@@ -49,7 +49,8 @@ export interface ApiClient {
   page<T>(path: string, options?: RequestOptions): Promise<Page<T>>;
   post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T>;
   patch<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T>;
-  delete<T = void>(path: string, options?: RequestOptions): Promise<T>;
+  /** A JSON `body` is optional; `DELETE /account` needs one (the password to confirm). */
+  delete<T = void>(path: string, options?: RequestOptions & { body?: unknown }): Promise<T>;
   /** Multipart upload of one file. */
   upload<T>(path: string, file: Blob, options?: UploadOptions): Promise<T>;
 }
@@ -194,8 +195,8 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
       return unwrap(await send('PATCH', path, options, json(body))) as T;
     },
 
-    async delete<T = void>(path: string, options?: RequestOptions) {
-      return unwrap(await send('DELETE', path, options)) as T;
+    async delete<T = void>(path: string, options?: RequestOptions & { body?: unknown }) {
+      return unwrap(await send('DELETE', path, options, json(options?.body))) as T;
     },
 
     async upload<T>(path: string, file: Blob, options?: UploadOptions) {

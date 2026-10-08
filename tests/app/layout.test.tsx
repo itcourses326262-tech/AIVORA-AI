@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   cookies: new Map<string, string>(),
@@ -18,6 +18,8 @@ vi.mock('next/headers', () => ({
 }));
 
 import RootLayout, { generateMetadata, viewport } from '@/app/layout';
+import { THEME_COLORS } from '@/lib/theme';
+import { resetEnvForTests } from '@/server/env';
 
 async function renderLayout(child = <main id="main-content">content</main>) {
   return renderToStaticMarkup(await RootLayout({ children: child }));
@@ -28,10 +30,19 @@ beforeEach(() => {
   mocks.acceptLanguage = null;
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetEnvForTests();
+});
+
 describe('RootLayout', () => {
   it('is Arabic, right-to-left and dark by default', async () => {
     const html = await renderLayout();
-    expect(html).toMatch(/^<html lang="ar" dir="rtl" data-theme="dark">/);
+    expect(html).toMatch(/^<html lang="ar" dir="rtl" data-theme="dark"[ >]/);
+  });
+
+  it('declares smooth scrolling as intended, so Next stops warning about globals.css', async () => {
+    expect(await renderLayout()).toMatch(/^<html [^>]*data-scroll-behavior="smooth"/);
   });
 
   it('follows Accept-Language when there is no locale cookie', async () => {
@@ -90,7 +101,25 @@ describe('metadata', () => {
     );
   });
 
-  it('declares a theme color per color scheme', () => {
-    expect(viewport.themeColor).toHaveLength(2);
+  it('declares a theme color per color scheme, equal to that scheme background token', () => {
+    expect(viewport.themeColor).toEqual([
+      { media: '(prefers-color-scheme: dark)', color: THEME_COLORS.dark },
+      { media: '(prefers-color-scheme: light)', color: THEME_COLORS.light },
+    ]);
+    // The light chrome colour used to be pure white, a shade off every light surface.
+    expect(THEME_COLORS.light).toBe('#f6f6fb');
+  });
+
+  it('sets metadataBase from APP_URL, so relative metadata URLs become absolute', async () => {
+    vi.stubEnv('APP_URL', 'https://aivore.example.com/');
+    resetEnvForTests();
+    const { metadataBase } = await generateMetadata();
+    expect(String(metadataBase)).toBe('https://aivore.example.com/');
+  });
+
+  it('falls back to the default APP_URL origin in development', async () => {
+    vi.stubEnv('APP_URL', '');
+    resetEnvForTests();
+    expect(String((await generateMetadata()).metadataBase)).toBe('http://localhost:3000/');
   });
 });

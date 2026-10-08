@@ -3,6 +3,14 @@
  * Everything here is JSON-serializable; timestamps are integer milliseconds since the epoch.
  */
 import type { GenerationParams, Kind, ModelSpec, ProviderId, Tool } from '@/lib/catalog/types';
+import type {
+  BillingCurrency,
+  BillingMode,
+  OrderKind,
+  OrderStatus,
+  PurchaseType,
+  SubscriptionStatus,
+} from '@/lib/billing/types';
 import type { AnyErrorCode } from '@/lib/errors';
 import type { Locale } from '@/lib/i18n/locales';
 
@@ -228,4 +236,92 @@ export interface HealthDTO {
   db: boolean;
   worker: 'inline' | 'external' | 'off';
   version: string;
+}
+
+// ---- Billing (`/api/v1/billing/*`, docs/ARCHITECTURE.md "Billing (as built)") ------------------
+// Amounts are integer halalas (1 SAR = 100 halalas) and include VAT.
+
+export interface LocalizedTextDTO {
+  en: string;
+  ar: string;
+}
+
+export interface BillingPackDTO {
+  id: string;
+  credits: number;
+  priceHalalas: number;
+  /** VAT contained in the price. */
+  vatHalalas: number;
+  name: LocalizedTextDTO;
+  description: LocalizedTextDTO;
+  popular: boolean;
+}
+
+export interface BillingPlanDTO {
+  id: string;
+  /** Credits granted for every paid month. */
+  monthlyCredits: number;
+  /** Price of one month. */
+  priceHalalas: number;
+  vatHalalas: number;
+  name: LocalizedTextDTO;
+  description: LocalizedTextDTO;
+  popular: boolean;
+}
+
+/** `GET /billing/plans` (public). */
+export interface BillingCatalogDTO {
+  currency: BillingCurrency;
+  vatPercent: number;
+  /** `off`: nothing can be bought right now; `mock`: development fake checkout. */
+  gateway: BillingMode;
+  /** False when `gateway` is `off`. */
+  canPurchase: boolean;
+  packs: BillingPackDTO[];
+  plans: BillingPlanDTO[];
+  /** How a subscription renews: a payment link is issued `leadDays` before the period ends and can be paid for `graceDays` after. */
+  renewal: { leadDays: number; graceDays: number };
+}
+
+/** Body of `POST /billing/checkout` (plus the `Idempotency-Key` header). The server decides the price. */
+export interface CheckoutRequest {
+  type: PurchaseType;
+  id: string;
+}
+
+export interface OrderDTO {
+  id: string;
+  kind: OrderKind;
+  /** Pack id or plan id. */
+  itemId: string;
+  amountHalalas: number;
+  vatHalalas: number;
+  currency: BillingCurrency;
+  credits: number;
+  status: OrderStatus;
+  createdAt: number;
+  paidAt?: number;
+  /** The checkout cannot be paid after this. */
+  expiresAt?: number;
+  /** Present only while `status` is `pending`: send the buyer here to pay. */
+  checkoutUrl?: string;
+  refundedHalalas: number;
+  subscriptionId?: string;
+  /** The subscription month this order paid for. */
+  periodStart?: number;
+  periodEnd?: number;
+}
+
+export interface SubscriptionDTO {
+  id: string;
+  planId: string;
+  status: SubscriptionStatus;
+  currentPeriodStart?: number;
+  currentPeriodEnd?: number;
+  /** The subscription ends when the paid period does. */
+  cancelAtPeriodEnd: boolean;
+  canceledAt?: number;
+  createdAt: number;
+  /** The unpaid first-month or renewal order, with its `checkoutUrl`, while there is one. */
+  pendingOrder?: OrderDTO;
 }

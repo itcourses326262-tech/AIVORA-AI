@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ERROR_CODES, CLIENT_ERROR_CODES } from '@/lib/errors';
+import { ERROR_CODES, CLIENT_ERROR_CODES, GENERATION_FAILURE_CODES } from '@/lib/errors';
 import { createTranslator, type MessageKey } from '@/lib/i18n';
 import { defineMessages, type MessageTree } from '@/lib/i18n/define';
 import account from '@/lib/i18n/messages/account';
@@ -139,7 +139,12 @@ describe('errors namespace', () => {
   it('has a message for every application and client error code, in both languages', () => {
     const en = createTranslator('en');
     const ar = createTranslator('ar');
-    for (const code of [...ERROR_CODES, ...CLIENT_ERROR_CODES, 'unknown'] as const) {
+    for (const code of [
+      ...ERROR_CODES,
+      ...CLIENT_ERROR_CODES,
+      ...GENERATION_FAILURE_CODES,
+      'unknown',
+    ] as const) {
       const key = `errors.${code}` as MessageKey;
       expect(en.t(key), key).not.toBe(key);
       expect(ar.t(key), key).not.toBe(key);
@@ -148,7 +153,12 @@ describe('errors namespace', () => {
   });
 
   it('has no messages for codes that do not exist', () => {
-    const known = new Set<string>([...ERROR_CODES, ...CLIENT_ERROR_CODES, 'unknown']);
+    const known = new Set<string>([
+      ...ERROR_CODES,
+      ...CLIENT_ERROR_CODES,
+      ...GENERATION_FAILURE_CODES,
+      'unknown',
+    ]);
     expect(leafPaths(errors.en).filter((path) => !known.has(path))).toEqual([]);
   });
 });
