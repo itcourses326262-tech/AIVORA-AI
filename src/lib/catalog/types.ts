@@ -38,6 +38,11 @@ export interface ModelLimits {
   supportsNegativePrompt: boolean;
   supportsSeed: boolean;
   supportsStrength: boolean;
+  /**
+   * The result keeps the proportions of the input image, so the aspect-ratio choice has no effect
+   * (some image-to-image / image-to-video models). The UI hides the aspect-ratio control for these.
+   */
+  followsInputAspect?: boolean;
 }
 
 /** Prices are whole credits. */
