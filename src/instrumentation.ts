@@ -13,6 +13,13 @@ export async function register(): Promise<void> {
     const log = getLogger();
     try {
       const { getEnv } = await import('@/server/env');
+      try {
+        // Billing's own background work (renewal links, payment reconciliation); independent of the runner.
+        const { bootBillingScheduler } = await import('@/server/billing/boot');
+        bootBillingScheduler(log);
+      } catch (error) {
+        log.error('Billing scheduler failed to start; renewals wait until it does', { err: error });
+      }
       if (getEnv().WORKER_MODE !== 'inline') return;
       const { startWorkerWithRetry } = await import('@/server/jobs/start');
       const runner = startWorkerWithRetry(log);

@@ -15,13 +15,7 @@ import { emailTokens, sessions, users } from '@/server/db/schema';
 import { getOutbox } from '@/server/email';
 import { freshDb } from '../../helpers/db';
 import { createSession, createUser } from '../../helpers/factories';
-import {
-  GOOD_PASSWORD,
-  linkIn,
-  mailTo,
-  passwordFixture,
-  trustTestState,
-} from './trust-support';
+import { GOOD_PASSWORD, linkIn, mailTo, passwordFixture, trustTestState } from './trust-support';
 
 const harness = freshDb();
 const fixture = passwordFixture();

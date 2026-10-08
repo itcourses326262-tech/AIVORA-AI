@@ -102,7 +102,11 @@ describe('aspect', () => {
 describe('estimateCardHeight', () => {
   it('grows with the number of results and follows their shape', () => {
     const one = estimateCardHeight(
-      generation({ status: 'succeeded', params: { aspectRatio: '1:1', count: 1 }, outputs: [asset()] }),
+      generation({
+        status: 'succeeded',
+        params: { aspectRatio: '1:1', count: 1 },
+        outputs: [asset()],
+      }),
       300,
     );
     const four = estimateCardHeight(
@@ -116,7 +120,11 @@ describe('estimateCardHeight', () => {
     expect(one).toBeGreaterThan(300);
     expect(four).toBeCloseTo(one, 0);
     const wide = estimateCardHeight(
-      generation({ status: 'succeeded', params: { aspectRatio: '16:9', count: 1 }, outputs: [asset()] }),
+      generation({
+        status: 'succeeded',
+        params: { aspectRatio: '16:9', count: 1 },
+        outputs: [asset()],
+      }),
       300,
     );
     expect(wide).toBeLessThan(one);

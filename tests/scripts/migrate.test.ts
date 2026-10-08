@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,6 +8,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const run = promisify(execFile);
 const ROOT = resolve(import.meta.dirname, '../..');
+// Every migration of `drizzle/` is applied to a new database: the count follows the journal, so
+// adding a migration (or squashing them at a phase boundary) does not break this test.
+const MIGRATIONS = (
+  JSON.parse(readFileSync(join(ROOT, 'drizzle/meta/_journal.json'), 'utf8')) as {
+    entries: unknown[];
+  }
+).entries.length;
 const scratch: string[] = [];
 
 afterEach(() => {
@@ -54,8 +61,8 @@ describe('scripts/migrate.ts', () => {
     expect(first.code).toBe(0);
     expect(lastJsonLine(first.stdout)).toMatchObject({
       msg: 'Database migrations complete',
-      applied: 1,
-      total: 1,
+      applied: MIGRATIONS,
+      total: MIGRATIONS,
       level: 'info',
     });
 
@@ -72,7 +79,7 @@ describe('scripts/migrate.ts', () => {
 
     const second = await migrate({ DATABASE_PATH: databasePath });
     expect(second.code).toBe(0);
-    expect(lastJsonLine(second.stdout)).toMatchObject({ applied: 0, total: 1 });
+    expect(lastJsonLine(second.stdout)).toMatchObject({ applied: 0, total: MIGRATIONS });
   }, 60_000);
 
   it('exits non-zero with a readable message when the configuration is invalid', async () => {

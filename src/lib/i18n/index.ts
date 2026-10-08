@@ -15,10 +15,12 @@ import {
 } from './locales';
 import account from './messages/account';
 import auth from './messages/auth';
+import billing from './messages/billing';
 import common from './messages/common';
 import errors from './messages/errors';
 import gallery from './messages/gallery';
 import landing from './messages/landing';
+import legal from './messages/legal';
 import studio from './messages/studio';
 
 // ---- Locales ---------------------------------------------------------------------------------
@@ -97,7 +99,17 @@ export function serializeLocaleCookie(locale: Locale, options: { secure?: boolea
 export { defineMessages };
 export type { MessageTree };
 
-const dictionaries = { common, errors, auth, landing, studio, gallery, account };
+const dictionaries = {
+  common,
+  errors,
+  auth,
+  landing,
+  studio,
+  gallery,
+  account,
+  legal,
+  billing,
+};
 
 type Dictionaries = typeof dictionaries;
 type Messages = { [N in keyof Dictionaries]: Dictionaries[N]['en'] };

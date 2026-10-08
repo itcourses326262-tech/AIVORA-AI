@@ -49,7 +49,8 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
   return (
     <div
       ref={strip}
-      className="sticky bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))] z-20 grid gap-2 border-t border-border bg-surface/95 px-3 pt-3 pb-3 backdrop-blur-md">
+      className="sticky bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))] z-20 grid gap-2 border-t border-border bg-surface/95 px-3 pt-3 pb-3 backdrop-blur-md"
+    >
       <ImageSection studio={studio} variant="compact" />
       <PromptSection studio={studio} variant="composer" />
       <CreditNotice status={{ cost, balance: studio.balance }} />

@@ -8,7 +8,18 @@
  * browsers and Node alike.
  */
 
-export const ID_PREFIXES = ['usr', 'ses', 'key', 'gen', 'ast', 'led', 'etk', 'ord', 'sub', 'bev'] as const;
+export const ID_PREFIXES = [
+  'usr',
+  'ses',
+  'key',
+  'gen',
+  'ast',
+  'led',
+  'etk',
+  'ord',
+  'sub',
+  'bev',
+] as const;
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 export type Id<P extends IdPrefix = IdPrefix> = `${P}_${string}`;
 

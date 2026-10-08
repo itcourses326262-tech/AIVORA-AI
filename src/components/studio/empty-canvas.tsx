@@ -17,7 +17,7 @@ export function EmptyCanvas({ examples, onPick, className }: EmptyCanvasProps) {
   return (
     <div
       className={cn(
-        'relative isolate overflow-hidden rounded-3xl border border-border bg-surface px-5 py-10 text-center sm:px-10 sm:py-14',
+        'relative isolate overflow-hidden rounded-3xl border border-border bg-surface px-5 py-10 text-center sm:px-6 sm:py-14 xl:px-10',
         className,
       )}
     >
@@ -34,11 +34,11 @@ export function EmptyCanvas({ examples, onPick, className }: EmptyCanvasProps) {
       <p className="mx-auto mt-2 max-w-md text-sm text-muted sm:text-base">
         {t('studio.canvas.empty.description')}
       </p>
-      <div className="mx-auto mt-8 grid max-w-2xl gap-2.5 text-start">
+      <div className="@container mx-auto mt-8 grid max-w-2xl gap-2.5 text-start">
         <p className="text-center text-xs font-medium tracking-wide text-subtle">
           {t('studio.canvas.empty.examples')}
         </p>
-        <ul className="grid gap-2 sm:grid-cols-2">
+        <ul className="grid gap-2 @lg:grid-cols-2">
           {examples.slice(0, 4).map((example) => (
             <li key={example}>
               <button

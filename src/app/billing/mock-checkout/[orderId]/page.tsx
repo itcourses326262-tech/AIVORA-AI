@@ -39,14 +39,14 @@ export default async function MockCheckoutPage({
   const text = mockCheckoutMessages[locale];
   const item = findPurchasable(order.kind === 'pack' ? 'pack' : 'subscription', order.itemId);
   const payable = order.status === 'pending' && getMockGateway().hasCheckout(order.id);
-  const status =
-    order.status === 'paid'
+  // Why there is nothing to pay: it was paid, it is closed, or the fake forgot it (server restart).
+  const status = payable
+    ? null
+    : order.status === 'paid'
       ? text.alreadyPaid
-      : order.status === 'pending' && !payable
+      : order.status === 'pending'
         ? text.lost
-        : order.status !== 'pending'
-          ? text.closed
-          : null;
+        : text.closed;
 
   return (
     <main
@@ -114,9 +114,7 @@ export default async function MockCheckoutPage({
             >
               {text.fail}
             </button>
-            <p className="text-center text-xs text-muted">
-              {text.payHint} {text.failHint}
-            </p>
+            <p className="text-center text-xs text-muted">{text.hint}</p>
           </form>
         ) : (
           <div className="grid gap-3">

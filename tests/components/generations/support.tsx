@@ -88,7 +88,11 @@ export function apiError(
   details?: unknown,
   headers: Record<string, string> = {},
 ): Response {
-  return json({ error: { code, message: 'English message for developers', details } }, status, headers);
+  return json(
+    { error: { code, message: 'English message for developers', details } },
+    status,
+    headers,
+  );
 }
 
 export interface Call {
@@ -107,7 +111,9 @@ export interface FakeApi {
   generations: GenerationDTO[];
   models: ModelDTO[];
   /** Replaces the answer of the first matching route (return nothing to fall through). */
-  intercept: (handler: (call: Call) => Response | Promise<Response> | undefined) => void;
+  intercept: (
+    handler: (call: Call) => Response | Promise<Response | undefined> | undefined,
+  ) => void;
   /** Calls whose path starts with `prefix` (after the method), e.g. `callsTo('POST', '/generations')`. */
   callsTo: (method: string, prefix: string) => Call[];
 }
@@ -127,7 +133,8 @@ export interface FakeApiOptions {
  * list, `?ids=` answers from it: so a test drives the screen by changing `api.generations`.
  */
 export function installFakeApi(options: FakeApiOptions = {}): FakeApi {
-  const interceptors: Array<(call: Call) => Response | Promise<Response> | undefined> = [];
+  const interceptors: Array<(call: Call) => Response | Promise<Response | undefined> | undefined> =
+    [];
   const api: FakeApi = {
     calls: [],
     balance: options.balance ?? 50,

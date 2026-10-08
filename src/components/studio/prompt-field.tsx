@@ -84,6 +84,12 @@ export function PromptField({
 
   const setRefs = useMergedRef(growRef, textareaRef);
 
+  // Undo removes its own button, so focus goes back to the text it restored.
+  const undo = () => {
+    tools.undo();
+    growRef.current?.focus();
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
       event.key === 'Enter' &&
@@ -194,7 +200,7 @@ export function PromptField({
                 size="sm"
                 variant="ghost"
                 startIcon={<Undo2 aria-hidden="true" />}
-                onClick={tools.undo}
+                onClick={undo}
               >
                 {t('studio.prompt.undo')}
               </Button>
@@ -229,7 +235,7 @@ export function PromptField({
             {!panel ? (
               <button
                 type="button"
-                onClick={tools.undo}
+                onClick={undo}
                 className="font-medium text-brand underline-offset-4 hover:underline"
               >
                 {t('studio.prompt.undo')}

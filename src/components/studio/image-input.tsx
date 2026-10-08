@@ -37,8 +37,15 @@ function Thumb({ src, className }: { src: string; className: string }) {
   );
 }
 
-function imageFrom(files: FileList | readonly File[] | null | undefined): File | undefined {
-  return Array.from(files ?? []).find((file) => file.type.startsWith('image/')) ?? undefined;
+/** The first picture among the files, else the first file: a wrong type is reported, not ignored. */
+function chosenFile(files: FileList | readonly File[] | null | undefined): File | undefined {
+  const all = Array.from(files ?? []);
+  return all.find((file) => file.type.startsWith('image/')) ?? all[0];
+}
+
+/** Only a picture counts for a paste: pasted text belongs to the prompt. */
+function pastedPicture(files: FileList | readonly File[] | null | undefined): File | undefined {
+  return Array.from(files ?? []).find((file) => file.type.startsWith('image/'));
 }
 
 /** Text for what went wrong with the picture, in the user's language. */
@@ -76,7 +83,7 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
   const { accept } = input;
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      const file = imageFrom(event.clipboardData?.files);
+      const file = pastedPicture(event.clipboardData?.files);
       if (!file) return;
       // Pasted text still goes to the prompt; only a picture is taken for the input.
       event.preventDefault();
@@ -87,7 +94,7 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
   }, [accept]);
 
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = imageFrom(event.target.files);
+    const file = chosenFile(event.target.files);
     if (file) input.accept(file);
     // The same file can be chosen again after removing it.
     event.target.value = '';
@@ -97,7 +104,7 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
     event.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
-    const file = imageFrom(event.dataTransfer.files);
+    const file = chosenFile(event.dataTransfer.files);
     if (file) input.accept(file);
   };
   const dragHandlers = {

@@ -4,7 +4,7 @@ import type { ModelSpec, Resolution } from '@/lib/catalog/types';
 export interface CreditSample {
   id: string;
   label: string;
-  /** Credits for one generation with the model's default settings. */
+  /** Credits for one generation with the model's default settings (video: a 5 s clip when offered). */
   credits: number;
   /** Video only. */
   seconds?: number;
@@ -18,13 +18,18 @@ export interface CreditSamples {
 
 const MAX_SAMPLES_PER_KIND = 3;
 
+/** The clip length every price quotes when a model offers it, so videos compare like for like. */
+export const QUOTED_CLIP_SECONDS = 5;
+
 function costOf(model: ModelSpec): CreditSample | null {
   const { limits } = model;
   if (model.kind === 'image') {
     const credits = computeCost(model, { aspectRatio: limits.defaultAspectRatio, count: 1 });
     return { id: model.id, label: model.label, credits };
   }
-  const seconds = limits.defaultDuration ?? limits.durations?.[0];
+  const seconds = limits.durations?.includes(QUOTED_CLIP_SECONDS)
+    ? QUOTED_CLIP_SECONDS
+    : (limits.defaultDuration ?? limits.durations?.[0]);
   const resolution = limits.defaultResolution ?? limits.resolutions?.[0];
   if (seconds === undefined || resolution === undefined) return null;
   const credits = computeCost(model, {

@@ -59,13 +59,14 @@ function withDeadline(work: Promise<void>, ms: number): Promise<void> {
 
 /**
  * Runs every handler (all of them, even after a failure, so one broken module does not hide
- * another's problem), then throws `provider_error` (502) if any failed.
+ * another's problem, each failure logged with its name), then throws `provider_error` (502) if
+ * any failed.
  */
 export async function runAccountDeletedHooks(
   event: AccountDeletedEvent,
   timeoutMs: number = HOOK_TIMEOUT_MS,
 ): Promise<void> {
-  const failed: string[] = [];
+  let failures = 0;
   for (const [name, handler] of [...registry()]) {
     try {
       await withDeadline(
@@ -73,7 +74,7 @@ export async function runAccountDeletedHooks(
         timeoutMs,
       );
     } catch (err) {
-      failed.push(name);
+      failures += 1;
       getLogger().error('An account deletion hook failed', {
         component: 'auth',
         hook: name,
@@ -82,11 +83,11 @@ export async function runAccountDeletedHooks(
       });
     }
   }
-  if (failed.length > 0) {
+  if (failures > 0) {
+    // Which hook failed is in the log; the client only learns that a connected service did.
     throw AppError.of(
       'provider_error',
       'The account could not be deleted yet because a connected service did not respond. Try again.',
-      { hooks: failed },
     );
   }
 }

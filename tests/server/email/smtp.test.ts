@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:net';
+import type { Transporter } from 'nodemailer';
 import type * as LoggerModule from '@/server/logger';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -132,13 +133,17 @@ describe('isSingleAddress', () => {
   ])('refuses %j', (address) => expect(isSingleAddress(address)).toBe(false));
 });
 
+/** A transporter with only `sendMail`, typed as the part of nodemailer's the transport uses. */
+const transporterOf = (sendMail: unknown) =>
+  ({ sendMail }) as unknown as Pick<Transporter, 'sendMail'>;
+
 describe('createSmtpTransport with a stub transporter', () => {
   const settings = { host: 'h', port: 587, secure: false, requireTLS: false };
 
   it('sends text and html with auto-responder headers, to one address', async () => {
     const sendMail = vi.fn(async () => ({ accepted: ['layla@example.com'], rejected: [] }));
     const transport = createSmtpTransport(settings, {
-      createTransporter: async () => ({ sendMail }),
+      createTransporter: async () => transporterOf(sendMail),
     });
     await transport.send(outgoing());
     expect(sendMail).toHaveBeenCalledTimes(1);
@@ -153,9 +158,9 @@ describe('createSmtpTransport with a stub transporter', () => {
   });
 
   it('builds the transporter once and reuses it', async () => {
-    const create = vi.fn(async () => ({
-      sendMail: vi.fn(async () => ({ accepted: ['a@example.com'], rejected: [] })),
-    }));
+    const create = vi.fn(async () =>
+      transporterOf(vi.fn(async () => ({ accepted: ['a@example.com'], rejected: [] }))),
+    );
     const transport = createSmtpTransport(settings, { createTransporter: create });
     await transport.send(outgoing('a@example.com'));
     await transport.send(outgoing('b@example.com'));
@@ -166,9 +171,9 @@ describe('createSmtpTransport with a stub transporter', () => {
     const create = vi
       .fn()
       .mockRejectedValueOnce(new Error('cannot load'))
-      .mockResolvedValue({
-        sendMail: vi.fn(async () => ({ accepted: ['a@example.com'], rejected: [] })),
-      });
+      .mockResolvedValue(
+        transporterOf(vi.fn(async () => ({ accepted: ['a@example.com'], rejected: [] }))),
+      );
     const transport = createSmtpTransport(settings, { createTransporter: create });
     await expect(transport.send(outgoing('a@example.com'))).rejects.toThrow('cannot load');
     await expect(transport.send(outgoing('a@example.com'))).resolves.toBeUndefined();
@@ -176,9 +181,8 @@ describe('createSmtpTransport with a stub transporter', () => {
 
   it('fails when the server rejects the recipient', async () => {
     const transport = createSmtpTransport(settings, {
-      createTransporter: async () => ({
-        sendMail: vi.fn(async () => ({ accepted: [], rejected: ['layla@example.com'] })),
-      }),
+      createTransporter: async () =>
+        transporterOf(vi.fn(async () => ({ accepted: [], rejected: ['layla@example.com'] }))),
     });
     await expect(transport.send(outgoing())).rejects.toThrow(/did not accept/);
   });

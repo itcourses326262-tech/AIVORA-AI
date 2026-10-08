@@ -23,11 +23,11 @@ import { settleOrder } from './settle';
 export const BILLING_USAGE = `Billing commands:
   billing-orders  [--status ${ORDER_STATUSES.join('|')}] [--email <email>] [--limit <n>] [--json]
                   lists orders, newest first; "needs_review" are the ones that need a person
-  refund-order    --id <order id> [--amount-sar <n.nn>]
+  refund-order    <order id> [--amount-sar <n.nn>]       (also: --id <order id>)
                   refunds through the payment gateway (all that is left, or the amount) and takes the
                   matching credits back; credits already spent cannot be recovered, the order then
                   stays "needs_review" with the shortfall visible (credits - clawed back)
-  settle-order    --id <order id>
+  settle-order    <order id>                            (also: --id <order id>)
                   asks the gateway what happened to an order and applies it (what a webhook would do)
   billing-prices  prints the price list with VAT, price per credit and margin against the target`;
 
@@ -45,8 +45,8 @@ function text(context: CommandContext, name: string): string | undefined {
 
 function orderId(context: CommandContext): string {
   const id = text(context, 'id');
-  if (id === undefined || id === '') throw new UsageError('Missing --id');
-  if (!isValidId(id, 'ord')) throw new UsageError('--id is not an order id (ord_…)');
+  if (id === undefined || id === '') throw new UsageError('Missing the order id');
+  if (!isValidId(id, 'ord')) throw new UsageError('That is not an order id (ord_…)');
   return id;
 }
 
@@ -234,10 +234,18 @@ export async function runBillingAdminCli(args: string[], io: CliIo = processIo):
     return EXIT_USAGE;
   }
   try {
-    const parsed = parseArgs({ args: rest, options: spec.options, allowPositionals: false });
+    const parsed = parseArgs({ args: rest, options: spec.options, allowPositionals: true });
     const values: CommandContext['values'] = {};
     for (const [key, value] of Object.entries(parsed.values)) {
       if (typeof value === 'string' || typeof value === 'boolean') values[key] = value;
+    }
+    // The commands that act on one order take its id as the first argument too.
+    if (Object.hasOwn(spec.options, 'id') && values.id === undefined && parsed.positionals[0]) {
+      values.id = parsed.positionals[0];
+      parsed.positionals.shift();
+    }
+    if (parsed.positionals.length > 0) {
+      throw new UsageError(`Unexpected argument "${parsed.positionals[0]}"`);
     }
     await spec.run({ io, values });
     return EXIT_OK;

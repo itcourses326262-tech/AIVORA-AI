@@ -219,10 +219,17 @@ describe('live and test keys', () => {
     }
   });
 
-  it('requires a secret key when Moyasar is chosen explicitly', () => {
+  it('requires a secret key when Moyasar is chosen explicitly, and still reports everything else', () => {
     expect(problemsOf({ BILLING_GATEWAY: 'moyasar' }).join('\n')).toMatch(
       /MOYASAR_SECRET_KEY: is required/,
     );
+    const both = problemsOf({
+      NODE_ENV: 'development',
+      BILLING_GATEWAY: 'moyasar',
+      MOYASAR_PUBLISHABLE_KEY: LIVE_PUBLISHABLE,
+    }).join('\n');
+    expect(both).toMatch(/MOYASAR_SECRET_KEY: is required/);
+    expect(both).toMatch(/live keys are refused/);
   });
 
   it('checks the same rules at gateway creation (a second, independent line of defence)', () => {

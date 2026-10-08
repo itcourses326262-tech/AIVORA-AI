@@ -91,6 +91,25 @@ describe('billing admin commands', () => {
     expect(t.order(order.id).status).toBe('refunded');
   });
 
+  it('takes the order id as the first argument or as --id', async () => {
+    const { order, user } = await bought();
+    const positional = fakeIo();
+    expect(await runBillingAdminCli(['settle-order', order.id], positional.io)).toBe(0);
+    expect(positional.out[0]).toContain(order.id);
+
+    const refund = fakeIo();
+    expect(
+      await runBillingAdminCli(['refund-order', order.id, '--amount-sar', '29'], refund.io),
+    ).toBe(0);
+    expect(t.order(order.id).status).toBe('refunded');
+    expect(t.balance(user.id)).toBe(0);
+
+    const extra = fakeIo();
+    expect(await runBillingAdminCli(['settle-order', order.id, 'surprise'], extra.io)).toBe(2);
+    const stray = fakeIo();
+    expect(await runBillingAdminCli(['billing-prices', 'surprise'], stray.io)).toBe(2);
+  });
+
   it('refund-order can refund part of a payment and warns when credits were spent', async () => {
     const { order, user } = await bought();
     const partial = fakeIo();

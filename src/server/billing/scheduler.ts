@@ -32,8 +32,12 @@ const log = () => getLogger().child({ module: 'billing-scheduler' });
 
 export const TICK_INTERVAL_MS = 30_000;
 export const BATCH_SIZE = 25;
-/** How long a claimed subscription is reserved for the claimant before another process may retry. */
-export const LEASE_MS = 5 * 60 * 1000;
+/**
+ * How long a claimed subscription is reserved for the claimant before another process may retry.
+ * It is also the pause between attempts while the gateway keeps failing, so a long outage costs a
+ * handful of rows an hour, not one every tick.
+ */
+export const LEASE_MS = 15 * 60 * 1000;
 /** A page this long past its expiry that the gateway still calls payable is closed by force. */
 export const EXPIRY_SLACK_MS = 60 * 60 * 1000;
 

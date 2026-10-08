@@ -26,7 +26,7 @@ import {
 } from './form';
 import { isEmptyPrefill, type StudioPrefill } from './prefill';
 import { FIELD_MESSAGE_KEYS, describeSubmitError } from './submit-errors';
-import { PRICING_HREF, isShort } from './generate-bar';
+import { PRICING_HREF, isShort } from './credits';
 import { useGenerate } from './use-generate';
 import { useGenerationFeed, type GenerationFeed } from './use-generation-feed';
 import { useImageInput, type ImageInput } from './use-image-input';
@@ -68,6 +68,18 @@ export interface StudioController {
   applyExample: (prompt: string) => void;
 }
 
+const FIELD_OF_FORM_KEY: Record<string, FieldPath | undefined> = {
+  prompt: 'prompt',
+  negativePrompt: 'negativePrompt',
+  aspectRatio: 'aspectRatio',
+  count: 'count',
+  durationSec: 'durationSec',
+  resolution: 'resolution',
+  seed: 'seed',
+  strength: 'strength',
+  modelId: 'modelId',
+};
+
 function problemMessageKey(problem: FormProblem) {
   switch (problem.code) {
     case 'required':
@@ -88,8 +100,8 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   const { creditBalance, refresh } = useUser();
 
   const models = useModels();
-  const formCtl = useStudioForm(prefill, models);
-  const { form, model, cost, patch, reuse, setTool } = formCtl;
+  const baseForm = useStudioForm(prefill, models);
+  const { form, model, cost, patch, reuse, setTool } = baseForm;
   const image = useImageInput();
   const feed = useGenerationFeed();
   const { submit, busy } = useGenerate(feed);
@@ -112,6 +124,35 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       for (const field of fields.length > 0 ? fields : FIELD_PATHS) delete next[field];
       return next;
     });
+  }, []);
+
+  // A refused field stays marked until the person changes something that could fix it.
+  const formCtl = useMemo<StudioFormController>(
+    () => ({
+      ...baseForm,
+      patch: (change) => {
+        baseForm.patch(change);
+        const touched = Object.keys(change)
+          .map((key) => FIELD_OF_FORM_KEY[key])
+          .filter((field): field is FieldPath => field !== undefined);
+        if (touched.length > 0) clearMessages(...touched);
+      },
+      setModel: (modelId) => {
+        baseForm.setModel(modelId);
+        clearMessages();
+      },
+      setTool: (tool) => {
+        baseForm.setTool(tool);
+        clearMessages();
+      },
+    }),
+    [baseForm, clearMessages],
+  );
+
+  // A menu gives focus back to its button when it closes, after the item has run: focusing the
+  // prompt from an item has to wait for that.
+  const focusPrompt = useCallback(() => {
+    window.setTimeout(() => promptRef.current?.focus(), 0);
   }, []);
 
   const setPrompt = useCallback(
@@ -179,7 +220,8 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       const problem = describeSubmitError(t, locale, error);
       const fields: FieldMessages = {};
       for (const field of problem.fields) {
-        fields[field] = field === 'prompt' ? problem.message : t(FIELD_MESSAGE_KEYS[field]);
+        fields[field] =
+          problem.kind === 'moderation' ? problem.message : t(FIELD_MESSAGE_KEYS[field]);
       }
       if (problem.fields.length > 0) setServerMessages((previous) => ({ ...previous, ...fields }));
 
@@ -221,11 +263,6 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       const blocking = problems.filter((problem) => problem.field !== 'modelId');
       const first = blocking[0];
       if (first) {
-        announce(
-          t(problemMessageKey(first), {
-            max: first.code === 'too_long' ? first.max : 4_294_967_295,
-          }),
-        );
         if (first.field === 'prompt') promptRef.current?.focus();
         return;
       }
@@ -292,9 +329,9 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   const applyExample = useCallback(
     (prompt: string) => {
       setPrompt(prompt);
-      promptRef.current?.focus();
+      focusPrompt();
     },
-    [setPrompt],
+    [setPrompt, focusPrompt],
   );
 
   const reuseSettings = useCallback(
@@ -306,9 +343,9 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       setViewerState(null);
       if (wanted && wanted.id !== generation.modelId) toast.warning(t('studio.reuse.modelChanged'));
       else toast.info(t('studio.reuse.restored'), { id: 'studio-reuse' });
-      promptRef.current?.focus();
+      focusPrompt();
     },
-    [allModels, reuse, image, t],
+    [allModels, reuse, image, t, focusPrompt],
   );
 
   const adoptResult = useCallback(
@@ -323,9 +360,9 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       setTool(target);
       image.adopt({ id: asset.id, asset });
       setViewerState(null);
-      promptRef.current?.focus();
+      focusPrompt();
     },
-    [form.tool, setTool, image],
+    [form.tool, setTool, image, focusPrompt],
   );
 
   const retry = useCallback(

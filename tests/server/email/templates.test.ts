@@ -142,20 +142,20 @@ describe('renderEmail', () => {
     const reset = renderEmail(spec('password_reset', 'ar')).text;
     expect(reset).toMatch(/ساعة/);
     expect(renderEmail(spec('verification', 'en')).text).toContain(
-      'Confirming adds 50 credits free to your balance.',
+      'Confirming adds your sign-up bonus of 50 credits to your balance.',
     );
     expect(
       renderEmail(spec('verification', 'en', { bonusCredits: 1 } as Partial<EmailSpec>)).text,
-    ).toContain('adds 1 credit free');
+    ).toContain('sign-up bonus of 1 credit');
     expect(renderEmail(spec('verification', 'en')).text).toContain('24 hours');
   });
 
   it('leaves the bonus line out when there is no bonus', () => {
     const none = renderEmail(spec('verification', 'en', { bonusCredits: 0 } as Partial<EmailSpec>));
-    expect(none.text).not.toContain('free');
+    expect(none.text).not.toContain('sign-up bonus');
     expect(
       renderEmail(spec('welcome', 'en', { bonusCredits: 0 } as Partial<EmailSpec>)).text,
-    ).not.toContain('free');
+    ).not.toContain('sign-up bonus');
   });
 
   it('states the time of a password change in UTC', () => {

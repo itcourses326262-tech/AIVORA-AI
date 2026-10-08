@@ -82,9 +82,9 @@ export function billingConfigProblems(source: BillingConfigSource): string[] {
 
   if (source.secretKey === undefined) {
     problems.push('MOYASAR_SECRET_KEY: is required when BILLING_GATEWAY=moyasar');
-    return problems;
   }
-  const secretMode = moyasarKeyMode(source.secretKey, 'secret');
+  const secretMode =
+    source.secretKey === undefined ? undefined : moyasarKeyMode(source.secretKey, 'secret');
   if (secretMode === null) {
     problems.push('MOYASAR_SECRET_KEY: must look like sk_test_… or sk_live_… (the secret key)');
   }

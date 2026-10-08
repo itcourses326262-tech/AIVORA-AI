@@ -39,6 +39,8 @@ export interface CopyAsInputSource {
   id: string;
   /** Still picture of a video result; used when the file itself is not a usable image. */
   thumbUrl?: string;
+  /** The file is known not to be an image (a video): do not download it just to find out. */
+  skipOriginal?: boolean;
 }
 
 /**
@@ -50,7 +52,8 @@ export async function copyAssetAsInput(
   options: UploadImageOptions = {},
 ): Promise<AssetDTO> {
   const base = `/api/v1/media/${encodeURIComponent(source.id)}`;
-  const candidates = [base, source.thumbUrl ?? `${base}?variant=thumb`];
+  const thumb = source.thumbUrl ?? `${base}?variant=thumb`;
+  const candidates = source.skipOriginal ? [thumb] : [base, thumb];
   for (const url of candidates) {
     const blob = await fetchImageBlob(url, options.signal);
     if (!blob) continue;

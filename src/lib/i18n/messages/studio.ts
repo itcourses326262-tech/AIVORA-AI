@@ -8,18 +8,9 @@ export default defineMessages({
   en: {
     title: 'Studio',
     generate: 'Generate',
-    promptPlaceholder: 'Describe what you want to create',
     toolsLabel: 'Creation tool',
     controls: 'Controls',
     units: {
-      credits: {
-        zero: 'No credits',
-        one: '1 credit',
-        two: '2 credits',
-        few: '{count} credits',
-        many: '{count} credits',
-        other: '{count} credits',
-      },
       images: {
         zero: 'No images',
         one: '1 image',
@@ -46,7 +37,6 @@ export default defineMessages({
       enhanced: 'Prompt improved.',
       translated: 'Translated to English for better results.',
       undo: 'Undo',
-      undone: 'Your original prompt is back.',
       surprise: 'Surprise me',
       surpriseTitle: 'Fill in a random idea',
       examples: 'Need an idea?',
@@ -68,7 +58,6 @@ export default defineMessages({
       dimensions: '{width} × {height} px',
       replace: 'Replace',
       remove: 'Remove image',
-      retry: 'Try again',
       required: 'Add an image to continue.',
       waiting: 'Wait for the image to finish uploading.',
       followsAspect: 'The result keeps the proportions of your image.',
@@ -83,7 +72,6 @@ export default defineMessages({
       loading: 'Loading models',
       loadFailed: 'We could not load the models',
       notConfigured: 'Not set up on this server',
-      demoNote: 'Sample results, handy for trying the studio.',
       none: 'No model is available for this tool yet.',
       noneHint: 'Ask the administrator to connect a model provider.',
       badge: {
@@ -144,7 +132,6 @@ export default defineMessages({
     action: {
       generate: 'Generate · {price}',
       starting: 'Starting…',
-      noModel: 'Choose a model to continue.',
     },
     submit: {
       failed: 'We could not start the generation',
@@ -154,8 +141,6 @@ export default defineMessages({
       modelUnavailable: 'That model is not available on this server right now. Choose another one.',
       sessionExpired: 'Your session has expired. Log in to continue.',
       started: 'Generation started.',
-      logIn: 'Log in',
-      retryHint: 'Your settings are kept. Try again.',
     },
     fields: {
       prompt: 'Check the prompt for this model.',
@@ -168,7 +153,6 @@ export default defineMessages({
       seed: 'This model cannot use that seed.',
       strength: 'This model cannot use that strength.',
       inputAssetId: 'The input image cannot be used. Add it again.',
-      unknown: 'Check your settings and try again.',
     },
     canvas: {
       title: 'Your creations',
@@ -191,12 +175,6 @@ export default defineMessages({
     reuse: {
       restored: 'Settings restored. Adjust them and generate again.',
       modelChanged: 'The original model is not available, so another one was chosen.',
-      importFailed: 'We could not bring the input image back. Add it again.',
-    },
-    adopt: {
-      preparing: 'Preparing the image…',
-      ready: 'Image added as input.',
-      failed: 'We could not use that image as input.',
     },
     notify: {
       readyImage: 'Your image is ready',
@@ -266,7 +244,6 @@ export default defineMessages({
         shared: 'Shared',
         favorite: 'Favorite',
         demo: 'Demo',
-        outputs: 'Results',
       },
       progress: {
         queued: 'Waiting for a free slot…',
@@ -317,8 +294,6 @@ export default defineMessages({
         delete: 'Delete',
       },
       toast: {
-        favorited: 'Added to favorites.',
-        unfavorited: 'Removed from favorites.',
         shared: 'Shared to Explore. The link is ready to copy.',
         unshared: 'Sharing is off.',
         linkCopied: 'Link copied.',
@@ -336,13 +311,11 @@ export default defineMessages({
         keep: 'Keep',
       },
       viewer: {
-        title: 'Preview',
         previous: 'Previous result',
         next: 'Next result',
         position: '{index} of {total}',
         zoomIn: 'Zoom to full size',
         zoomOut: 'Fit to screen',
-        close: 'Close preview',
       },
       media: {
         image: 'Generated image {index}: {prompt}',
@@ -357,18 +330,9 @@ export default defineMessages({
   ar: {
     title: 'الاستوديو',
     generate: 'إنشاء',
-    promptPlaceholder: 'صِف ما تريد إنشاءه',
     toolsLabel: 'أداة الإنشاء',
     controls: 'عناصر التحكم',
     units: {
-      credits: {
-        zero: 'بلا رصيد',
-        one: 'رصيد واحد',
-        two: 'رصيدان',
-        few: '{count} أرصدة',
-        many: '{count} رصيدًا',
-        other: '{count} رصيد',
-      },
       images: {
         zero: 'بلا صور',
         one: 'صورة واحدة',
@@ -395,7 +359,6 @@ export default defineMessages({
       enhanced: 'تم تحسين الوصف.',
       translated: 'تُرجم إلى الإنجليزية للحصول على نتائج أفضل.',
       undo: 'تراجع',
-      undone: 'عاد وصفك الأصلي.',
       surprise: 'فاجئني',
       surpriseTitle: 'املأ الحقل بفكرة عشوائية',
       examples: 'تحتاج إلى فكرة؟',
@@ -417,7 +380,6 @@ export default defineMessages({
       dimensions: '{width} × {height} بكسل',
       replace: 'استبدال',
       remove: 'إزالة الصورة',
-      retry: 'حاول مرة أخرى',
       required: 'أضف صورة للمتابعة.',
       waiting: 'انتظر حتى يكتمل رفع الصورة.',
       followsAspect: 'تحافظ النتيجة على أبعاد صورتك.',
@@ -432,7 +394,6 @@ export default defineMessages({
       loading: 'جارٍ تحميل النماذج',
       loadFailed: 'تعذّر تحميل النماذج',
       notConfigured: 'غير مُعدّ على هذا الخادم',
-      demoNote: 'نتائج تجريبية مناسبة لتجربة الاستوديو.',
       none: 'لا يتوفر أي نموذج لهذه الأداة بعد.',
       noneHint: 'اطلب من المسؤول ربط مزوّد للنماذج.',
       badge: {
@@ -472,7 +433,7 @@ export default defineMessages({
         placeholder: 'عشوائية',
         random: 'اختيار بذرة عشوائية',
         clear: 'مسح البذرة',
-        invalid: 'استخدم رقمًا صحيحًا من 0 إلى {max}.',
+        invalid: 'استخدم رقمًا صحيحًا من ٠ إلى {max}.',
       },
       strength: {
         label: 'قوة التغيير',
@@ -493,7 +454,6 @@ export default defineMessages({
     action: {
       generate: 'إنشاء · {price}',
       starting: 'جارٍ البدء…',
-      noModel: 'اختر نموذجًا للمتابعة.',
     },
     submit: {
       failed: 'تعذّر بدء عملية الإنشاء',
@@ -503,8 +463,6 @@ export default defineMessages({
       modelUnavailable: 'هذا النموذج غير متاح على الخادم حاليًا. اختر نموذجًا آخر.',
       sessionExpired: 'انتهت جلستك. سجّل الدخول للمتابعة.',
       started: 'بدأت عملية الإنشاء.',
-      logIn: 'تسجيل الدخول',
-      retryHint: 'إعداداتك محفوظة. حاول مرة أخرى.',
     },
     fields: {
       prompt: 'راجع الوصف بما يناسب هذا النموذج.',
@@ -517,7 +475,6 @@ export default defineMessages({
       seed: 'لا يدعم هذا النموذج هذه البذرة.',
       strength: 'لا يدعم هذا النموذج هذه القيمة للقوة.',
       inputAssetId: 'تعذّر استخدام الصورة المدخلة. أضفها من جديد.',
-      unknown: 'راجع إعداداتك وحاول مرة أخرى.',
     },
     canvas: {
       title: 'إبداعاتك',
@@ -540,12 +497,6 @@ export default defineMessages({
     reuse: {
       restored: 'استُعيدت الإعدادات. عدّلها وأنشئ من جديد.',
       modelChanged: 'النموذج الأصلي غير متاح، لذا اختير نموذج آخر.',
-      importFailed: 'تعذّرت استعادة الصورة المدخلة. أضفها من جديد.',
-    },
-    adopt: {
-      preparing: 'جارٍ تجهيز الصورة…',
-      ready: 'أُضيفت الصورة كمدخل.',
-      failed: 'تعذّر استخدام هذه الصورة كمدخل.',
     },
     notify: {
       readyImage: 'صورتك جاهزة',
@@ -611,7 +562,6 @@ export default defineMessages({
         shared: 'مشارَك',
         favorite: 'مفضّل',
         demo: 'تجريبي',
-        outputs: 'النتائج',
       },
       progress: {
         queued: 'بانتظار مكان شاغر…',
@@ -661,8 +611,6 @@ export default defineMessages({
         delete: 'حذف',
       },
       toast: {
-        favorited: 'أُضيف إلى المفضلة.',
-        unfavorited: 'أُزيل من المفضلة.',
         shared: 'تمت المشاركة في استكشاف. الرابط جاهز للنسخ.',
         unshared: 'توقفت المشاركة.',
         linkCopied: 'تم نسخ الرابط.',
@@ -678,13 +626,11 @@ export default defineMessages({
         keep: 'إبقاء',
       },
       viewer: {
-        title: 'معاينة',
         previous: 'النتيجة السابقة',
         next: 'النتيجة التالية',
         position: '{index} من {total}',
         zoomIn: 'تكبير إلى الحجم الكامل',
         zoomOut: 'ملاءمة الشاشة',
-        close: 'إغلاق المعاينة',
       },
       media: {
         image: 'صورة مُنشأة {index}: {prompt}',

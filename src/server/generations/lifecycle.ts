@@ -18,7 +18,7 @@ import { withTx, type Db, type DbOrTx, type Tx } from '@/server/db';
 import { assets, generations, type GenerationRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
 import type { PersistedOutput } from '@/server/uploads';
-import { isPaidProvider } from './paid';
+import { FREE_PROVIDER, isPaidProvider } from './paid';
 
 // Every state change is a compare-and-set on (id, status[, workerId]) inside a synchronous
 // transaction; each function returns false when the row was not in the expected state. The `db`
@@ -81,7 +81,7 @@ export function isIndeterminateSubmit(
 const indeterminateSubmit = and(
   isNotNull(generations.submitStartedAt),
   isNull(generations.providerJobId),
-  ne(generations.provider, 'mock'),
+  ne(generations.provider, FREE_PROVIDER),
 );
 
 /** Fails (and refunds) every indeterminate job among `candidates`; returns how many. */

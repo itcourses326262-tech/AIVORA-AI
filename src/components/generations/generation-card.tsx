@@ -13,6 +13,8 @@
  *   its handler is given.
  * - `pending`: the request that creates this generation has not been accepted yet (optimistic card);
  *   actions that need a real id are disabled.
+ * - `href`: makes the prompt a link (the gallery sends it to the detail page, which every card has,
+ *   a failed one included).
  * - `ref`: the `<article>`, so a page can move focus to a new card.
  * - `className`: extra classes for the article.
  *
@@ -20,6 +22,7 @@
  * send a screen-reader user to a result that just appeared.
  */
 import { Heart } from 'lucide-react';
+import Link from 'next/link';
 import type { Ref } from 'react';
 import type { GenerationDTO } from '@/lib/api-types';
 import { creditsText } from '@/lib/generations/format';
@@ -38,6 +41,7 @@ export interface GenerationCardProps {
   demo?: boolean;
   handlers?: GenerationHandlers;
   pending?: boolean;
+  href?: string;
   ref?: Ref<HTMLElement>;
   className?: string;
 }
@@ -48,6 +52,7 @@ export function GenerationCard({
   demo = false,
   handlers = {},
   pending = false,
+  href,
   ref,
   className,
 }: GenerationCardProps) {
@@ -84,19 +89,37 @@ export function GenerationCard({
       <div className="flex items-start gap-2 p-3">
         <div className="min-w-0 flex-1">
           <p dir="auto" title={generation.prompt} className="line-clamp-2 text-sm text-foreground">
-            {generation.prompt}
+            {href ? (
+              <Link
+                href={href}
+                className="rounded-sm outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring"
+              >
+                {generation.prompt}
+              </Link>
+            ) : (
+              generation.prompt
+            )}
           </p>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted">
-            <span className="truncate">{modelLabel ?? generation.modelId}</span>
+          <p className="mt-1.5 flex items-center gap-x-1.5 text-xs whitespace-nowrap text-muted">
+            <span className="min-w-0 truncate">{modelLabel ?? generation.modelId}</span>
             {demo ? (
-              <span className="rounded-sm bg-foreground/[0.08] px-1 text-[0.6875rem] font-medium">
+              <span className="shrink-0 rounded-sm bg-foreground/[0.08] px-1 text-[0.6875rem] font-medium">
                 {t('studio.generations.card.demo')}
               </span>
             ) : null}
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">{creditsText({ t, plural }, generation.cost)}</span>
-            <span aria-hidden="true">·</span>
-            <time dateTime={new Date(generation.createdAt).toISOString()} className="tabular-nums">
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <span className="shrink-0 tabular-nums">
+              {creditsText({ t, plural }, generation.cost)}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <time
+              dateTime={new Date(generation.createdAt).toISOString()}
+              className="shrink-0 tabular-nums"
+            >
               {formatRelativeTime(generation.createdAt, locale, clock)}
             </time>
           </p>

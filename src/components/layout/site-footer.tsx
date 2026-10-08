@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getI18n } from '@/lib/i18n/server';
+import { LEGAL_MESSAGE_KEY, LEGAL_PATHS, LEGAL_SLUGS } from '@/lib/legal';
 import { Logo } from '../ui/logo';
 import { LocaleSwitcher } from './locale-switcher';
 import { ThemeToggle } from './theme-toggle';
@@ -13,8 +14,8 @@ export async function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
   const year = new Date().getUTCFullYear();
   return (
     <footer className="border-t border-border bg-surface/40">
-      <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr]">
-        <div className="grid content-start gap-4">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-x-6 gap-y-10 px-4 py-12 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:gap-x-10">
+        <div className="col-span-2 grid content-start gap-4 md:col-span-1">
           <Link
             href="/"
             aria-label={t('common.a11y.home')}
@@ -61,6 +62,19 @@ export async function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
               </Link>
             </>
           )}
+        </nav>
+        <nav
+          aria-label={t('legal.footer.title')}
+          className="col-span-2 grid content-start gap-1 md:col-span-1"
+        >
+          <h2 className="mb-2 text-sm font-semibold text-foreground">{t('legal.footer.title')}</h2>
+          <div className="grid grid-cols-2 gap-x-6 md:grid-cols-1">
+            {LEGAL_SLUGS.map((slug) => (
+              <Link key={slug} href={LEGAL_PATHS[slug]} className={linkClass}>
+                {t(`legal.nav.${LEGAL_MESSAGE_KEY[slug]}`)}
+              </Link>
+            ))}
+          </div>
         </nav>
       </div>
       <div className="border-t border-border">

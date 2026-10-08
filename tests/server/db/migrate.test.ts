@@ -38,9 +38,7 @@ afterEach(() => {
 });
 
 const schemaTableNames = (): string[] =>
-  Object.values(schema)
-    .filter((value): value is SQLiteTable => is(value, SQLiteTable))
-    .map((table) => getTableName(table));
+  Object.values(schema).flatMap((value) => (is(value, SQLiteTable) ? [getTableName(value)] : []));
 
 const journalLength = (): number =>
   (

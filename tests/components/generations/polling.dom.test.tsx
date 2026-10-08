@@ -112,7 +112,9 @@ describe('useGenerationPolling', () => {
     api.generations = [{ ...a, progress: 55 }];
     await advance(4000);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ id: a.id, progress: 55 })]);
+    expect(onUpdate.mock.calls[0]?.[0]).toEqual([
+      expect.objectContaining({ id: a.id, progress: 55 }),
+    ]);
 
     // The page applies the update; the loop keeps its short pace.
     rerender(
@@ -150,7 +152,11 @@ describe('useGenerationPolling', () => {
     const video = running({ kind: 'video', tool: 'text-to-video' });
     const images = running({ params: { aspectRatio: '1:1', count: 2 } });
     api.generations = [
-      { ...video, status: 'succeeded', outputs: [assetDTO({ kind: 'video', mimeType: 'image/gif' })] },
+      {
+        ...video,
+        status: 'succeeded',
+        outputs: [assetDTO({ kind: 'video', mimeType: 'image/gif' })],
+      },
       { ...images, status: 'succeeded', outputs: [assetDTO(), assetDTO()] },
     ];
     mount([video, images]);
@@ -173,7 +179,10 @@ describe('useGenerationPolling', () => {
   it('stays quiet when a generation was canceled, and when notifications are off', async () => {
     const a = running();
     const b = running();
-    api.generations = [{ ...a, status: 'canceled' }, { ...b, status: 'succeeded', outputs: [assetDTO()] }];
+    api.generations = [
+      { ...a, status: 'canceled' },
+      { ...b, status: 'succeeded', outputs: [assetDTO()] },
+    ];
     mount([a, b], { notify: false });
     await advance(1500);
     expect(screen.queryByText('Your image is ready')).not.toBeInTheDocument();
@@ -362,7 +371,10 @@ describe('useGenerationPolling', () => {
       <UserProvider initialUser={USER}>
         <Toaster />
         <Harness
-          generations={[{ ...a, status: 'succeeded' }, { ...b, status: 'failed' }]}
+          generations={[
+            { ...a, status: 'succeeded' },
+            { ...b, status: 'failed' },
+          ]}
           onUpdate={vi.fn()}
         />
       </UserProvider>,

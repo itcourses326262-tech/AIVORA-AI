@@ -4,6 +4,7 @@ import { AppError } from '@/lib/errors';
 import type { DbOrTx } from '@/server/db';
 import { generations } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
+import { FREE_PROVIDER } from './paid';
 
 /*
  * Cost protection: DAILY_UPSTREAM_BUDGET_CREDITS caps what the platform can owe its paid providers
@@ -31,7 +32,7 @@ const COMMITTED_STATUSES = ['queued', 'processing', 'succeeded'] as const;
 
 function committedSince(now: number) {
   return and(
-    ne(generations.provider, 'mock'),
+    ne(generations.provider, FREE_PROVIDER),
     inArray(generations.status, COMMITTED_STATUSES),
     gt(generations.createdAt, now - BUDGET_WINDOW_MS),
   );

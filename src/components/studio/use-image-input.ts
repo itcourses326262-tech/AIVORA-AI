@@ -142,7 +142,10 @@ export function useImageInput(): ImageInput {
       const run = new AbortController();
       controller.current = run;
       setState({ status: 'importing', previewUrl: asset.thumbUrl ?? null });
-      copyAssetAsInput({ id, thumbUrl: asset.thumbUrl }, { signal: run.signal }).then(
+      copyAssetAsInput(
+        { id, thumbUrl: asset.thumbUrl, skipOriginal: true },
+        { signal: run.signal },
+      ).then(
         (copy) => {
           if (run.signal.aborted) return;
           setState({

@@ -67,6 +67,7 @@ function Workspace({ prefill, desktop }: { prefill: StudioPrefill; desktop: bool
             aria-label={t('studio.controls')}
             className="flex flex-col border-e border-border bg-surface lg:sticky lg:top-[var(--topbar-height)] lg:h-[calc(100dvh-var(--topbar-height))]"
           >
+            <h2 className="sr-only">{t('studio.controls')}</h2>
             <div className="shrink-0 p-4 pb-3">
               <ToolTabs layout="grid" />
             </div>

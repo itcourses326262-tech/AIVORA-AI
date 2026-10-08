@@ -144,7 +144,7 @@ export default defineMessages({
       label: 'Email confirmation',
       message:
         'Confirm {email} to start creating. Until then you can look around, but you cannot generate.',
-      messageBonus: 'Confirm {email} to unlock your {credits} free and start creating.',
+      messageBonus: 'Confirm {email} to claim your sign-up bonus of {credits} and start creating.',
       resend: 'Resend link',
       resendIn: 'Resend in {time}',
       sent: 'Confirmation email sent. Check your inbox.',

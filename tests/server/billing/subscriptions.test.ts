@@ -118,6 +118,30 @@ describe('starting a subscription', () => {
     expect(pack.created).toBe(true);
   });
 
+  it('two simultaneous plan checkouts with different keys cannot both start one', async () => {
+    const user = t.newUser();
+    const results = await Promise.allSettled([
+      createCheckout(
+        user.id,
+        { type: 'subscription', id: 'pro' },
+        { idempotencyKey: 'a', now: T0 },
+      ),
+      createCheckout(
+        user.id,
+        { type: 'subscription', id: 'pro' },
+        { idempotencyKey: 'b', now: T0 },
+      ),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const lost = results.find((result) => result.status === 'rejected');
+    expect(lost).toMatchObject({
+      reason: { code: 'conflict', details: { reason: 'subscription_exists' } },
+    });
+    expect(t.db.select().from(subscriptions).all()).toHaveLength(1);
+    expect(t.moyasar.callsTo('POST', /^\/invoices$/)).toHaveLength(1);
+  });
+
   it('re-opening the same plan returns the open checkout; another plan replaces it', async () => {
     const user = t.newUser();
     const first = await createCheckout(
@@ -283,7 +307,7 @@ describe('renewing', () => {
     ]);
 
     // The claim is a lease: once it runs out the next tick tries again and succeeds.
-    await tick(END1 - RENEWAL_LEAD_MS + 10 * 60 * 1000);
+    await tick(END1 - RENEWAL_LEAD_MS + 20 * 60 * 1000);
     expect(
       ordersOf(user.id, 'subscription_renewal')
         .map((order) => order.status)

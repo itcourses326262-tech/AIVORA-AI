@@ -1,6 +1,6 @@
 import 'server-only';
 import { getEnv, type Env } from '@/server/env';
-import { isSmtpConfigured } from '@/server/email';
+import { isSmtpConfigured } from '@/server/email/transport';
 
 /**
  * Whether an account must confirm its email address before it may create generations (and before

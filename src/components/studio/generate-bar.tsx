@@ -7,20 +7,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { cn, formatCredits } from '@/lib/utils';
 import { Button } from '../ui/button';
 import { Kbd } from '../ui/kbd';
-
-export interface CreditStatus {
-  /** What the request costs; null while there is no model to price. */
-  cost: number | null;
-  balance: number;
-}
-
-/** The person cannot pay for the request: too few credits. */
-export function isShort({ cost, balance }: CreditStatus): boolean {
-  return cost !== null && balance < cost;
-}
-
-/** Where to buy credits (the pricing page is built by another module). */
-export const PRICING_HREF = '/pricing';
+import { PRICING_HREF, isShort, type CreditStatus } from './credits';
 
 /** Says what is missing and links to the page that sells it. Renders nothing when affordable. */
 export function CreditNotice({ status, className }: { status: CreditStatus; className?: string }) {
@@ -83,7 +70,7 @@ export function GenerateButton({
       size={size}
       fullWidth={fullWidth}
       loading={busy}
-      disabled={noModel || isShort({ cost, balance })}
+      disabled={noModel || cost === null || isShort({ cost, balance })}
       startIcon={busy ? undefined : <Sparkles aria-hidden="true" />}
       onClick={onGenerate}
     >
@@ -121,6 +108,11 @@ export function GenerateBar({ className, ...button }: GenerateBarProps) {
         </p>
       </div>
       <CreditNotice status={{ cost, balance }} />
+      {cost === null && !button.noModel ? (
+        <p role="status" className="text-sm text-warning">
+          {t('studio.cost.unavailable')}
+        </p>
+      ) : null}
       <GenerateButton {...button} />
       <p className="hidden items-center justify-center gap-1.5 text-xs text-subtle lg:flex">
         <span dir="ltr" className="inline-flex items-center gap-1">

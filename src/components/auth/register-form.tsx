@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { FormError } from '@/components/ui/form-error';
+import { ConsentLine, CONSENT_LINE_ID } from '@/components/legal/consent-line';
 import { creditsLabel } from '@/components/marketing/credits-label';
 import { useI18n } from '@/lib/i18n/client';
 import { AuthHeading, AuthSwitch, authLink } from './auth-parts';
@@ -132,7 +133,15 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
             </>
           }
         />
-        <Button type="submit" size="lg" fullWidth loading={form.submitting} className="mt-1">
+        <ConsentLine />
+        <Button
+          type="submit"
+          size="lg"
+          fullWidth
+          loading={form.submitting}
+          aria-describedby={CONSENT_LINE_ID}
+          className="mt-1"
+        >
           {form.submitting ? t('auth.register.submitting') : t('auth.register.submit')}
         </Button>
       </form>

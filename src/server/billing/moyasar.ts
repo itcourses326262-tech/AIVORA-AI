@@ -47,11 +47,10 @@ import type {
  *  - that webhooks carry no signature header (only the `secret_token` body field is documented)
  */
 
-export const MOYASAR_DEFAULT_API_BASE = 'https://api.moyasar.com/v1';
-
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_CHARS = 1_000_000;
 const MAX_ERROR_MESSAGE_CHARS = 200;
+const KEY_LIKE = /\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]+/g;
 
 export class BillingConfigError extends Error {
   override readonly name = 'BillingConfigError';
@@ -234,11 +233,15 @@ export function createMoyasarGateway(config: MoyasarConfig): BillingGateway {
   const authorization = `Basic ${Buffer.from(`${config.secretKey}:`).toString('base64')}`;
   const log = getLogger().child({ gateway: 'moyasar' });
 
+  // The gateway's message goes to the log; make sure no key can ride along if it ever quotes one.
+  const scrub = (message: string) =>
+    message.replaceAll(config.secretKey, '[REDACTED]').replace(KEY_LIKE, '[REDACTED]');
+
   function failure(operation: string, status: number | null, message?: string): AppError {
     log.error('Moyasar request failed', {
       operation,
       status,
-      ...(message ? { message: message.slice(0, MAX_ERROR_MESSAGE_CHARS) } : {}),
+      ...(message ? { message: scrub(message).slice(0, MAX_ERROR_MESSAGE_CHARS) } : {}),
     });
     return AppError.of('provider_error', 'The payment gateway could not complete the request', {
       reason: 'gateway_error',

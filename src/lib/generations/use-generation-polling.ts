@@ -101,6 +101,7 @@ export function useGenerationPolling(options: UseGenerationPollingOptions): void
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
     let delay = minMs;
+    let woke = false;
 
     const stopTimer = () => {
       clearTimeout(timer);
@@ -173,7 +174,11 @@ export function useGenerationPolling(options: UseGenerationPollingOptions): void
           chunk(ids, MAX_POLL_IDS).map((batch) => fetchGenerationsByIds(batch, request.signal)),
         );
         if (disposed || request.signal.aborted) return;
-        delay = apply(answers.flat()) ? minMs : Math.min(maxMs, Math.round(delay * growth));
+        // The first answer after waking up does not count as "nothing changed": the loop starts
+        // over at the short interval.
+        const changed = apply(answers.flat());
+        delay = changed || woke ? minMs : Math.min(maxMs, Math.round(delay * growth));
+        woke = false;
       } catch (error) {
         if (disposed || request.signal.aborted) return;
         // Signed out: nothing here can succeed, and refresh() clears the user so the UI follows.
@@ -198,6 +203,7 @@ export function useGenerationPolling(options: UseGenerationPollingOptions): void
     const wake = () => {
       if (disposed || document.visibilityState === 'hidden') return;
       delay = minMs;
+      woke = true;
       void poll();
     };
 

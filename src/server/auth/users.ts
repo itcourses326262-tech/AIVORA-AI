@@ -6,7 +6,7 @@ import { newId } from '@/lib/id';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '@/lib/i18n/locales';
 import { getDb, withTx, type Tx } from '@/server/db';
 import { users, type UserRow } from '@/server/db/schema';
-import { isSmtpConfigured } from '@/server/email';
+import { isSmtpConfigured } from '@/server/email/transport';
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getRateLimiter } from '@/server/security/rate-limit';
