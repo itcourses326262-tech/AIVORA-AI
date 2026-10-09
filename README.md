@@ -58,6 +58,10 @@ npm run dev
 
 لتشغيله في حاوية: `docker compose up -d --build` بعد نسخ `.env.example` إلى `.env` (التفاصيل في [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
+**ويندوز (مشاكل معروفة):**
+- رسالة «running scripts is disabled on this system» في PowerShell: استعمل `npm.cmd install` و`npm.cmd run dev` بدل `npm`، أو نفّذ مرة واحدة `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
+- خطأ `gyp ERR! find VS` أثناء `npm install` (يطلب Visual Studio): سببه أن npm 11 يحاول تجميع `better-sqlite3` من الكود مع أن الحزمة تحمل بناءً جاهزًا. ملف `.npmrc` في المشروع يتجاوز سكربتات التثبيت لتفادي ذلك، فإن ظهر الخطأ عندك فاحصل على آخر نسخة (`git pull`)، واحذف مجلد `node_modules`، ثم أعد `npm install` (أو نفّذ `npm install --ignore-scripts`).
+
 ## الإعدادات (متغيرات البيئة)
 
 تُقرأ كلها من البيئة وتُتحقق عند أول طلب، وتُبلَّغ كل المشكلات معًا في رسالة واحدة. القيمة الفارغة تُعامل كأنها غير موجودة. المصدر الكامل مع الشروح: [`.env.example`](.env.example) و`src/server/env.ts`.
@@ -380,6 +384,10 @@ npm run dev
 Data lives in `./data` (the SQLite database and the media). Delete the folder to start over.
 
 To run it in a container: `docker compose up -d --build` after copying `.env.example` to `.env` (details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+
+**Windows (known issues):**
+- "running scripts is disabled on this system" in PowerShell: use `npm.cmd install` and `npm.cmd run dev` instead of `npm`, or run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once.
+- `gyp ERR! find VS` during `npm install` (asks for Visual Studio): npm 11 tries to compile `better-sqlite3` from source although the package ships a prebuilt binary. The `.npmrc` in the project skips install scripts to avoid that. If you still see the error, pull the latest version (`git pull`), delete the `node_modules` folder and run `npm install` again (or `npm install --ignore-scripts`).
 
 ## Configuration (environment variables)
 
