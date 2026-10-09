@@ -299,15 +299,34 @@ export function parseEnv(source: Readonly<Record<string, string | undefined>> = 
   return result.data;
 }
 
-let cached: Env | undefined;
-let cachedStamp = '';
+interface EnvMemory {
+  env?: Env;
+  /** The hot-reloadable values `env` was parsed with. */
+  stamp: string;
+}
+
+const processMemory: EnvMemory = { stamp: '' };
+const SHARED_MEMORY_KEY = Symbol.for('aivore.env');
+
+/**
+ * Where the parsed env is remembered. In development the dev server evaluates this module more than
+ * once (the route graph and the worker graph, and again after every `.env.local` change), so the
+ * memory lives on `globalThis` there and every copy agrees on one env. Everywhere else it is plain
+ * module state, fixed for the life of the process.
+ */
+function memory(): EnvMemory {
+  if (process.env.NODE_ENV !== 'development') return processMemory;
+  const shared = globalThis as Record<symbol, EnvMemory | undefined>;
+  return (shared[SHARED_MEMORY_KEY] ??= { stamp: '' });
+}
 
 /**
  * The settings a developer changes while the site is running: provider keys, the Demo switch and
  * the spend cap. `next dev` reloads `.env.local` into `process.env` when it changes, so in
- * development `getEnv()` re-reads when one of these differs from what was parsed. That is what lets
- * `npm run setup:fal` take effect without restarting the site. Never consulted in production or in
- * tests, where the environment is fixed for the life of the process.
+ * development `getEnv()` picks these up when one differs from what was parsed. That is what lets
+ * `npm run setup:fal` take effect without restarting the site. Every other setting keeps the value
+ * it had at start-up. Never consulted in production or in tests, where the environment is fixed
+ * for the life of the process.
  */
 const HOT_RELOAD_NAMES = [
   'FAL_KEY',
@@ -315,16 +334,19 @@ const HOT_RELOAD_NAMES = [
   'REPLICATE_API_TOKEN',
   'ENABLE_MOCK_PROVIDER',
   'DAILY_UPSTREAM_BUDGET_CREDITS',
-] as const;
+] as const satisfies readonly (keyof Env)[];
 
 function hotReloadStamp(): string {
   return HOT_RELOAD_NAMES.map((name) => process.env[name] ?? '').join('\u0000');
 }
 
 export function getEnv(): Env {
-  if (cached) {
-    if (cached.NODE_ENV !== 'development' || hotReloadStamp() === cachedStamp) return cached;
-    return reloadHotSettings(cached);
+  const remembered = memory();
+  if (remembered.env) {
+    if (remembered.env.NODE_ENV !== 'development' || hotReloadStamp() === remembered.stamp) {
+      return remembered.env;
+    }
+    return reloadHotSettings(remembered, remembered.env);
   }
   const stamp = hotReloadStamp();
   const env = parseEnv();
@@ -333,29 +355,30 @@ export function getEnv(): Env {
       'SESSION_SECRET is not set: using an insecure development default. Set it before deploying.',
     );
   }
-  cached = env;
-  cachedStamp = stamp;
+  remembered.env = env;
+  remembered.stamp = stamp;
   warnAboutRiskySettings(env);
   return env;
 }
 
 /**
- * Development only: parses again after one of {@link HOT_RELOAD_NAMES} changed. A value that does not
- * parse (a half-typed edit) keeps the settings in use and says so once, instead of failing every
- * request until the file is fixed.
+ * Development only: parses again after one of {@link HOT_RELOAD_NAMES} changed and applies just
+ * those values to the settings in use. A value that does not parse (a half-typed edit) keeps the
+ * settings in use and says so once, instead of failing every request until the file is fixed.
  */
-function reloadHotSettings(previous: Env): Env {
-  const stamp = hotReloadStamp();
-  cachedStamp = stamp;
+function reloadHotSettings(remembered: EnvMemory, previous: Env): Env {
+  remembered.stamp = hotReloadStamp();
   try {
-    const env = parseEnv();
-    cached = env;
+    const parsed = parseEnv();
+    const next: Env = { ...previous };
+    for (const name of HOT_RELOAD_NAMES) Object.assign(next, { [name]: parsed[name] });
+    remembered.env = next;
     getLogger().info('Reloaded provider settings from the environment.', {
-      fal: Boolean(env.FAL_KEY),
-      openai: Boolean(env.OPENAI_API_KEY),
-      replicate: Boolean(env.REPLICATE_API_TOKEN),
+      fal: Boolean(next.FAL_KEY),
+      openai: Boolean(next.OPENAI_API_KEY),
+      replicate: Boolean(next.REPLICATE_API_TOKEN),
     });
-    return env;
+    return next;
   } catch (error) {
     getLogger().warn(
       'The environment changed but does not parse; keeping the previous settings until it is fixed.',
@@ -402,6 +425,7 @@ function warnAboutRiskySettings(env: Env): void {
 
 /** Forgets the memoized env so the next `getEnv()` re-reads `process.env`. For tests only. */
 export function resetEnvForTests(): void {
-  cached = undefined;
-  cachedStamp = '';
+  processMemory.env = undefined;
+  processMemory.stamp = '';
+  delete (globalThis as Record<symbol, EnvMemory | undefined>)[SHARED_MEMORY_KEY];
 }

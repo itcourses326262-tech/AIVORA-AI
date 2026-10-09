@@ -58,7 +58,7 @@ npm run dev
 
 لتشغيله في حاوية: `docker compose up -d --build` بعد نسخ `.env.example` إلى `.env` (التفاصيل في [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
-**ربط fal.ai (نماذج حقيقية) بأمر واحد:** `npm run setup:fal` (على PowerShell: `npm.cmd run setup:fal`). يطلب المفتاح بإدخال مخفي، ويحفظه في `.env.local` (يتجاهله Git فلا يُرفع)، ويضيف سقف إنفاق يوميًا `DAILY_UPSTREAM_BUDGET_CREDITS=200`، ثم يعرض عليك توليد صورة اختبار واحدة حقيقية (تكلفتها نحو 0.003 دولار عند fal) ويخبرك بدقة بسبب أي فشل (مفتاح مرفوض أو رصيد منتهٍ أو مشكلة شبكة). للفحص لاحقًا دون إعادة إدخال المفتاح: `npm run check:fal`. أعد تشغيل `npm run dev` بعد الحفظ، واكتب الأوصاف بالإنجليزية مع نماذج FLUX.
+**ربط fal.ai (نماذج حقيقية) بأمر واحد:** `npm run setup:fal` (على PowerShell: `npm.cmd run setup:fal`). يطلب المفتاح بإدخال مخفي، ويحفظه في `.env.local` (يتجاهله Git فلا يُرفع)، ويضيف سقف إنفاق يوميًا `DAILY_UPSTREAM_BUDGET_CREDITS=200`، ثم يعرض عليك توليد صورة اختبار واحدة حقيقية (تكلفتها نحو 0.003 دولار عند fal) ويخبرك بدقة بسبب أي فشل (مفتاح مرفوض أو رصيد منتهٍ أو مشكلة شبكة). للفحص لاحقًا دون إعادة إدخال المفتاح: `npm run check:fal`. إن كان `npm run dev` يعمل فسيلتقط المفتاح الجديد وحده خلال ثوانٍ (في التطوير فقط؛ في الإنتاج يُقرأ `.env` عند التشغيل فقط، فأعد تشغيل الحاوية بعد أي تغيير، انظر docs/OPERATIONS.md). لحذف المفتاح اترك القيمة فارغة (`FAL_KEY=`) أو أعد تشغيل الموقع: حذف ملف `.env.local` لا يلغيه في موقع يعمل. اكتب الأوصاف بالإنجليزية مع نماذج FLUX.
 
 **ويندوز (مشاكل معروفة):**
 
@@ -388,7 +388,7 @@ Data lives in `./data` (the SQLite database and the media). Delete the folder to
 
 To run it in a container: `docker compose up -d --build` after copying `.env.example` to `.env` (details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
-**Connect fal.ai (real models) with one command:** `npm run setup:fal` (PowerShell: `npm.cmd run setup:fal`). It asks for the key with hidden typing, saves it to `.env.local` (ignored by git, so it is never uploaded), adds a daily spend cap `DAILY_UPSTREAM_BUDGET_CREDITS=200`, then offers one real test image (about USD 0.003 at fal) and tells you exactly why it failed if it does (rejected key, exhausted balance, network). To re-check later without retyping the key: `npm run check:fal`. Restart `npm run dev` after saving, and write prompts in English for FLUX models.
+**Connect fal.ai (real models) with one command:** `npm run setup:fal` (PowerShell: `npm.cmd run setup:fal`). It asks for the key with hidden typing, saves it to `.env.local` (ignored by git, so it is never uploaded), adds a daily spend cap `DAILY_UPSTREAM_BUDGET_CREDITS=200`, then offers one real test image (about USD 0.003 at fal) and tells you exactly why it failed if it does (rejected key, exhausted balance, network). To re-check later without retyping the key: `npm run check:fal`. A running `npm run dev` picks the new key up by itself within a few seconds (development only: production reads `.env` once at start-up, so recreate the container after changing it, see docs/OPERATIONS.md). To remove a key, leave its value blank (`FAL_KEY=`) or restart: deleting `.env.local` does not unset it in a running site. Write prompts in English for FLUX models.
 
 **Windows (known issues):**
 

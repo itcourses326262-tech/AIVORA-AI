@@ -86,6 +86,9 @@ export default defineMessages({
       pricePerImage: '{price} per image',
       pricePerSecond: '{price} per second',
       priceFromPerSecond: 'From {price} per second',
+      priceShortPerSecond: '{price}/s',
+      priceShortFromPerSecond: 'from {price}/s',
+      switched: 'Now using {model} ({price}).',
     },
     aspect: {
       label: 'Aspect ratio',
@@ -418,6 +421,9 @@ export default defineMessages({
       pricePerImage: '{price} للصورة',
       pricePerSecond: '{price} للثانية',
       priceFromPerSecond: 'من {price} للثانية',
+      priceShortPerSecond: '{price}/ث',
+      priceShortFromPerSecond: 'من {price}/ث',
+      switched: 'يُستخدم الآن {model} ({price}).',
     },
     aspect: {
       label: 'نسبة الأبعاد',

@@ -249,6 +249,11 @@ describe('GET /api/v1/models while the environment changes', () => {
       resetEnvForTests();
     });
 
+    it('is revalidated on every call, so a reload right after adding a key shows the new list', async () => {
+      const { headers } = await list();
+      expect(headers.get('cache-control')).toBe('private, no-cache');
+    });
+
     it('lists the fal models as unavailable until FAL_KEY appears, then as available', async () => {
       const before = falModels((await list()).json.data);
       expect(before.length).toBeGreaterThan(0);

@@ -167,7 +167,9 @@ async function main(): Promise<number> {
   prompter.close();
 
   if (!runTest) {
-    console.log('\nDone. Restart the site (npm run dev) so it reads the new key.');
+    console.log(
+      '\nDone. A running `npm run dev` picks the key up by itself within a few seconds; a site started any other way needs a restart.',
+    );
     return 0;
   }
 
@@ -178,7 +180,9 @@ async function main(): Promise<number> {
     console.log(
       `\nOK: fal works. Saved ${result.file} (${size}${result.bytes} bytes, ${result.ms} ms).`,
     );
-    console.log('Now (re)start the site with: npm run dev   (PowerShell: npm.cmd run dev)');
+    console.log(
+      'A running `npm run dev` has already picked the key up; otherwise start the site with: npm run dev   (PowerShell: npm.cmd run dev)',
+    );
     console.log(
       'In the Studio, pick FLUX.1 Schnell and generate. Write prompts in English for best results.',
     );

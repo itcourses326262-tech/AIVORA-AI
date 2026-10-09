@@ -241,7 +241,8 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       // The address bar and stored settings never put a Demo model over a configured real one.
       if (demo && !action.explicit && realConfigured) return state;
       const demoChosen = { ...state.demoChosen };
-      if (action.explicit) {
+      // Tapping the card that is already selected changes nothing, so it is no new choice either.
+      if (action.explicit && model.id !== state.form.modelId) {
         if (demo) demoChosen[tool] = true;
         else delete demoChosen[tool];
       }

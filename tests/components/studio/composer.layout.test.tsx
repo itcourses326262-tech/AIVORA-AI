@@ -47,8 +47,18 @@ async function overflow(page: Page) {
       /^(Model|النموذج):/.test(button.textContent ?? ''),
     );
     const box = chip?.getBoundingClientRect();
+    // The price is the first fixed-width item after the name: it must never be the part that is cut.
+    const price = chip?.querySelector<HTMLElement>('span.shrink-0.whitespace-nowrap');
     return {
       viewport,
+      price: price
+        ? {
+            clipped: price.scrollWidth > price.clientWidth,
+            right: price.getBoundingClientRect().right,
+            width: price.getBoundingClientRect().width,
+          }
+        : null,
+      hidden: chip ? getComputedStyle(chip).display === 'none' : true,
       page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       chip: box
         ? {
@@ -112,18 +122,56 @@ describe.skipIf(chromiumPath() === undefined)(
         expect(chip?.height).toBeLessThan(48);
         // The name gives way ("…") instead of running out of the button.
         expect(chip?.spills).toBe(false);
+        // The price is never the part that is cut: it keeps its full width inside the chip.
+        expect(measured.price).not.toBeNull();
+        expect(measured.price?.clipped).toBe(false);
+        expect(measured.price?.width).toBeGreaterThan(20);
+        expect(measured.price?.right).toBeLessThanOrEqual(chip?.right ?? 0);
       },
       60_000,
     );
 
-    // 390px is the phone the end-to-end suite uses; the Generate row beside it needs a little more
-    // room than the narrower phones have, which is its own matter.
-    it.each(['en', 'ar'] as const)(
-      'does not make the page wider than a 390px screen (%s)',
-      async (locale) => {
+    // The tap target meets the coarse-pointer minimum of 44px that the other controls use.
+    it('is a 44px tap target on a touch screen', async () => {
+      const page = await openPage(browser, stripMarkup('en', LONGEST()), {
+        locale: 'en',
+        width: 390,
+        touch: true,
+      });
+      const measured = await overflow(page);
+      await page.context().close();
+      expect(measured.chip?.height).toBeGreaterThanOrEqual(44);
+    }, 60_000);
+
+    // On a phone held sideways the strip would leave no room for the results: the chip steps aside
+    // and the model stays one tap away in Settings.
+    it('is left out when the screen is only a few hundred pixels tall', async () => {
+      const page = await openPage(browser, stripMarkup('en', LONGEST()), {
+        locale: 'en',
+        width: 844,
+        height: 390,
+        touch: true,
+      });
+      const measured = await overflow(page);
+      await page.context().close();
+      expect(measured.hidden).toBe(true);
+    }, 60_000);
+
+    // The Settings button gives up its word on narrow phones, so the whole row (Settings, Generate and
+    // the chip above them) fits from 320px up.
+    it.each([
+      ['en', 320],
+      ['en', 360],
+      ['en', 390],
+      ['ar', 320],
+      ['ar', 360],
+      ['ar', 390],
+    ] as const)(
+      'does not make the page wider than the screen (%s, %ipx)',
+      async (locale, width) => {
         const page = await openPage(browser, stripMarkup(locale, LONGEST()), {
           locale,
-          width: 390,
+          width,
           touch: true,
         });
         const measured = await overflow(page);

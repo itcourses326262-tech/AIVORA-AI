@@ -14,7 +14,8 @@ export function createJobRunner(overrides: Partial<JobRunnerDeps> = {}): JobRunn
     storage: getStorage(),
     providers: { getProvider },
     env: getEnv(),
-    readEnv: getEnv,
+    // A caller that passes its own `env` gets exactly that env for every job.
+    ...(overrides.env ? {} : { readEnv: getEnv }),
     log: getLogger().child({ component: 'worker' }),
     ...overrides,
   });

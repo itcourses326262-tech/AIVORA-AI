@@ -73,7 +73,7 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
           startIcon={<SlidersHorizontal aria-hidden="true" />}
           onClick={onOpenSettings}
         >
-          {t('studio.mobile.settings')}
+          <span className="max-[400px]:sr-only">{t('studio.mobile.settings')}</span>
         </Button>
         <div className="min-w-0 flex-1">
           <GenerateButton

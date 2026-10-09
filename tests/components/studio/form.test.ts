@@ -215,6 +215,16 @@ describe('studioReducer', () => {
       expect(state.demoChosen).toEqual({});
     });
 
+    it('does not count a tap on the Demo card that is already selected as a deliberate choice', () => {
+      // Demo is all this server had, so it is the model in use without anyone having picked it.
+      let state = stateWith([DEMO_IMAGE()]);
+      state = studioReducer(state, { type: 'model', modelId: 'aivore-demo-image', explicit: true });
+      expect(state.demoChosen).toEqual({});
+      // The real model arrives later: it takes over, as it should for someone who never chose Demo.
+      state = studioReducer(state, { type: 'models', models: both() });
+      expect(state.form.modelId).toBe('fal-flux-schnell');
+    });
+
     it('still accepts the Demo model when nothing real is configured', () => {
       const state = studioReducer(stateWith([DEMO_IMAGE(), FLUX_UNAVAILABLE()]), {
         type: 'prefill',

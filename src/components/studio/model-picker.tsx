@@ -3,6 +3,7 @@
 import { Coins, TriangleAlert } from 'lucide-react';
 import type { ModelDTO } from '@/lib/api-types';
 import { creditsText } from '@/lib/generations/format';
+import { cn } from '@/lib/utils';
 import type { Translator } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/client';
 import { ErrorState } from '../ui/error-state';
@@ -38,6 +39,25 @@ export function priceLine(model: ModelDTO, i18n: Pick<Translator, 't' | 'plural'
   return prices.some((candidate) => candidate !== lowest)
     ? t('studio.model.priceFromPerSecond', { price })
     : t('studio.model.pricePerSecond', { price });
+}
+
+/** The price in as few words as fit beside a model's name: "1 credit", "From 38 credits/s". */
+export function shortPriceLine(model: ModelDTO, i18n: Pick<Translator, 't' | 'plural'>): string {
+  const { t } = i18n;
+  if (model.pricing.type === 'image') return creditsText(i18n, model.pricing.perImage);
+  const { perSecond } = model.pricing;
+  const offered = model.limits.resolutions ?? [];
+  const prices = (
+    offered.length > 0 ? offered : (Object.keys(perSecond) as Array<keyof typeof perSecond>)
+  )
+    .map((resolution) => perSecond[resolution])
+    .filter((price): price is number => typeof price === 'number');
+  if (prices.length === 0) return '';
+  const lowest = Math.min(...prices);
+  const price = creditsText(i18n, lowest);
+  return prices.some((candidate) => candidate !== lowest)
+    ? t('studio.model.priceShortFromPerSecond', { price })
+    : t('studio.model.priceShortPerSecond', { price });
 }
 
 export interface ModelPickerProps {
@@ -107,11 +127,21 @@ export function ModelPicker({
     ),
     description: (
       <span className="grid gap-1.5">
-        <span className="line-clamp-3 text-xs leading-5 text-muted">
+        <span
+          className={cn(
+            'line-clamp-3 text-xs leading-5 text-muted',
+            !model.available && 'opacity-60',
+          )}
+        >
           {model.description[locale]}
         </span>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span className="inline-flex items-center gap-1 font-medium text-foreground tabular-nums">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 font-medium text-foreground tabular-nums',
+              !model.available && 'opacity-60',
+            )}
+          >
             <Coins aria-hidden="true" className="size-3.5 text-brand" />
             {priceLine(model, i18n)}
           </span>

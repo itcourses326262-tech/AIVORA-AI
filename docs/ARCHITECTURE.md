@@ -1116,7 +1116,7 @@ send `Origin: <APP_URL>` on login/register), 429 with `Retry-After` and `X-RateL
 
 **Environment variables of the backend phase** (all in `.env.example`; `getEnv()` validates them all at the first call and reports every problem together):
 `TRUST_PROXY` (default false: trust `X-Forwarded-For`, the proxy must append to it), `TRUSTED_PROXY_HOPS` (1..10), `RATE_LIMIT_DISABLED` (DANGER, e2e/load tests only, loud start-up warning),
-`DAILY_UPSTREAM_BUDGET_CREDITS` (below), `FAL_KEY` (makes the nine `fal-*` models available), `ENABLE_MOCK_PROVIDER` (Demo models; turn off in production once real keys exist), `WORKER_MODE`
+`DAILY_UPSTREAM_BUDGET_CREDITS` (below), `FAL_KEY` (makes the nine `fal-*` models available; with `OPENAI_API_KEY`, `REPLICATE_API_TOKEN`, `ENABLE_MOCK_PROVIDER` and the budget it is the one group `getEnv()` re-reads in development when `next dev` reloads `.env.local`, kept on `globalThis` so every module copy agrees, and a value that does not parse keeps the settings in use; the job runner reads the env per job through `JobRunnerDeps.readEnv`; production and tests keep the first read), `ENABLE_MOCK_PROVIDER` (Demo models; turn off in production once real keys exist), `WORKER_MODE`
 (`inline` | `external` | `off`), `MODERATION_PROVIDER` / `PROMPT_ENHANCER` and their keys. Start-up warnings (once per process): insecure `SESSION_SECRET` outside production, `RATE_LIMIT_DISABLED`, a non-empty
 `ADMIN_EMAILS` (the first registrant of that address becomes admin), and in production `TRUST_PROXY=false`; plus the first-request warning about ignored forwarding headers (§16).
 

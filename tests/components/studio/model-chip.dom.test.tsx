@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ModelChip } from '@/components/studio/model-chip';
@@ -40,6 +40,12 @@ function mountChip({ toolModels, model, models, locale }: Setup = {}) {
   return { ...view, setModel, reload, user: userEvent.setup() };
 }
 
+/** Taps in the first moments after the sheet opened are ignored (see OPEN_GUARD_MS). */
+const afterOpenGuard = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  });
+
 const chip = () => screen.getByRole('button', { name: /^(Model|النموذج):/ });
 const sheet = () => screen.findByRole('dialog', { name: /^(Choose a model|اختر النموذج)$/ });
 
@@ -51,7 +57,7 @@ describe('ModelChip', () => {
     expect(button).toHaveAttribute('aria-haspopup', 'dialog');
     expect(button).toBeEnabled();
     // jsdom has no layout, so the flex items are not told apart by spaces; a browser does.
-    expect(button.textContent).toMatch(/^Model:\s*FLUX\.2 Pro\s*·\s*8 credits per image\s*Change$/);
+    expect(button.textContent).toMatch(/^Model:\s*FLUX\.2 Pro\s*8 credits\s*Change$/);
     // Decorative icons stay out of the name.
     expect(button.querySelectorAll('svg')).not.toHaveLength(0);
     for (const icon of button.querySelectorAll('svg')) {
@@ -62,7 +68,7 @@ describe('ModelChip', () => {
   it('shows the price per second for a video model', () => {
     const video = modelDTO('aivore-demo-video');
     mountChip({ toolModels: [video], model: video });
-    expect(chip().textContent).toMatch(/AIVORE Demo Video\s*·\s*(From )?\d+ credits? per second/);
+    expect(chip().textContent).toMatch(/AIVORE Demo Video\s*(from )?\d+ credits?\/s/);
   });
 
   it('keeps the list closed until the chip is pressed', async () => {
@@ -101,23 +107,41 @@ describe('ModelChip', () => {
     const { user, setModel } = mountChip({ toolModels: list });
     await user.click(chip());
     const dialog = await sheet();
+    await afterOpenGuard();
     await user.click(within(dialog).getByRole('radio', { name: /FLUX\.2 Pro/ }));
     expect(setModel).toHaveBeenCalledExactlyOnceWith('fal-flux-2-pro');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(chip()).toHaveFocus();
   });
 
-  it('can be chosen with the keyboard as well', async () => {
+  it('browses with the arrow keys without leaving the sheet, and confirms with Space', async () => {
     const list = [FLUX(), FLUX_PRO()];
     const { user, setModel } = mountChip({ toolModels: list });
     await user.click(chip());
     const dialog = await sheet();
+    await afterOpenGuard();
     within(dialog)
       .getByRole('radio', { name: /FLUX\.1 Schnell/ })
       .focus();
     await user.keyboard('{ArrowDown}');
     expect(setModel).toHaveBeenLastCalledWith('fal-flux-2-pro');
+    // Moving through the list is not a decision: the sheet stays so the next arrow can be pressed.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('[Space]');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('ignores a second tap that lands on a card while the sheet is still sliding in', async () => {
+    const { user, setModel } = mountChip({ toolModels: [FLUX(), FLUX_PRO(), DEMO_IMAGE()] });
+    await user.click(chip());
+    const dialog = await sheet();
+    // The panel now covers the chip: the double tap's second half hits a model card.
+    await user.click(within(dialog).getByRole('radio', { name: /FLUX\.2 Pro/ }));
+    expect(setModel).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await afterOpenGuard();
+    await user.click(within(dialog).getByRole('radio', { name: /FLUX\.2 Pro/ }));
+    expect(setModel).toHaveBeenCalledExactlyOnceWith('fal-flux-2-pro');
   });
 
   it('closes with Done or Escape without choosing anything', async () => {
@@ -137,7 +161,9 @@ describe('ModelChip', () => {
     const { user, setModel } = mountChip({ toolModels: [FLUX(), FLUX_PRO()] });
     for (const name of [/FLUX\.2 Pro/, /FLUX\.1 Schnell/]) {
       await user.click(chip());
-      await user.click(within(await sheet()).getByRole('radio', { name }));
+      const dialog = await sheet();
+      await afterOpenGuard();
+      await user.click(within(dialog).getByRole('radio', { name }));
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     }
     expect(setModel.mock.calls).toEqual([['fal-flux-2-pro'], ['fal-flux-schnell']]);
@@ -188,6 +214,16 @@ describe('ModelChip', () => {
     expect(button.textContent).toMatch(/^Model:\s*Loading models\s*Change$/);
     await user.click(button);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not show the old price while the models reload', () => {
+    const list = [FLUX_PRO(), DEMO_IMAGE()];
+    const studio = {
+      models: { status: 'loading', reload: vi.fn() },
+      form: { model: list[0], toolModels: list, setModel: vi.fn() },
+    } as unknown as StudioController;
+    renderUi(<ModelChip studio={studio} />);
+    expect(chip().textContent).toMatch(/^Model:\s*Loading models\s*Change$/);
   });
 
   it('turns on when the models arrive', () => {
@@ -241,9 +277,7 @@ describe('ModelChip in Arabic', () => {
     const { user, setModel } = mountChip({ locale: 'ar', toolModels: list });
     expect(document.documentElement.dir).toBe('rtl');
     const button = chip();
-    expect(button.textContent).toMatch(
-      /^النموذج:\s*AIVORE Demo Image\s*·\s*رصيد واحد للصورة\s*تغيير$/,
-    );
+    expect(button.textContent).toMatch(/^النموذج:\s*AIVORE Demo Image\s*رصيد واحد\s*تغيير$/);
 
     await user.click(button);
     const dialog = await screen.findByRole('dialog', { name: 'اختر النموذج' });
@@ -253,6 +287,7 @@ describe('ModelChip in Arabic', () => {
     expect(missing).toHaveTextContent('غير مُعدّ على هذا الخادم');
     expect(within(dialog).getByRole('button', { name: 'تم' })).toBeInTheDocument();
 
+    await afterOpenGuard();
     await user.click(pro as HTMLElement);
     expect(setModel).toHaveBeenCalledExactlyOnceWith('fal-flux-2-pro');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

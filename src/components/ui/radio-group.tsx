@@ -142,7 +142,7 @@ export function RadioGroup({
               if (!isDisabled) group.setCurrent(option.value);
             }}
             className={cn(
-              'group flex w-full cursor-pointer items-start gap-3 text-start transition-colors duration-150 aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
+              'group flex w-full cursor-pointer items-start gap-3 text-start transition-colors duration-150 aria-disabled:cursor-not-allowed',
               appearance === 'card' &&
                 'rounded-xl border border-border bg-surface p-3.5 hover:border-border-strong data-[state=checked]:border-primary data-[state=checked]:bg-brand-soft',
               appearance === 'list' && 'rounded-md py-1',
@@ -151,12 +151,15 @@ export function RadioGroup({
           >
             <span
               aria-hidden="true"
-              className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-field bg-surface transition-colors duration-150 group-hover:border-muted group-data-[state=checked]:border-primary"
+              className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-field bg-surface transition-colors duration-150 group-hover:border-muted group-aria-disabled:opacity-50 group-data-[state=checked]:border-primary"
             >
               <span className="size-2.5 scale-0 rounded-full bg-primary transition-transform duration-150 group-data-[state=checked]:scale-100" />
             </span>
             <span className="grid gap-0.5">
-              <span id={labelId} className="text-sm leading-6 font-medium text-foreground">
+              <span
+                id={labelId}
+                className="text-sm leading-6 font-medium text-foreground group-aria-disabled:opacity-50"
+              >
                 {option.label}
               </span>
               {option.description ? (

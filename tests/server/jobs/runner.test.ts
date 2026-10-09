@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDb } from '@/server/db';
 import { assets, generations } from '@/server/db/schema';
-import { getEnv, type Env } from '@/server/env';
+import { getEnv, parseEnv, type Env } from '@/server/env';
 import { markCanceled } from '@/server/generations/lifecycle';
 import { createGeneration } from '@/server/generations/service';
 import { JobRunner } from '@/server/jobs/runner';
@@ -545,6 +545,14 @@ describe('createJobRunner', () => {
     const custom = fakeProvider();
     const overridden = createJobRunner({ providers: { getProvider: () => custom } });
     expect(overridden.deps.providers.getProvider('mock')).toBe(custom);
+  });
+
+  it('reads the process env for each job, unless the caller passes an env of its own', () => {
+    expect(createJobRunner().deps.readEnv).toBe(getEnv);
+    const fixed = parseEnv({});
+    const runner = createJobRunner({ env: fixed });
+    expect(runner.deps.env).toBe(fixed);
+    expect(runner.deps.readEnv).toBeUndefined();
   });
 });
 

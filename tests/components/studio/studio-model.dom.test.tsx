@@ -52,9 +52,17 @@ async function mountPhone(options: MountOptions = {}) {
   return { ...mounted, user: userEvent.setup() };
 }
 
+/** Taps in the first moments after the sheet opened are ignored (see OPEN_GUARD_MS). */
+const afterOpenGuard = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  });
+
 async function pickInChip(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(chip());
-  await user.click(within(await modelSheet()).getByRole('radio', { name }));
+  const sheet = await modelSheet();
+  await afterOpenGuard();
+  await user.click(within(sheet).getByRole('radio', { name }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 }
 
@@ -66,6 +74,8 @@ async function comeBackAfter(ms: number) {
     window.dispatchEvent(new Event('focus'));
   });
 }
+
+const liveRegion = () => document.querySelector('p[role="status"].sr-only') as HTMLElement;
 
 const modelRequests = (api: FakeApi) => api.callsTo('GET', '/models');
 
@@ -90,23 +100,24 @@ describe('Studio on a phone: the model chip in the composer', () => {
 
   it('names the model that will run and its price, a configured real one before the Demo', async () => {
     await mountPhone({ models: CONFIGURED() });
-    expect(chip().textContent).toMatch(
-      /^Model:\s*FLUX\.1 Schnell\s*·\s*1 credit per image\s*Change$/,
+    await waitFor(() =>
+      expect(chip().textContent).toMatch(/^Model:\s*FLUX\.1 Schnell\s*1 credit\s*Change$/),
     );
     expect(generateButton()).toHaveTextContent('Generate · 1 credit');
   });
 
   it('shows the Demo model when it is all this server has', async () => {
     await mountPhone();
-    expect(chip()).toHaveTextContent('AIVORE Demo Image');
-    expect(chip()).toHaveTextContent('1 credit per image');
+    // The form picks its model one effect after the list arrives, so wait for the name.
+    await waitFor(() => expect(chip()).toHaveTextContent('AIVORE Demo Image'));
+    expect(chip()).toHaveTextContent('1 credit');
   });
 
   it('follows the tool: video tools show video models and per-second prices', async () => {
     const { user } = await mountPhone({ models: CONFIGURED() });
     await user.click(screen.getByRole('tab', { name: 'Text to video' }));
-    expect(chip()).toHaveTextContent('AIVORE Demo Video');
-    expect(chip()).toHaveTextContent(/per second/);
+    await waitFor(() => expect(chip()).toHaveTextContent('AIVORE Demo Video'));
+    expect(chip()).toHaveTextContent(/credits?\/s/);
     await user.click(chip());
     const sheet = await modelSheet();
     expect(within(sheet).getAllByRole('radio')).toHaveLength(1);
@@ -137,7 +148,7 @@ describe('Studio on a phone: choosing the model', () => {
     const { user, api } = await mountPhone({ models: CONFIGURED() });
     await pickInChip(user, /FLUX\.2 Pro/);
 
-    expect(chip().textContent).toMatch(/FLUX\.2 Pro\s*·\s*8 credits per image/);
+    expect(chip().textContent).toMatch(/FLUX\.2 Pro\s*8 credits/);
     expect(generateButton()).toHaveTextContent('Generate · 8 credits');
     // Settings shows the same choice.
     await user.click(screen.getByRole('button', { name: 'Settings' }));
@@ -232,6 +243,15 @@ describe('Studio on a phone: a provider key added while the page is open', () =>
     await waitFor(() => expect(chip()).toHaveTextContent('FLUX.1 Schnell'));
     expect(modelRequests(api)).toHaveLength(2);
     expect(generateButton()).toHaveTextContent('Generate · 1 credit');
+    // The model changed under the person's hands, so screen readers are told what it is now.
+    expect(liveRegion()).toHaveTextContent('Now using FLUX.1 Schnell (1 credit).');
+  });
+
+  it('does not announce a model the person picked themselves', async () => {
+    const { user } = await mountPhone({ models: CONFIGURED() });
+    await pickInChip(user, /FLUX\.2 Pro/);
+    expect(chip()).toHaveTextContent('FLUX.2 Pro');
+    expect(liveRegion()).not.toHaveTextContent(/Now using/);
   });
 
   it('updates the list in place when the sheet is open, and keeps a model the person picked', async () => {
@@ -269,13 +289,12 @@ describe('Studio on a phone, in Arabic', () => {
   it('speaks Arabic, picks a model and closes the sheet', async () => {
     const { user, api } = await mountPhone({ locale: 'ar', models: CONFIGURED() });
     expect(document.documentElement.dir).toBe('rtl');
-    expect(chip().textContent).toMatch(
-      /^النموذج:\s*FLUX\.1 Schnell\s*·\s*رصيد واحد للصورة\s*تغيير$/,
-    );
+    expect(chip().textContent).toMatch(/^النموذج:\s*FLUX\.1 Schnell\s*رصيد واحد\s*تغيير$/);
 
     await user.click(chip());
     const sheet = await modelSheet();
     expect(within(sheet).getByRole('radiogroup', { name: 'النموذج' })).toBeInTheDocument();
+    await afterOpenGuard();
     await user.click(within(sheet).getByRole('radio', { name: /FLUX\.2 Pro/ }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(chip()).toHaveTextContent('FLUX.2 Pro');

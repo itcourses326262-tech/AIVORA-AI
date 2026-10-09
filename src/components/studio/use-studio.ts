@@ -27,6 +27,7 @@ import {
 import { isEmptyPrefill, type StudioPrefill } from './prefill';
 import { FIELD_MESSAGE_KEYS, describeSubmitError } from './submit-errors';
 import { PRICING_HREF, isShort } from './credits';
+import { shortPriceLine } from './model-picker';
 import { useGenerate } from './use-generate';
 import { useGenerationFeed, type GenerationFeed } from './use-generation-feed';
 import { useImageInput, type ImageInput } from './use-image-input';
@@ -104,7 +105,8 @@ function problemMessageKey(problem: FormProblem) {
 
 /** Everything the studio page does, in one place; the components only draw it. */
 export function useStudio(prefill: StudioPrefill): StudioController {
-  const { t, locale } = useI18n();
+  const i18n = useI18n();
+  const { t, locale } = i18n;
   const router = useRouter();
   const { user, creditBalance, refresh, emailConfirmationNeeded } = useUser();
   // The page is only served to a signed-in user, so a missing one means the session ended since.
@@ -139,6 +141,22 @@ export function useStudio(prefill: StudioPrefill): StudioController {
     });
   }, []);
 
+  // A model that changes without the person choosing it (the models were refreshed and a configured
+  // one took over from the Demo model) is said aloud: the price can differ a lot.
+  const pickedModel = useRef(false);
+  const lastModel = useRef<{ tool: Tool; id: string } | null>(null);
+  useEffect(() => {
+    const previous = lastModel.current;
+    lastModel.current = model ? { tool: form.tool, id: model.id } : null;
+    const byPerson = pickedModel.current;
+    pickedModel.current = false;
+    if (!model || !previous || previous.tool !== form.tool || previous.id === model.id) return;
+    if (byPerson) return;
+    announce(
+      t('studio.model.switched', { model: model.label, price: shortPriceLine(model, i18n) }),
+    );
+  }, [model, form.tool, announce, t, i18n]);
+
   // A refused field stays marked until the person changes something that could fix it.
   const formCtl = useMemo<StudioFormController>(
     () => ({
@@ -151,6 +169,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
         if (touched.length > 0) clearMessages(...touched);
       },
       setModel: (modelId) => {
+        if (modelId !== baseForm.model?.id) pickedModel.current = true;
         baseForm.setModel(modelId);
         clearMessages();
       },

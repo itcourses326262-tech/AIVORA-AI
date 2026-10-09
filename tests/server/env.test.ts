@@ -417,6 +417,40 @@ describe('getEnv hot reload', () => {
       expect(getEnv().WORKER_CONCURRENCY).toBe(5);
     });
 
+    it('applies only the provider and spend settings when one of them changes with others pending', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('WORKER_CONCURRENCY', '5');
+      getEnv();
+      vi.stubEnv('WORKER_CONCURRENCY', '7');
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      const next = getEnv();
+      expect(next.FAL_KEY).toBe(FAKE_KEY);
+      // The unrelated edit waits for a restart, so the job runner never works from two snapshots.
+      expect(next.WORKER_CONCURRENCY).toBe(5);
+    });
+
+    it('is one environment for every copy of the module the dev server evaluates', async () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');
+      const stderr = captureStderr();
+      const warnings = () => stderr().filter((line) => line.includes('SESSION_SECRET')).length;
+      const first = getEnv();
+      const warnedAtStart = warnings();
+
+      // The dev server evaluates the module again after a .env.local change (another module graph).
+      vi.resetModules();
+      const copy = await import('@/server/env');
+      expect(copy.getEnv()).toBe(first);
+
+      // A half-typed edit reaches the other copy too: it keeps what is in use instead of throwing.
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      expect(() => copy.getEnv()).not.toThrow();
+      expect(copy.getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(100);
+      expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(100);
+      // The start-up warning was said once, not once per module copy.
+      expect(warnings()).toBe(warnedAtStart);
+    });
+
     it('keeps the previous settings when a changed value no longer parses, and does not throw', () => {
       vi.stubEnv('NODE_ENV', 'development');
       vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');

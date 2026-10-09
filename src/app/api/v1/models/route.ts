@@ -9,6 +9,9 @@ import { listModelDTOs } from './dto';
  * may read it; nothing in it depends on the caller, so a short private cache is safe and keeps
  * the studio from refetching on every navigation.
  */
-export const GET = route({ auth: 'optional', rateLimit: CATALOG_RATE_LIMIT }, async () =>
-  ok(listModelDTOs(getEnv()), { headers: { 'Cache-Control': 'private, max-age=30' } }),
-);
+export const GET = route({ auth: 'optional', rateLimit: CATALOG_RATE_LIMIT }, async () => {
+  const env = getEnv();
+  // In development the answer changes when a provider key is added: do not let a reload show the old one.
+  const cacheControl = env.NODE_ENV === 'development' ? 'private, no-cache' : 'private, max-age=30';
+  return ok(listModelDTOs(env), { headers: { 'Cache-Control': cacheControl } });
+});
