@@ -40,24 +40,47 @@ function createPrompter() {
       else if (/[\r\n]/.test(text)) process.stdout.write('\n');
     };
   }
+  // Lines may arrive in one burst (a paste, a piped file) before the next question is asked, so
+  // every line goes through a queue instead of being matched to one `question` call.
+  const queue: string[] = [];
+  let waiting: ((line: string) => void) | undefined;
   let closed = false;
+  rl.on('line', (line) => {
+    // Stay muted here: the rest of a pasted burst is processed before the next question is asked.
+    if (waiting) {
+      const resolve = waiting;
+      waiting = undefined;
+      resolve(line);
+    } else {
+      queue.push(line);
+    }
+  });
   rl.on('close', () => {
     closed = true;
+    if (waiting) {
+      const resolve = waiting;
+      waiting = undefined;
+      resolve('');
+    }
   });
   return {
     ask(question: string, secret = false): Promise<string> {
+      const queued = queue.shift();
+      if (queued !== undefined) {
+        process.stdout.write(`${question}\n`);
+        muted = secret;
+        return Promise.resolve(queued);
+      }
       if (closed) return Promise.resolve('');
       return new Promise((resolve) => {
-        const onClose = () => resolve('');
-        rl.once('close', onClose);
-        rl.question(question, (answer) => {
-          rl.off('close', onClose);
-          muted = false;
-          resolve(answer);
-        });
+        waiting = resolve;
+        muted = false; // the prompt itself must be visible
+        rl.setPrompt(question);
+        rl.prompt();
         muted = secret;
       });
     },
+    isClosed: () => closed && queue.length === 0,
     close: () => rl.close(),
   };
 }
@@ -80,10 +103,25 @@ async function main(): Promise<number> {
   );
 
   const prompter = createPrompter();
-  const entered = await prompter.ask(
-    'Paste your fal key and press Enter (typing is hidden): ',
-    true,
-  );
+  // A stray Enter (or a leftover line from pasting several commands at once) arrives as an empty
+  // line: ignore it and ask again instead of giving up.
+  let entered = '';
+  for (let attempt = 0; attempt < 5 && entered.trim() === ''; attempt += 1) {
+    entered = await prompter.ask(
+      attempt === 0
+        ? 'Paste your fal key (nothing will show while you paste), then press Enter: '
+        : 'No key received yet. Paste it here and press Enter: ',
+      true,
+    );
+    if (prompter.isClosed()) break;
+  }
+  if (entered.trim() === '') {
+    prompter.close();
+    console.log(
+      '\nNothing was saved: no key arrived. Run the command again, wait until the prompt above appears, and only then paste the key (one command at a time).',
+    );
+    return 1;
+  }
   const checked = validateFalKey(entered);
   if (!checked.ok) {
     prompter.close();
