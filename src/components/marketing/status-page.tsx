@@ -3,7 +3,27 @@ import type { ReactNode } from 'react';
 import { LocaleSwitcher } from '@/components/layout/locale-switcher';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Logo } from '@/components/ui/logo';
-import { MeshBackdrop } from './mesh-backdrop';
+
+/**
+ * The soft light behind a status page: the landing page's mesh (blurred brand-coloured pools over a
+ * faint grid), drawn with utilities instead of its CSS module. The root error and not-found
+ * boundaries render this page, so everything they import is preloaded by every page of the app:
+ * a CSS module here would be fetched and never used on all of them (and the browser says so in
+ * the console).
+ */
+function StatusBackdrop() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden [mask-image:linear-gradient(to_bottom,#000_62%,transparent)]"
+    >
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [mask-image:radial-gradient(ellipse_55%_60%_at_50%_0%,#000,transparent_78%)] bg-size-[56px_56px] opacity-40" />
+      <div className="absolute start-[calc(50%-38rem)] -top-80 size-176 rounded-full bg-[radial-gradient(circle,var(--brand-from),transparent_66%)] opacity-35 blur-[72px] dark:opacity-55" />
+      <div className="absolute end-[calc(50%-36rem)] -top-56 size-144 rounded-full bg-[radial-gradient(circle,var(--brand-to),transparent_66%)] opacity-25 blur-[72px] dark:opacity-40" />
+      <div className="absolute start-[calc(50%-16rem)] top-12 h-88 w-lg rounded-full bg-[radial-gradient(ellipse,var(--primary),transparent_70%)] opacity-20 blur-[72px] dark:opacity-35" />
+    </div>
+  );
+}
 
 /** Id of the heading, so a client error boundary can move focus to it. */
 export const STATUS_TITLE_ID = 'status-title';
@@ -66,7 +86,7 @@ export function StatusPage({
 }: StatusPageProps) {
   return (
     <div className="relative isolate flex min-h-dvh flex-col overflow-hidden">
-      <MeshBackdrop />
+      <StatusBackdrop />
       <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8 sm:py-6">
         <Link href="/" aria-label={homeLabel} className="hit-area rounded-lg text-foreground">
           <Logo label={null} className="h-7" />

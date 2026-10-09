@@ -205,7 +205,7 @@ export function KeysPanel({ limits, origin }: KeysPanelProps) {
           <div>
             <Link
               href="/docs"
-              className="inline-flex items-center gap-2 text-sm font-medium text-brand underline-offset-4 hover:underline"
+              className="hit-area inline-flex items-center gap-2 text-sm font-medium text-brand underline-offset-4 hover:underline"
             >
               <BookOpen aria-hidden="true" className="size-4" />
               {t('account.keys.quick.docs')}

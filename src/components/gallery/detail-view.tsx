@@ -24,6 +24,8 @@ import { useNeighbors } from './use-nav-snapshot';
 export interface DetailViewProps {
   /** The creation as the server read it. */
   initial: GenerationDTO;
+  /** The result to show first (0-based): the tile that was clicked on the card. */
+  initialIndex?: number;
 }
 
 /**
@@ -32,12 +34,12 @@ export interface DetailViewProps {
  * still being made updates in place; leaving after a delete goes back to the list it came from.
  * Mount it with `key={id}`: another creation is another state.
  */
-export function DetailView({ initial }: DetailViewProps) {
+export function DetailView({ initial, initialIndex = 0 }: DetailViewProps) {
   const { t } = useI18n();
   const router = useRouter();
   const hydrated = useHydrated();
   const [generation, setGeneration] = useState(initial);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialIndex);
   const { neighbors, backHref } = useNeighbors(initial.id);
 
   const leave = useCallback(() => {
@@ -98,7 +100,7 @@ export function DetailView({ initial }: DetailViewProps) {
                     onCancel={actions.handlers.onCancel}
                   />
                 ) : (
-                  <div className="min-h-52" />
+                  <div className="min-h-60" />
                 )
               ) : (
                 <OutcomeBody generation={generation} onRetry={retry} />

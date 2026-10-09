@@ -142,12 +142,7 @@ describe('GenerationCard: results', () => {
     const generation = generationDTO({ outputs: [assetDTO({ id: 'ast_one' })] });
     const user = userEvent.setup();
     renderUi(
-      <GenerationCard
-        generation={generation}
-        handlers={handlers}
-        modelLabel="AIVORE Demo Image"
-        demo
-      />,
+      <GenerationCard generation={generation} handlers={handlers} modelLabel="Sample Image" demo />,
     );
 
     const img = screen.getByRole('img', { name: /Generated image 1: A lone lighthouse at sunset/ });
@@ -155,12 +150,24 @@ describe('GenerationCard: results', () => {
     expect(img).toHaveAttribute('loading', 'eager');
     expect(card()).toHaveAttribute('data-status', 'succeeded');
     expect(card()).not.toHaveAttribute('aria-busy');
-    expect(screen.getByText('AIVORE Demo Image')).toBeInTheDocument();
+    expect(screen.getByText('Sample Image')).toBeInTheDocument();
     expect(screen.getByText('Demo')).toBeInTheDocument();
     expect(screen.getByText('1 credit')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /View larger: Generated image 1/ }));
     expect(handlers.onOpen).toHaveBeenCalledWith(generation, 0);
+  });
+
+  it('leaves the Demo tag out when the model name already says Demo', () => {
+    renderUi(
+      <GenerationCard
+        generation={generationDTO({ outputs: [assetDTO()] })}
+        modelLabel="AIVORE Demo Image"
+        demo
+      />,
+    );
+    expect(screen.getByText('AIVORE Demo Image')).toBeInTheDocument();
+    expect(screen.queryByText('Demo')).not.toBeInTheDocument();
   });
 
   it('lays several results out as tiles, each opening at its own number', async () => {
@@ -173,6 +180,10 @@ describe('GenerationCard: results', () => {
     renderUi(<GenerationCard generation={generation} handlers={handlers} />);
     const tiles = screen.getAllByRole('button', { name: /View larger/ });
     expect(tiles).toHaveLength(3);
+    // Three results never leave an empty cell: the first one spans both columns.
+    expect(tiles[0]).toHaveClass('col-span-2');
+    expect(tiles[1]).not.toHaveClass('col-span-2');
+    expect(tiles[2]).not.toHaveClass('col-span-2');
     await user.click(tiles[2] as HTMLElement);
     expect(handlers.onOpen).toHaveBeenCalledWith(generation, 2);
     expect(screen.getByRole('img', { name: /Generated image 3/ })).toBeInTheDocument();
@@ -513,7 +524,7 @@ describe('GenerationCard in Arabic', () => {
       />,
       { locale: 'ar' },
     );
-    expect(card()).toHaveAccessibleName(/صورة: منارة وحيدة عند الغروب\. جاهز/);
+    expect(card()).toHaveAccessibleName(/صورة، منارة وحيدة عند الغروب\. جاهز/);
     expect(screen.getByText('منارة وحيدة عند الغروب')).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('رصيدان')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'مفضّل' })).toBeInTheDocument();

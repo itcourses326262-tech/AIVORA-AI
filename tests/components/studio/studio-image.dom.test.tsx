@@ -33,7 +33,8 @@ afterEach(resetEnvironment);
 
 const fileInput = () => document.querySelector('input[type="file"]') as HTMLInputElement;
 const region = () =>
-  screen.getByRole('button', { name: 'Drop an image or click to upload' }).parentElement as HTMLElement;
+  screen.getByRole('button', { name: 'Drop an image or click to upload' })
+    .parentElement as HTMLElement;
 
 function choose(file: File) {
   fireEvent.change(fileInput(), { target: { files: [file] } });
@@ -107,14 +108,18 @@ describe('Studio: the input image of image tools', () => {
     choose(imageFile('one.png'));
     await user.click(await screen.findByRole('button', { name: 'Cancel upload' }));
     expect(uploads[0]?.aborted).toBe(true);
-    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
 
     choose(imageFile('two.png'));
     await waitFor(() => expect(uploads).toHaveLength(2));
     uploads[1]?.respond(201, { data: assetDTO() });
     await screen.findByText('two.png');
     await user.click(screen.getByRole('button', { name: 'Remove image' }));
-    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
 
     choose(imageFile('three.png'));
     await waitFor(() => expect(uploads).toHaveLength(3));
@@ -160,7 +165,9 @@ describe('Studio: the input image of image tools', () => {
     await waitFor(() => expect(uploads).toHaveLength(1));
     uploads[0]?.respond(413, { error: { code: 'payload_too_large', message: 'x' } });
     expect(await screen.findByText('The file or request is too large.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
 
     choose(imageFile('b.png'));
     await waitFor(() => expect(uploads).toHaveLength(2));
@@ -390,6 +397,33 @@ describe('Studio: an input image from a link (?input=)', () => {
       (api.callsTo('POST', '/generations')[1]?.body as { inputAssetId: string }).inputAssetId,
     ).toBe(copy.id);
     await waitFor(() => expect(cards()).toHaveLength(1));
+  });
+
+  it('tries the still frame when the asset is not a picture, and sends the asset as it is', async () => {
+    await openImageTool({ prefill: { tool: 'image-to-image', inputAssetId: asset } });
+    const preview = await screen.findByRole('img', { name: 'Your input image' });
+    expect(preview).toHaveAttribute('src', `/api/v1/media/${asset}`);
+    fireEvent.error(preview);
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: 'Your input image' })).toHaveAttribute(
+        'src',
+        `/api/v1/media/${asset}?variant=thumb`,
+      ),
+    );
+    expect(screen.queryByText('We could not use that image. Choose another one.')).toBeNull();
+  });
+
+  it('gives the input up, with a message, when no picture of the asset loads (deleted or not yours)', async () => {
+    await openImageTool({ prefill: { tool: 'image-to-image', inputAssetId: asset } });
+    fireEvent.error(await screen.findByRole('img', { name: 'Your input image' }));
+    fireEvent.error(await screen.findByRole('img', { name: 'Your input image' }));
+    expect(
+      await screen.findByText('We could not use that image. Choose another one.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Your input image' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
   });
 
   it('shows why when the picture cannot be copied either', async () => {

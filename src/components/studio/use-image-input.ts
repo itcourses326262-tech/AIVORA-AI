@@ -58,6 +58,13 @@ export interface ImageInput {
   adopt: (source: AdoptSource) => void;
   /** Replaces a refused asset with an uploaded copy; resolves to the new asset id. */
   recover: () => Promise<string | null>;
+  /**
+   * The picture of an adopted asset did not load. A link such as `?input=ast_…` names an asset
+   * without saying what it is: a video is not a picture, so its still frame is tried; when that
+   * does not load either (a deleted or someone else's asset) the input is given up with a message
+   * instead of a broken thumbnail.
+   */
+  previewFailed: () => void;
   /** Removes the picture, or stops the upload in progress. */
   clear: () => void;
 }
@@ -191,11 +198,21 @@ export function useImageInput(): ImageInput {
     }
   }, [fail]);
 
+  const previewFailed = useCallback(() => {
+    setState((current) => {
+      if (current.status !== 'ready' || current.source !== 'asset') return current;
+      const still =
+        current.thumbUrl ?? `/api/v1/media/${encodeURIComponent(current.assetId)}?variant=thumb`;
+      if (current.previewUrl !== still) return { ...current, previewUrl: still, thumbUrl: still };
+      return { status: 'empty', error: { kind: 'import' } };
+    });
+  }, []);
+
   const clear = useCallback(() => {
     release();
     setRejected(null);
     setState(EMPTY);
   }, [release]);
 
-  return { state, rejected, accept, adopt, recover, clear };
+  return { state, rejected, accept, adopt, recover, previewFailed, clear };
 }

@@ -68,7 +68,10 @@ export function ActiveBody({
         )}
       </span>
       {queued ? null : (
-        <p aria-hidden="true" className="text-xl leading-7 font-semibold text-foreground tabular-nums">
+        <p
+          aria-hidden="true"
+          className="text-xl leading-7 font-semibold text-foreground tabular-nums"
+        >
           {formatNumber(percent / 100, locale, { style: 'percent' })}
         </p>
       )}

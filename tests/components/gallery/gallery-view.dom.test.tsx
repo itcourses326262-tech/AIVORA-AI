@@ -2,7 +2,9 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readNavSnapshot, saveNavSnapshot } from '@/components/gallery/nav-snapshot';
+import { newId } from '@/lib/id';
 import { axeViolations } from '../axe';
+import { assetDTO } from '../generations/support';
 import {
   creations,
   failure,
@@ -69,6 +71,20 @@ describe('the list', () => {
   it('shows skeletons while the first page loads', () => {
     mountGallery({ generations: creations(2) });
     expect(screen.getByText('Loading your creations')).toBeInTheDocument();
+  });
+
+  it('opens the detail page on the result of the card that was clicked', async () => {
+    const generations = creations(1, () => ({
+      params: { aspectRatio: '1:1', count: 2 },
+      outputs: [assetDTO({ id: newId('ast') }), assetDTO({ id: newId('ast') })],
+    }));
+    mountGallery({ generations });
+    await loaded();
+    const tiles = within(screen.getByRole('article')).getAllByRole('button', {
+      name: /View larger/,
+    });
+    await user().click(tiles[1] as HTMLElement);
+    expect(router.push).toHaveBeenCalledWith(`/gallery/${generations[0]?.id}?r=2`);
   });
 
   it('opens the detail page when a result is clicked, and remembers the list for previous / next', async () => {

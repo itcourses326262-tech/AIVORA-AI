@@ -7,6 +7,7 @@ import {
   formatElapsed,
   imagesText,
   isolateLtr,
+  needsDemoBadge,
 } from '@/lib/generations/format';
 
 describe('formatElapsed', () => {
@@ -82,5 +83,15 @@ describe('charCount and isolateLtr', () => {
 
   it('wraps a token in left-to-right isolates', () => {
     expect(isolateLtr('0:07')).toBe('⁦0:07⁩');
+  });
+});
+
+describe('needsDemoBadge', () => {
+  it('tags a sample model, unless its name already says so', () => {
+    expect(needsDemoBadge('Sample Image', true)).toBe(true);
+    expect(needsDemoBadge(undefined, true)).toBe(true);
+    expect(needsDemoBadge('AIVORE Demo Image', true)).toBe(false);
+    expect(needsDemoBadge('aivore demo video', true)).toBe(false);
+    expect(needsDemoBadge('FLUX.1 Schnell', false)).toBe(false);
   });
 });

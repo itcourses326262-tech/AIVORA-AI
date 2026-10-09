@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { detailHref, inputHref, remixHref, reuseHref, sharePath } from '@/components/gallery/links';
+import {
+  detailHref,
+  inputHref,
+  remixHref,
+  resultFromQuery,
+  reuseHref,
+  sharePath,
+} from '@/components/gallery/links';
 import { parsePrefill } from '@/components/studio/prefill';
 import { loginUrl, safeNextPath } from '@/lib/next-path';
 import { assetDTO, generationDTO } from '../generations/support';
@@ -10,6 +17,24 @@ describe('addresses of the gallery', () => {
   it('builds the detail and the public path from an id', () => {
     expect(detailHref('gen_1')).toBe('/gallery/gen_1');
     expect(sharePath('gen_1')).toBe('/s/gen_1');
+  });
+
+  it('opens the detail page on the result that was clicked (1-based in the address)', () => {
+    expect(detailHref('gen_1', 0)).toBe('/gallery/gen_1');
+    expect(detailHref('gen_1', 1)).toBe('/gallery/gen_1?r=2');
+    expect(detailHref('gen_1', 3)).toBe('/gallery/gen_1?r=4');
+  });
+
+  it('reads the result back, clamped to what exists and never trusting the address', () => {
+    expect(resultFromQuery('2', 4)).toBe(1);
+    expect(resultFromQuery(['3', '1'], 4)).toBe(2);
+    expect(resultFromQuery('9', 4)).toBe(3);
+    expect(resultFromQuery('0', 4)).toBe(0);
+    expect(resultFromQuery(undefined, 4)).toBe(0);
+    expect(resultFromQuery('-1', 4)).toBe(0);
+    expect(resultFromQuery('2abc', 4)).toBe(0);
+    expect(resultFromQuery('1e3', 4)).toBe(0);
+    expect(resultFromQuery('3', 0)).toBe(0);
   });
 });
 

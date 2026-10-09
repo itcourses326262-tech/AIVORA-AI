@@ -184,7 +184,9 @@ describe('Studio: the four tools', () => {
 
     await user.click(tab('Image to image'));
     expect(has('Input image')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
     expect(promptBox()).toHaveAttribute('placeholder', 'Describe how your image should change…');
 
     await user.click(tab('Text to video'));

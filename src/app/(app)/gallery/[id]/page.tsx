@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { DetailView } from '@/components/gallery/detail-view';
+import { resultFromQuery } from '@/components/gallery/links';
 import { getAppUser, requireUser } from '@/lib/auth-guard';
 import type { GenerationDTO } from '@/lib/api-types';
 import { AppError } from '@/lib/errors';
@@ -11,6 +12,7 @@ import { getI18n } from '@/lib/i18n/server';
 import { getGeneration } from '@/server/generations/service';
 
 type Params = Promise<{ id: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 /**
  * The creation if it is the user's own. A missing one, someone else's and a malformed id are the
@@ -35,10 +37,25 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 }
 
 /** One creation of the signed-in user, large, with everything that can be done with it. */
-export default async function CreationPage({ params }: { params: Params }) {
-  const { id } = await params;
+export default async function CreationPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams?: SearchParams;
+}) {
+  const [{ id }, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve<Awaited<SearchParams>>({}),
+  ]);
   const user = await requireUser(`/gallery/${id}`);
   const generation = await loadOwnCreation(user.id, id);
   if (!generation) notFound();
-  return <DetailView key={generation.id} initial={generation} />;
+  return (
+    <DetailView
+      key={generation.id}
+      initial={generation}
+      initialIndex={resultFromQuery(query.r, generation.outputs.length)}
+    />
+  );
 }

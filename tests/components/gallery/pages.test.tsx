@@ -347,6 +347,23 @@ describe('/gallery/[id]', () => {
     });
   });
 
+  it('opens on the result the address asks for, within what the creation has', async () => {
+    const seeded = seedShared({ isPublic: false });
+    mocks.appUser.mockResolvedValue({ id: seeded.ownerId });
+    const render = async (r?: string) =>
+      props<{ initialIndex: number }>(
+        (await CreationPage({
+          ...param(seeded.generationId),
+          searchParams: Promise.resolve(r === undefined ? {} : { r }),
+        })) as ReactElement,
+      ).initialIndex;
+    expect(await render()).toBe(0);
+    expect(await render('1')).toBe(0);
+    // The seeded creation has a single result: any other number is clamped to it.
+    expect(await render('5')).toBe(0);
+    expect(await render('junk')).toBe(0);
+  });
+
   it('gives the owner the whole creation, private details included', async () => {
     const seeded = seedShared({ isPublic: false });
     mocks.appUser.mockResolvedValue({ id: seeded.ownerId });

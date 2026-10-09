@@ -87,9 +87,9 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
   }, [applied, order]);
 
   const open = useCallback(
-    (generation: GenerationDTO) => {
+    (generation: GenerationDTO, result = 0) => {
       remember();
-      router.push(detailHref(generation.id));
+      router.push(detailHref(generation.id, result));
     },
     [remember, router],
   );

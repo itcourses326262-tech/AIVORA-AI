@@ -129,7 +129,9 @@ describe('Studio: use a result as the input image', () => {
     expect(
       await screen.findByText('We could not use that image. Choose another one.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Drop an image or click to upload' }),
+    ).toBeInTheDocument();
   });
 });
 

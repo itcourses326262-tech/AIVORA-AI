@@ -16,6 +16,8 @@ export interface MountDetailOptions {
   fromList?: { ids: string[]; from?: string };
   /** Other creations the fake API knows (polling answers from it). */
   others?: GenerationDTO[];
+  /** The result to show first (the address's `?r=`). */
+  initialIndex?: number;
 }
 
 /** The detail page of `generation`, signed in, on a fake API that holds it. */
@@ -32,7 +34,7 @@ export function mountDetail(generation: GenerationDTO, options: MountDetailOptio
   const view = renderUi(
     <UserProvider initialUser={{ ...USER, creditBalance: api.balance }}>
       <Toaster />
-      <DetailView initial={generation} />
+      <DetailView initial={generation} initialIndex={options.initialIndex} />
     </UserProvider>,
     { locale: options.locale },
   );

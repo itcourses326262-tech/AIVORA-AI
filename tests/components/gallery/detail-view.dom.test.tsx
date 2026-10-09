@@ -446,6 +446,17 @@ describe('several results', () => {
     expect(screen.getByRole('button', { name: 'Download all' })).toBeInTheDocument();
   });
 
+  it('opens on the result the address asked for', () => {
+    mountDetail(two(), { initialIndex: 1 });
+    expect(
+      screen.getByRole('group', { name: /plus or minus/ }).querySelector('img'),
+    ).toHaveAttribute('src', '/api/v1/media/ast_two');
+    expect(screen.getByRole('button', { name: 'Show result 2 of 2' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
   it('offers a single result without a strip', () => {
     mountDetail(image());
     expect(screen.queryByRole('list', { name: 'Results' })).not.toBeInTheDocument();

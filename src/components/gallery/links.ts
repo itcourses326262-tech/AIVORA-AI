@@ -8,9 +8,19 @@ import type { Tool } from '@/lib/catalog/types';
 import type { GenerationDTO } from '@/lib/api-types';
 import { toolNeedsImage } from '@/lib/tools';
 
-/** The detail page of one of the user's own creations. */
-export function detailHref(id: string): string {
-  return `/gallery/${id}`;
+/**
+ * The detail page of one of the user's own creations. `result` (0-based) is the picture to open
+ * first: a tile of a card that holds several results opens its own, not always the first.
+ */
+export function detailHref(id: string, result = 0): string {
+  return result > 0 ? `/gallery/${id}?r=${Math.trunc(result) + 1}` : `/gallery/${id}`;
+}
+
+/** The result a detail address asks for (`?r=2` is the second), clamped to what exists. */
+export function resultFromQuery(value: string | string[] | undefined, count: number): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const number = raw !== undefined && /^\d{1,3}$/.test(raw) ? Number(raw) : 1;
+  return Math.min(Math.max(number, 1), Math.max(count, 1)) - 1;
 }
 
 /** The public page of a shared creation. */

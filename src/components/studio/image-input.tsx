@@ -29,11 +29,19 @@ export interface ImageInputFieldProps {
 
 const ACCEPT = ALLOWED_IMAGE_TYPES.join(',');
 
-function Thumb({ src, className }: { src: string; className: string }) {
+function Thumb({
+  src,
+  className,
+  onError,
+}: {
+  src: string;
+  className: string;
+  onError?: () => void;
+}) {
   const { t } = useI18n();
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a local object URL or our own media route
-    <img src={src} alt={t('studio.image.preview')} className={className} />
+    <img src={src} alt={t('studio.image.preview')} className={className} onError={onError} />
   );
 }
 
@@ -79,6 +87,12 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
     input.rejected ?? (state.status === 'empty' ? state.error : undefined),
   );
   const message = problem ?? error ?? null;
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  // The side panel scrolls: a problem under the picture (a link whose image is gone, say) must not
+  // sit below the fold, hidden behind the Generate bar.
+  useEffect(() => {
+    if (message) alertRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [message]);
 
   const choose = useCallback(() => fileInput.current?.click(), []);
 
@@ -172,7 +186,11 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
         ) : (
           <div className="flex items-center gap-2.5 rounded-xl border border-border bg-surface-raised p-1.5 pe-2">
             {preview ? (
-              <Thumb src={preview} className="size-10 shrink-0 rounded-lg object-cover" />
+              <Thumb
+                src={preview}
+                onError={input.previewFailed}
+                className="size-10 shrink-0 rounded-lg object-cover"
+              />
             ) : (
               <span aria-hidden="true" className="size-10 shrink-0 rounded-lg bg-shimmer" />
             )}
@@ -252,7 +270,11 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
           <div className="flex items-center gap-3 p-2.5">
             <div className="relative size-20 shrink-0 overflow-hidden rounded-lg bg-surface-raised">
               {preview ? (
-                <Thumb src={preview} className="size-full object-cover" />
+                <Thumb
+                  src={preview}
+                  onError={input.previewFailed}
+                  className="size-full object-cover"
+                />
               ) : (
                 <span aria-hidden="true" className="absolute inset-0 animate-shimmer bg-shimmer" />
               )}
@@ -305,7 +327,12 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
         )}
       </div>
       {message ? (
-        <p id={describedBy} role="alert" className="flex items-start gap-1.5 text-sm text-danger">
+        <p
+          ref={alertRef}
+          id={describedBy}
+          role="alert"
+          className="flex items-start gap-1.5 text-sm text-danger"
+        >
           <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           <span>{message}</span>
         </p>

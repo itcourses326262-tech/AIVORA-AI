@@ -9,10 +9,14 @@ import { cn, formatCredits } from '@/lib/utils';
 
 const LOW_BALANCE = 5;
 
-/** The live credit balance; a link to the account page. It pulses when the number changes. */
+/**
+ * The live credit balance; a link to the account page. It pulses when the number changes. Without
+ * a user (the session ended while the page was open) there is no balance to show: a red 0 would
+ * claim the account is out of credits, so the chip leaves, like the account menu does.
+ */
 export function CreditsChip({ className }: { className?: string }) {
   const { t, locale } = useI18n();
-  const { creditBalance } = useUser();
+  const { user, creditBalance } = useUser();
   // The number's key changes with the balance so the bump animation replays, but not on first paint.
   const [shown, setShown] = useState(creditBalance);
   const [bumps, setBumps] = useState(0);
@@ -20,6 +24,8 @@ export function CreditsChip({ className }: { className?: string }) {
     setShown(creditBalance);
     setBumps((count) => count + 1);
   }
+
+  if (!user) return null;
 
   const amount = formatCredits(creditBalance, locale);
   const low = creditBalance <= LOW_BALANCE;

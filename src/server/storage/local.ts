@@ -88,7 +88,9 @@ export function createLocalStorage(rootDir: string): StorageDriver {
     if (!base) return null;
     const segments = key.split('/');
     const name = segments.pop() as string;
-    const lexical = join(base, ...segments);
+    // The key is a runtime value under the configured storage directory: nothing there is a source
+    // file, so the bundler must not trace the whole project for it (see `next build`'s warning).
+    const lexical = join(/*turbopackIgnore: true*/ base, ...segments);
     let real: string;
     try {
       real = await realpath(lexical);
@@ -110,7 +112,7 @@ export function createLocalStorage(rootDir: string): StorageDriver {
     const name = segments.pop() as string;
     let current = await ensureRoot();
     for (const segment of segments) {
-      const next = join(current, segment);
+      const next = join(/*turbopackIgnore: true*/ current, segment);
       let info = await lstat(next).catch((error: unknown) => {
         if (isMissing(error)) return null;
         throw error;
@@ -193,7 +195,7 @@ export function createLocalStorage(rootDir: string): StorageDriver {
     async put(key, body, { mimeType }) {
       assertMimeType(mimeType);
       const { dir, name } = await prepareDirectory(key);
-      const target = join(dir, name);
+      const target = join(/*turbopackIgnore: true*/ dir, name);
       const existing = await lstat(target).catch((error: unknown) => {
         if (isMissing(error)) return null;
         throw error;

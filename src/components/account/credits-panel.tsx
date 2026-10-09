@@ -100,7 +100,7 @@ function Activity({ entry }: { entry: LedgerEntryDTO }) {
       {entry.generationId ? (
         <Link
           href={generationHref(entry.generationId)}
-          className="w-fit text-xs text-brand underline-offset-4 hover:underline"
+          className="hit-area w-fit text-xs text-brand underline-offset-4 hover:underline"
         >
           {t('account.credits.viewGeneration')}
         </Link>
