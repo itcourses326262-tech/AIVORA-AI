@@ -73,7 +73,7 @@
 
 - [ ] **دوِّر مفتاح fal الذي لُصق في محادثة.** أي مفتاح ظهر يومًا في محادثة أو لقطة شاشة أو commit يُعدّ مكشوفًا: ألغِه من لوحة fal، وأنشئ مفتاحًا جديدًا، وضعه في مخزن الأسرار فقط (`FAL_KEY`). افعل الشيء نفسه لأي مفتاح آخر (Moyasar السري، OpenAI) مرّ بالطريقة نفسها. مفتاح Moyasar العلني الحي الموجود في ملف `.env.local` على جهاز التطوير ليس سرًا بطبيعته لكن لا تنقله إلى الخادم، وأنشئ مفاتيح الإنتاج من اللوحة.
 - [ ] **ضع حدّ إنفاق في لوحة fal نفسها** (رصيد مسبق الدفع أو تنبيه): هذا الأمان الوحيد خارج التطبيق.
-- [ ] **اختبار دخان حي لكل نموذج** من جهاز يصل إلى fal (لم يُجرَّب أي نموذج حيًّا). التكلفة الإجمالية للتسعة بالإعدادات الافتراضية 649 رصيدًا (نحو 2.6 دولار من تكلفة المزوّد). لكل نموذج: أنشئ توليدًا، تأكد من ظهور النتيجة والمصغّرة، وأن الرصيد خُصم بالمبلغ المتوقع، ومن عمل الإلغاء والفشل (وصف مرفوض) مع الاسترداد.
+- [ ] **اختبار دخان حي لكل نموذج** من جهاز يصل إلى fal (جُرِّب `fal-flux-schnell` وحده حيًّا بنجاح؛ الباقي لم يُجرَّب). التكلفة الإجمالية للتسعة بالإعدادات الافتراضية 649 رصيدًا (نحو 2.6 دولار من تكلفة المزوّد). لكل نموذج: أنشئ توليدًا، تأكد من ظهور النتيجة والمصغّرة، وأن الرصيد خُصم بالمبلغ المتوقع، ومن عمل الإلغاء والفشل (وصف مرفوض) مع الاسترداد.
 
   | النموذج                    | الأداة         | الرصيد بالإعدادات الافتراضية |
   | -------------------------- | -------------- | ---------------------------- |
@@ -153,7 +153,7 @@
 
 **يمكن الإطلاق مع قبول المخاطرة الموثقة (أنت تقرر):** بيع الحزم دون الباقات (لأن تجديد الباقة برابط دفع وليس بخصم تلقائي، ومن لا تصله الرسالة قد يخسر باقته)، واعتماد الإشراف الحالي كنقطة بداية، وغياب الفاتورة الإلكترونية إن أكّد محاسبك أن هذا مقبول مرحليًا، وتشغيل سيرفر واحد بلا توافر عالٍ (SQLite).
 
-**اعرف ما لم يُتحقق منه:** fal وMoyasar وSMTP والإشراف عن بُعد لم تُجرَّب حيًّا؛ بناء صورة Docker نفسه لم يُنفَّذ في بيئة التطوير. تبنيها مهمة CI «Docker image smoke test» عند كل دفع (push) إلى أي فرع في GitHub (وبتشغيل يدوي من تبويب Actions)، ولم تُرَ خضراء بعد: **لا تعتبر الصورة سليمة قبل أن تراها خضراء هناك**، وأول `docker compose up --build` على خادمك هو الاختبار الحقيقي. خطّط ليوم إطلاق هادئ: ادعُ عددًا قليلًا أولًا، وراقب السجل والتنبيهات ساعات قبل التوسع.
+**اعرف ما لم يُتحقق منه:** fal (باستثناء نموذج `fal-flux-schnell`: نجح اختباره حيًّا مرة واحدة في 9 أكتوبر 2026) وMoyasar وSMTP والإشراف عن بُعد لم تُجرَّب حيًّا؛ بناء صورة Docker نفسه لم يُنفَّذ في بيئة التطوير. تبنيها مهمة CI «Docker image smoke test» عند كل دفع (push) إلى أي فرع في GitHub (وبتشغيل يدوي من تبويب Actions)، ولم تُرَ خضراء بعد: **لا تعتبر الصورة سليمة قبل أن تراها خضراء هناك**، وأول `docker compose up --build` على خادمك هو الاختبار الحقيقي. خطّط ليوم إطلاق هادئ: ادعُ عددًا قليلًا أولًا، وراقب السجل والتنبيهات ساعات قبل التوسع.
 
 </div>
 
@@ -308,4 +308,4 @@ Commands assume the Docker Compose deployment of [DEPLOYMENT.md](DEPLOYMENT.md);
 
 **Can launch while accepting a documented risk (your decision):** selling packs without plans (because a plan renews by a payment link, not an automatic charge, and a subscriber who does not get the message may lose the plan), using the current moderation as a starting point, no electronic invoice if your accountant confirms that is acceptable for now, and a single server without high availability (SQLite).
 
-**Know what was not verified:** fal, Moyasar, SMTP and the remote moderation were never run live; the Docker image build itself was not executed in the development environment. The CI job "Docker image smoke test" builds it on every push to any branch on GitHub (and by hand from the Actions tab) and has not been seen green yet: **do not treat the image as sound until you see that job green there**, and your first `docker compose up --build` is the real test. Plan a quiet launch day: invite a few people first and watch the log and the alerts for hours before opening up.
+**Know what was not verified:** Moyasar, SMTP and the remote moderation were never run live, and fal ran live for one model only (`fal-flux-schnell`, one image, 2026-10-09); the Docker image build itself was not executed in the development environment. The CI job "Docker image smoke test" builds it on every push to any branch on GitHub (and by hand from the Actions tab) and has not been seen green yet: **do not treat the image as sound until you see that job green there**, and your first `docker compose up --build` is the real test. Plan a quiet launch day: invite a few people first and watch the log and the alerts for hours before opening up.

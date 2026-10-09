@@ -1142,7 +1142,7 @@ no admin command for it (`scripts/admin.ts` is unchanged): read the log line, or
 - Disabled accounts: sessions end, the account cannot log in (403 only after the right password), its shared results disappear from the feed, share page and media URLs.
 
 **Known limitations and open issues**
-1. **fal was never called live**: the build sandbox's network policy blocks every fal host, so submit/poll/cancel, the real response shapes, the CDN downloads and the acceptance of inline base64 inputs (about 5.6 MB of
+1. **fal was called live for one model only** (`fal-flux-schnell`, one text-to-image, succeeded on the owner's computer on 2026-10-09 through `npm run check:fal`; 992x992 JPEG in about 5 s). The build sandbox's network policy blocks every fal host, so for the other eight models submit/poll/cancel, the real response shapes, the CDN downloads and the acceptance of inline base64 inputs (about 5.6 MB of
    JSON) are verified only against the types of `@fal-ai/client`, its source and stubbed fakes. Before enabling fal in production run one cheap `fal-flux-schnell` and one image-to-image call from a host that can reach it.
    If fal answers 401/403 the cause is the key itself (format, scope or balance), not the code.
 2. **Model prices are months-old excerpts** (fal model pages, 2026-10-08) and `fal-flux-dev-img2img` is priced at the higher of two conflicting quotes (10 credits instead of 8, `UNVERIFIED:` in the catalog); newer
