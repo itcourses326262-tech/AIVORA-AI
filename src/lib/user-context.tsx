@@ -17,12 +17,18 @@ import type { UserDTO } from '@/lib/api-types';
  * The signed-in user as the UI needs it (the server's `SessionUser`, or `GET /auth/me` minus
  * dates). The three confirmation fields are optional so a hand-built user stays valid: absent
  * means "no confirmation needed", which is what a server without email confirmation reports.
+ * `hasPassword` is optional the same way: absent means the account has a password.
  */
 export type CurrentUser = Pick<
   UserDTO,
   'id' | 'email' | 'name' | 'role' | 'locale' | 'creditBalance'
 > &
-  Partial<Pick<UserDTO, 'emailVerified' | 'emailVerificationRequired' | 'pendingBonusCredits'>>;
+  Partial<
+    Pick<
+      UserDTO,
+      'emailVerified' | 'emailVerificationRequired' | 'pendingBonusCredits' | 'hasPassword'
+    >
+  >;
 
 /**
  * The server requires a confirmed address and this account has none: it cannot generate or buy,
@@ -155,7 +161,8 @@ function sameUser(a: CurrentUser | null, b: CurrentUser | null): boolean {
     a.creditBalance === b.creditBalance &&
     a.emailVerified === b.emailVerified &&
     a.emailVerificationRequired === b.emailVerificationRequired &&
-    a.pendingBonusCredits === b.pendingBonusCredits
+    a.pendingBonusCredits === b.pendingBonusCredits &&
+    a.hasPassword === b.hasPassword
   );
 }
 

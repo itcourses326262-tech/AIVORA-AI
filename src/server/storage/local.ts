@@ -16,12 +16,10 @@ import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { AppError } from '@/lib/errors';
 import { assertStorageKey } from './keys';
+import { DEFAULT_MIME, assertMimeType, isValidMimeType } from './mime';
 import { resolveStorageRange } from './range';
 import type { StorageDriver, StorageRange, StorageReadResult, StoredObjectInfo } from './types';
 
-const DEFAULT_MIME = 'application/octet-stream';
-const MIME_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
-const MAX_MIME_LENGTH = 127;
 // Not defined on Windows, where the symlink checks below still run.
 const O_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 
@@ -38,12 +36,6 @@ const isMissing = (error: unknown) => MISSING.has(errorCode(error) ?? '');
 
 const refuse = () => AppError.of('bad_request', 'Invalid storage key');
 const notFound = () => AppError.of('not_found', 'No such object');
-
-function assertMimeType(mimeType: string): void {
-  if (mimeType.length > MAX_MIME_LENGTH || !MIME_PATTERN.test(mimeType)) {
-    throw AppError.of('bad_request', 'Invalid mime type');
-  }
-}
 
 /**
  * Stores objects as files under `rootDir`.
@@ -141,7 +133,7 @@ export function createLocalStorage(rootDir: string): StorageDriver {
         flag: fsConstants.O_RDONLY | O_NOFOLLOW,
       });
       const mime = raw.trim();
-      if (mime.length <= MAX_MIME_LENGTH && MIME_PATTERN.test(mime)) return mime;
+      if (isValidMimeType(mime)) return mime;
     } catch {
       // No sidecar (or an unreadable one): the object is still served, as opaque bytes.
     }

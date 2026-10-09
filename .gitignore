@@ -33,6 +33,13 @@ docker-compose.override.yml
 .env*
 !.env.example
 
+# Firebase / Google Cloud service-account keys. "Generate new private key" downloads
+# `<project>-firebase-adminsdk-<id>-<hash>.json` into whatever folder the browser saves to, and a key
+# left in the checkout would be committed by `git add -A`. The copy that `npm run setup:firebase` makes
+# lives in ./data (ignored above). Patterns without a slash match in every folder.
+*firebase-adminsdk*.json
+*service-account*.json
+
 # logs and OS cruft
 *.log
 .DS_Store

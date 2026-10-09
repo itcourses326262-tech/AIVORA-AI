@@ -222,6 +222,44 @@ describe('what each document covers', () => {
     expect(bodyOf('en', 'privacy', 'data')).toMatch(/prompts/);
   });
 
+  it('privacy: names Google (Firebase sign-in, Cloud Storage) as a recipient, flagged for confirmation', () => {
+    for (const language of LANGUAGES) {
+      const sharing = bodyOf(language, 'privacy', 'sharing');
+      const bullet = sharing.split('\n').find((line) => line.includes('Firebase'));
+      expect(bullet, language).toBeDefined();
+      expect(bullet).toMatch(/^- \*\*Google/);
+      expect(bullet).toContain('Cloud Storage');
+      // Like the other open items (hosting, screening), the clause waits for counsel.
+      expect(bullet).toContain('{confirm}');
+      expect(bullet).not.toMatch(/\{confirm\}.*\{confirm\}/);
+    }
+    expect(bodyOf('en', 'privacy', 'sharing')).toMatch(/uploaded images and the images and videos/);
+    expect(bodyOf('en', 'privacy', 'sharing')).toMatch(/Google receives the usual technical data/);
+    // What Google gives us is collected data too, and the Google password never is.
+    expect(bodyOf('en', 'privacy', 'data')).toMatch(/sign in with Google/);
+    expect(bodyOf('en', 'privacy', 'data')).toMatch(/never receive your Google password/);
+    expect(bodyOf('ar', 'privacy', 'data')).toContain('عبر Google');
+  });
+
+  it('privacy: the third-party cookie sentence stays true when Google sign-in is used', () => {
+    for (const language of LANGUAGES) {
+      const cookies = bodyOf(language, 'privacy', 'cookies');
+      expect(cookies, language).toContain('Google');
+      // The Google remark comes before the list of our own cookies and is flagged.
+      const remark = cookies.split('\n\n')[0] ?? '';
+      expect(remark, language).toContain('Google');
+      expect(remark, language).toContain('{confirm}');
+    }
+    // Still no advertising, analytics or tracking cookies of ours, and no cookie of ours from a third party.
+    expect(bodyOf('en', 'privacy', 'cookies')).toMatch(
+      /no advertising, analytics or tracking cookies, and we set no third-party cookies/,
+    );
+    expect(bodyOf('en', 'privacy', 'cookies')).toMatch(/may use its own cookies or storage/);
+    expect(bodyOf('ar', 'privacy', 'cookies')).toContain(
+      'ولا نضع ملفات تعريف ارتباط تابعة لأطراف خارجية',
+    );
+  });
+
   it('privacy: rights point at the account settings that exist (export and deletion)', () => {
     expect(bodyOf('en', 'privacy', 'rights')).toMatch(/\[account settings\]\(\/account\)/);
     expect(bodyOf('en', 'privacy', 'rights')).toMatch(/download a copy/i);

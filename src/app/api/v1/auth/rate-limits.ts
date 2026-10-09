@@ -55,6 +55,23 @@ export const LOGIN_RATE_LIMIT: RateLimitOptions = {
   by: 'ip',
 };
 
+/**
+ * Signing in with a Google (Firebase) ID token. A refused token costs one signature check, an
+ * accepted one a few indexed reads and a session insert, and account creation has its own caps
+ * (`SIGNUPS_PER_IP_PER_DAY`, the disposable-domain list), so this only bounds how fast one client
+ * can try.
+ *
+ * With an unknown address there is deliberately NO address-wide budget, for the reason given at
+ * {@link LOGIN_RATE_LIMIT}: one bucket for all visitors would let anybody lock everybody out of
+ * Google sign-in, while nothing here is expensive enough to need it.
+ */
+export const FIREBASE_LOGIN_RATE_LIMIT: RateLimitOptions = {
+  name: 'auth-firebase',
+  limit: 10,
+  windowSec: 60,
+  by: 'ip',
+};
+
 /** Signing out is one indexed delete: with an unknown address it is not limited at all. */
 export const LOGOUT_RATE_LIMIT: RateLimitOptions = {
   name: 'auth-logout',

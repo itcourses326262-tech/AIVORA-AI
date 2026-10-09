@@ -4,8 +4,10 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { FormError } from '@/components/ui/form-error';
+import type { FirebaseWebConfig } from '@/lib/firebase-config';
 import { useI18n } from '@/lib/i18n/client';
 import { AuthHeading, AuthSwitch, authLink } from './auth-parts';
+import { GoogleSignIn } from './google-button';
 import { PasswordField } from './password-field';
 import { loginSchema } from './schemas';
 import { EmailField } from './text-fields';
@@ -18,14 +20,17 @@ export interface LoginFormProps {
   next: string;
   /** Wide-screen decoration hanging beside the card (see `AuthAside`). */
   aside?: ReactNode;
+  /** The public Firebase identifiers; the "Continue with Google" button shows only with them. */
+  firebase?: FirebaseWebConfig | null;
 }
 
-export function LoginForm({ next, aside }: LoginFormProps) {
+export function LoginForm({ next, aside, firebase }: LoginFormProps) {
   const { t } = useI18n();
   const form = useAuthForm({ mode: 'login', fields: FIELDS, schema: loginSchema, next });
   return (
     <div className="relative grid gap-6">
       <AuthHeading title={t('auth.login.title')} subtitle={t('auth.login.subtitle')} />
+      {firebase ? <GoogleSignIn config={firebase} next={next} showConsent /> : null}
       <FormError>{form.formError}</FormError>
       <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <EmailField

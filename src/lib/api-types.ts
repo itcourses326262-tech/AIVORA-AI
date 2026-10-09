@@ -101,6 +101,12 @@ export interface UserDTO {
   emailVerificationRequired: boolean;
   /** Free credits confirming the address would add now; 0 when none (already granted, claimed by another account of the mailbox, or no confirmation needed). */
   pendingBonusCredits: number;
+  /**
+   * False for an account that signs in with Google and never chose a password: changing or
+   * confirming with a password is refused (`password_not_set`) until one is set through the
+   * password reset email.
+   */
+  hasPassword: boolean;
 }
 
 export interface AssetDTO {
@@ -247,6 +253,8 @@ export interface HealthDTO {
   db: boolean;
   worker: 'inline' | 'external' | 'off';
   version: string;
+  /** Present, and `false`, only when the configured storage driver cannot be created (status 503). */
+  storage?: false;
 }
 
 // ---- Billing (`/api/v1/billing/*`, docs/ARCHITECTURE.md "Billing (as built)") ------------------

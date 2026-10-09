@@ -15,6 +15,10 @@ backups
 .env
 .env.*
 !.env.example
+# service-account keys (see .gitignore): `**/` because a pattern here is matched from the context
+# root only, and a key must stay out of the build context wherever it was saved
+**/*firebase-adminsdk*.json
+**/*service-account*.json
 
 # version control and CI
 .git

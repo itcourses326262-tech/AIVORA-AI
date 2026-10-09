@@ -1,5 +1,8 @@
 import type { HttpMethod, OpenApiDocument } from './types';
 
+const SIGN_IN_PAGE =
+  'Serves the web app’s sign-in page: the browser posts the Firebase ID token it got from the Google popup, so it is not a developer API. It answers 404 while Google sign-in is not configured.';
+
 const CHECKOUT =
   'Part of the web app’s checkout flow: it needs a browser session (an API key is refused) and serves the shop UI, so it is not a developer API.';
 
@@ -9,6 +12,7 @@ const CHECKOUT =
  * here that matches no route file, so nothing is left out by accident.
  */
 export const UNDOCUMENTED_ROUTES: Readonly<Record<string, string>> = {
+  '/auth/firebase': SIGN_IN_PAGE,
   '/billing/plans': CHECKOUT,
   '/billing/checkout': CHECKOUT,
   '/billing/orders': CHECKOUT,

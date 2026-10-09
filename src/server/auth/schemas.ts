@@ -26,6 +26,18 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 
+/**
+ * The Firebase ID token is checked in full by the verifier, which also enforces its own length cap
+ * (so an oversize token is the same 401 as any bad one); this only keeps absurd input out.
+ */
+export const firebaseLoginSchema = z.object({
+  idToken: z
+    .string()
+    .min(1)
+    .max(8 * 1024),
+  locale: locale.optional(),
+});
+
 export const updateAccountSchema = z
   .object({ name: z.string().max(400).optional(), locale: locale.optional() })
   .refine((value) => value.name !== undefined || value.locale !== undefined, {

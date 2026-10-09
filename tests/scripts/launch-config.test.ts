@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -88,6 +88,72 @@ describe('Dockerfile', () => {
     // The tag the build command, compose and the docs use.
     expect(run).toMatch(/ aivore:local\s*$/);
   });
+
+  describe('the command-line tools in the image', () => {
+    // What /app/scripts holds: the TypeScript tools esbuild bundles, and the .mjs files that are copied.
+    const code = dockerfile
+      .replace(/\\\n/g, ' ')
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .join('\n');
+    const bundled = [...code.matchAll(/\bscripts\/([a-z0-9-]+)\.ts\b/g)].map((m) => m[1] as string);
+    const copied = [...code.matchAll(/\bscripts\/([a-z0-9-]+)\.mjs\b/g)].map((m) => m[1] as string);
+    const inImage = new Set([...bundled, ...copied]);
+
+    // Tools for a checkout, not for the container: `preview.mjs` mirrors the working tree.
+    const CHECKOUT_ONLY = new Set(['preview']);
+
+    const documents = ['README.md', ...readdirSync(join(ROOT, 'docs')).map((f) => `docs/${f}`)]
+      .filter((file) => file.endsWith('.md'))
+      .map((file) => ({ file, text: read(file) }));
+    const named = documents.flatMap(({ file, text }) =>
+      [...text.matchAll(/\bnode scripts\/([a-z0-9-]+)\.mjs\b/g)].map((m) => ({
+        file,
+        tool: m[1] as string,
+      })),
+    );
+
+    it('has every source file it bundles', () => {
+      expect(bundled.length).toBeGreaterThan(0);
+      for (const name of bundled) {
+        expect(() => read(`scripts/${name}.ts`), name).not.toThrow();
+      }
+      for (const name of copied) {
+        expect(() => read(`scripts/${name}.mjs`), name).not.toThrow();
+      }
+    });
+
+    it('holds every `node scripts/<name>.mjs` that README.md and docs/ tell an operator to run', () => {
+      // `docker compose exec app node scripts/check-storage.mjs` was documented while the image only
+      // had five tools: MODULE_NOT_FOUND, on the day the pictures had to be moved.
+      expect(new Set(named.map(({ tool }) => tool))).toContain('check-storage');
+      expect(new Set(named.map(({ tool }) => tool))).toContain('migrate-media');
+      const missing = named
+        .filter(({ tool }) => !CHECKOUT_ONLY.has(tool) && !inImage.has(tool))
+        .map(({ file, tool }) => `${file}: node scripts/${tool}.mjs`);
+      expect(missing).toEqual([]);
+    });
+
+    it('bundles the storage tools with the same flags as the other bundled tools', () => {
+      const command = /esbuild [^\n]*(?:\n[^\n]*)*?--log-level=warning/.exec(code)?.[0] ?? '';
+      expect(command).toContain('scripts/check-storage.ts');
+      expect(command).toContain('scripts/migrate-media.ts');
+      expect(command).toContain('--external:better-sqlite3');
+      expect(command).toContain('--external:sharp');
+      expect(command).toContain('--conditions=react-server');
+    });
+
+    it('names every one of its tools in the header comment', () => {
+      // The comment block that opens the file, before the first instruction.
+      const header = dockerfile
+        .slice(0, dockerfile.indexOf('\nARG '))
+        .split('\n')
+        .filter((line) => line.startsWith('#'))
+        .join(' ')
+        .replace(/\s+/g, ' ');
+      for (const name of inImage) expect(header, name).toMatch(new RegExp(`[ (]${name}[,:)]`));
+    });
+  });
 });
 
 describe('.gitignore', () => {
@@ -138,6 +204,99 @@ describe('.gitignore', () => {
   });
 });
 
+describe('service-account keys', () => {
+  // `Generate new private key` downloads `<project>-firebase-adminsdk-<id>-<hash>.json` into the
+  // folder the browser saves to, which is easily the checkout. setup:firebase searched there, left
+  // the original behind, and nothing stopped `git add -A` or `COPY . .` from taking it.
+  const NAMES = [
+    'aivore-a71f1-firebase-adminsdk-fbsvc-0123456789.json',
+    'firebase-adminsdk-fbsvc-0123456789.json',
+    'firebase-service-account.json',
+    'service-account.json',
+    'my-service-account-key.json',
+    'data/firebase-service-account.json',
+    'keys/aivore-a71f1-firebase-adminsdk-fbsvc-0123456789.json',
+  ];
+  const ORDINARY = ['package.json', 'tsconfig.json', 'drizzle/meta/_journal.json', '.env.example'];
+
+  const inWorkTree =
+    spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).stdout?.trim() === 'true';
+
+  it.skipIf(!inWorkTree)('are ignored by git wherever they are saved', () => {
+    for (const name of NAMES) {
+      const result = spawnSync('git', ['check-ignore', '-q', '--no-index', name], { cwd: ROOT });
+      expect(result.status, name).toBe(0);
+    }
+    for (const name of ORDINARY) {
+      const result = spawnSync('git', ['check-ignore', '-q', '--no-index', name], { cwd: ROOT });
+      expect(result.status, name).toBe(1);
+    }
+  });
+
+  /**
+   * A .dockerignore pattern as Docker reads it: relative to the context root (so only `**` goes
+   * deeper), `*` stays inside one path segment, and a match on a folder covers what is below it.
+   */
+  function dockerPattern(pattern: string): RegExp {
+    const parts = pattern.split('/');
+    const source = parts
+      .map((part, index) => {
+        const last = index === parts.length - 1;
+        if (part === '**') return last ? '.*' : '(?:.*/)?';
+        const body = part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*');
+        return last ? body : `${body}/`;
+      })
+      .join('');
+    return new RegExp(`^${source}(?:/.*)?$`);
+  }
+
+  function dockerIgnores(path: string): boolean {
+    let ignored = false;
+    for (const line of read('.dockerignore').split('\n')) {
+      const rule = line.trim();
+      if (rule === '' || rule.startsWith('#')) continue;
+      const negated = rule.startsWith('!');
+      if (dockerPattern(negated ? rule.slice(1) : rule).test(path)) ignored = !negated;
+    }
+    return ignored;
+  }
+
+  it('stay out of the Docker build context wherever they are saved', () => {
+    for (const name of NAMES) expect(dockerIgnores(name), name).toBe(true);
+    for (const name of ORDINARY) expect(dockerIgnores(name), name).toBe(false);
+  });
+
+  it('are not sitting anywhere git would add them', () => {
+    // The root-level file the guard in tests/security cannot see (it scans src, tests, scripts, e2e
+    // and docs for key-shaped TEXT). Whatever git would stage must not hold a service-account key,
+    // whatever the file is called.
+    if (!inWorkTree) return;
+    const listed = spawnSync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+    const hits = listed.stdout
+      .split('\0')
+      .filter((file) => file.endsWith('.json'))
+      .filter((file) => {
+        try {
+          return /"type"\s*:\s*"service_account"/.test(read(file));
+        } catch {
+          return false; // listed but deleted in the working tree
+        }
+      });
+    expect(hits, 'a service-account key is not ignored by git: move it into ./data').toEqual([]);
+  });
+});
+
 describe('DEPLOYMENT.md', () => {
   it('builds the image copied to a server for the server CPU', () => {
     // A plain `docker build` on an Apple Silicon laptop makes an arm64 image: `exec format error`
@@ -146,6 +305,51 @@ describe('DEPLOYMENT.md', () => {
     const block = fences.find((text) => text.includes('docker save'));
     expect(block).toBeDefined();
     expect(block).toMatch(/^\s*docker build --platform linux\/(amd64|arm64) -t aivore:local \.$/m);
+  });
+});
+
+describe('the Firebase bucket documents', () => {
+  const operations = read('docs/OPERATIONS.md');
+  const deployment = read('docs/DEPLOYMENT.md');
+  const flat = (text: string) => text.replace(/\s+/g, ' ');
+
+  it('pair Object Versioning with a lifecycle rule and the privacy text', () => {
+    // Versioning alone keeps a deleted user's pictures as noncurrent versions, forever.
+    const text = flat(operations);
+    expect(text).toMatch(/lifecycle rule that deletes noncurrent versions after N days/);
+    expect(text).toContain('daysSinceNoncurrentTime');
+    expect(text).toContain('write the same N in the privacy text');
+    expect(text).toContain('legal-documents.ts');
+    expect(text).toMatch(/soft delete.{0,120}default retention/i);
+  });
+
+  it('say that picture reads ignore HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, and how it shows', () => {
+    for (const [file, text] of [
+      ['OPERATIONS.md', operations],
+      ['DEPLOYMENT.md', deployment],
+    ] as const) {
+      const body = flat(text);
+      expect(body, file).toContain('NODE_USE_ENV_PROXY=1');
+      expect(body, file).toContain('HTTPS_PROXY');
+      expect(body, file).toContain('read it back whole');
+    }
+  });
+
+  it('say that the key file is checked at start-up, with the line the server really logs', () => {
+    expect(deployment).not.toMatch(/not at start-up/);
+    expect(flat(deployment)).toContain('A wrong key file stops the site at start-up');
+    expect(flat(operations)).toContain('Storage is not usable (STORAGE_DRIVER=gcs)');
+  });
+
+  it('say that setup:firebase never switches STORAGE_DRIVER by itself', () => {
+    expect(flat(operations)).toContain('never changes `STORAGE_DRIVER` by itself');
+    expect(flat(deployment)).toContain('never changes `STORAGE_DRIVER` by itself');
+  });
+
+  it('say that the backup warns about files left in STORAGE_LOCAL_DIR', () => {
+    expect(flat(operations)).toMatch(
+      /`WARNING` line says how many files are still in `STORAGE_LOCAL_DIR`/,
+    );
   });
 });
 

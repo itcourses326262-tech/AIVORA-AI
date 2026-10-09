@@ -4,6 +4,7 @@ import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { PasswordField } from '@/components/auth/password-field';
+import { SetPasswordPrompt } from '@/components/auth/set-password-prompt';
 import { scorePassword } from '@/components/auth/password-strength';
 import { PasswordStrengthMeter } from '@/components/auth/password-strength-meter';
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/components/auth/schemas';
@@ -213,10 +214,26 @@ function SignOutEverywhere() {
   );
 }
 
+/** An account that signs in with Google has no password to change: it can ask for a link to set one. */
+function NoPasswordCard() {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle as="h2">{t('account.security.noPasswordTitle')}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <SetPasswordPrompt purpose="change" />
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SecurityPanel() {
+  const { user } = useUser();
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PasswordForm />
+      {user?.hasPassword === false ? <NoPasswordCard /> : <PasswordForm />}
       <SignOutEverywhere />
     </div>
   );

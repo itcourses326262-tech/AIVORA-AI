@@ -43,6 +43,7 @@ export const userExample: UserDTO = {
   emailVerified: true,
   emailVerificationRequired: true,
   pendingBonusCredits: 0,
+  hasPassword: true,
 };
 
 export const assetExample: AssetDTO = {

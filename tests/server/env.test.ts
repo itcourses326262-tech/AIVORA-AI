@@ -294,6 +294,40 @@ describe('cross-field checks', () => {
   });
 });
 
+describe('FIREBASE_STORAGE_BUCKET', () => {
+  const bucketOf = (value: string | undefined) =>
+    parseEnv({ FIREBASE_STORAGE_BUCKET: value }).FIREBASE_STORAGE_BUCKET;
+
+  // The console shows the bucket as gs://name; the driver id and every consumer must see one value.
+  it.each([
+    ['my-project.firebasestorage.app', 'my-project.firebasestorage.app'],
+    ['gs://my-project.firebasestorage.app', 'my-project.firebasestorage.app'],
+    ['gs://my-project.firebasestorage.app/', 'my-project.firebasestorage.app'],
+    ['GS://my-project.firebasestorage.app//', 'my-project.firebasestorage.app'],
+    ['  my-project.firebasestorage.app/  ', 'my-project.firebasestorage.app'],
+  ])('reads %j as the bare name', (typed, bare) => {
+    expect(bucketOf(typed)).toBe(bare);
+  });
+
+  it('counts a value that is nothing but the prefix as unset', () => {
+    expect(bucketOf('gs://')).toBeUndefined();
+    expect(bucketOf('   ')).toBeUndefined();
+    expect(bucketOf(undefined)).toBeUndefined();
+  });
+
+  it('is documented in .env.example in the form the console shows it', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const text = await readFile(new URL('../../.env.example', import.meta.url), 'utf8');
+    const comment = text.slice(0, text.indexOf('\nFIREBASE_STORAGE_BUCKET='));
+    expect(comment.split('\n').slice(-3).join('\n')).toContain('gs://');
+  });
+
+  it('still requires a bucket when STORAGE_DRIVER=gcs', () => {
+    const problems = problemsOf({ STORAGE_DRIVER: 'gcs' }).join('\n');
+    expect(problems).toContain('FIREBASE_STORAGE_BUCKET: is required when STORAGE_DRIVER=gcs');
+  });
+});
+
 describe('getEnv', () => {
   it('parses lazily and memoizes', () => {
     vi.stubEnv('WORKER_CONCURRENCY', '5');

@@ -6,6 +6,7 @@ import { RegisterForm } from '@/components/auth/register-form';
 import { getOptionalUser } from '@/lib/auth-guard';
 import { getI18n } from '@/lib/i18n/server';
 import { safeNextPath } from '@/lib/next-path';
+import { firebaseWebConfig } from '@/server/auth/firebase';
 import { getEnv } from '@/server/env';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -26,6 +27,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Sea
       bonus={env.SIGNUP_BONUS_CREDITS}
       signupOpen={env.SIGNUP_ENABLED}
       aside={<AuthAside bonus={env.SIGNUP_BONUS_CREDITS} />}
+      firebase={firebaseWebConfig(env)}
     />
   );
 }

@@ -116,7 +116,8 @@ export async function resetPassword(
     const consumed = consumeEmailToken(tx, 'reset', secret, now);
     const changed = tx
       .update(users)
-      .set({ passwordHash, updatedAt: now })
+      // A Google-only account gets its first real password here, and from now on has one.
+      .set({ passwordHash, hasPassword: true, updatedAt: now })
       .where(and(eq(users.id, consumed.userId), isNull(users.disabledAt), isNull(users.deletedAt)))
       .returning({ id: users.id })
       .get();

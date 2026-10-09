@@ -17,6 +17,7 @@ import { errorCodeOf } from '@/lib/errors';
 import { useI18n } from '@/lib/i18n/client';
 import { isRecord } from '@/lib/utils';
 import { useUser } from '@/lib/user-context';
+import { SetPasswordPrompt } from './set-password-prompt';
 
 const EXPORT_FALLBACK_NAME = 'aivore-export.json';
 
@@ -91,7 +92,9 @@ function ExportCard() {
 function DeleteCard() {
   const i18n = useI18n();
   const { t } = i18n;
-  const { creditBalance } = useUser();
+  const { creditBalance, user } = useUser();
+  // An account that signs in with Google has no password to re-enter: it sets one first.
+  const passwordless = user?.hasPassword === false;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -156,33 +159,49 @@ function DeleteCard() {
           credits: creditsLabel(i18n, creditBalance),
         })}
       >
-        <form noValidate onSubmit={submit} className="grid gap-4">
-          <FormError>{formError}</FormError>
-          <Field label={t('auth.dataRights.delete.passwordLabel')} error={fieldError} required>
-            <Input
-              name="password"
-              type="password"
-              dir="ltr"
-              className="rtl:text-end"
-              autoComplete="current-password"
-              autoCapitalize="none"
-              spellCheck={false}
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setFieldError(null);
-              }}
-            />
-          </Field>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="secondary" disabled={busy} onClick={() => close(false)}>
-              {t('auth.dataRights.delete.cancel')}
-            </Button>
-            <Button type="submit" variant="danger" loading={busy} disabled={password === ''}>
-              {busy ? t('auth.dataRights.delete.submitting') : t('auth.dataRights.delete.submit')}
-            </Button>
+        {passwordless ? (
+          <div className="grid gap-4">
+            <SetPasswordPrompt purpose="delete" />
+            <div className="flex justify-end">
+              <Button type="button" variant="secondary" onClick={() => close(false)}>
+                {t('auth.dataRights.delete.cancel')}
+              </Button>
+            </div>
           </div>
-        </form>
+        ) : (
+          <form noValidate onSubmit={submit} className="grid gap-4">
+            <FormError>{formError}</FormError>
+            <Field label={t('auth.dataRights.delete.passwordLabel')} error={fieldError} required>
+              <Input
+                name="password"
+                type="password"
+                dir="ltr"
+                className="rtl:text-end"
+                autoComplete="current-password"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setFieldError(null);
+                }}
+              />
+            </Field>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => close(false)}
+              >
+                {t('auth.dataRights.delete.cancel')}
+              </Button>
+              <Button type="submit" variant="danger" loading={busy} disabled={password === ''}>
+                {busy ? t('auth.dataRights.delete.submitting') : t('auth.dataRights.delete.submit')}
+              </Button>
+            </div>
+          </form>
+        )}
       </Dialog>
     </Card>
   );

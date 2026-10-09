@@ -43,6 +43,13 @@
       "when": 1791520440158,
       "tag": "0005_daffy_swarm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791566488220,
+      "tag": "0006_google_sign_in",
+      "breakpoints": true
     }
   ]
 }

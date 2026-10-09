@@ -146,6 +146,16 @@ export function needsRehash(hash: string): boolean {
   );
 }
 
+/**
+ * A stored value that no password can match: it is not in the `scrypt$...` format, so
+ * {@link verifyPassword} is false for it whatever is typed (and `parseHash` never accepts it).
+ * Accounts that only sign in with Google carry one. Random per account, so that two such rows are
+ * not recognisably the same.
+ */
+export function unusablePasswordHash(): string {
+  return `unusable$${randomBytes(24).toString('base64url')}`;
+}
+
 let dummyHash: Promise<string> | undefined;
 
 /**

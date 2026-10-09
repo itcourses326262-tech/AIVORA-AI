@@ -10,8 +10,10 @@
 # image has the usual debugging tools. The price is about 80 MB.
 #
 # The runtime stage holds only what `node server.js` needs: .next/standalone, .next/static, public and
-# drizzle, plus five command-line tools under /app/scripts (worker, admin, migrate, backup, restore: see
-# the `build` stage). There is no source tree, no devDependency, no tsx and no compiler in the final image.
+# drizzle, plus seven command-line tools under /app/scripts (worker, admin, migrate, check-storage,
+# migrate-media, backup, restore: see the `build` stage). There is no source tree, no devDependency, no
+# tsx and no compiler in the final image. Every `node scripts/<name>.mjs` that docs/ and README.md tell
+# an operator to run inside the container must be on that list: tests/scripts/launch-config.test.ts.
 #
 #   docker build -t aivore:local .          (the same as `npm run docker:build`)
 #   docker run --rm -p 3000:3000 -v aivore-data:/data --env-file .env \
@@ -46,13 +48,16 @@ COPY . .
 # configuration is parsed lazily, at the first request.
 RUN npm run build
 
-# The worker, the admin CLI and the migration runner are TypeScript that imports src/. In development
-# `tsx` runs them; the image has no tsx and no source, so they are bundled into three self-contained
-# ES modules (esbuild comes with tsx). better-sqlite3 and sharp stay external: they are native and
-# are resolved from the standalone node_modules at run time. `--conditions=react-server` turns the
-# `server-only` marker package into a no-op, like the `--conditions` flag of the npm scripts.
+# The worker, the admin CLI, the migration runner and the two storage tools (check-storage, migrate-media:
+# DEPLOYMENT.md and OPERATIONS.md section 13 run them with `docker compose exec`) are TypeScript that
+# imports src/. In development `tsx` runs them; the image has no tsx and no source, so they are bundled
+# into self-contained ES modules (esbuild comes with tsx). better-sqlite3 and sharp stay external: they
+# are native and are resolved from the standalone node_modules at run time. The Cloud Storage SDK is
+# bundled in. `--conditions=react-server` turns the `server-only` marker package into a no-op, like the
+# `--conditions` flag of the npm scripts.
 RUN mkdir -p /out/scripts \
   && node_modules/.bin/esbuild scripts/worker.ts scripts/admin.ts scripts/migrate.ts \
+    scripts/check-storage.ts scripts/migrate-media.ts \
     --bundle --platform=node --format=esm --target=node22 --conditions=react-server \
     --external:better-sqlite3 --external:sharp \
     --outdir=/out/scripts --out-extension:.js=.mjs --log-level=warning \

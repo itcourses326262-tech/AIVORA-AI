@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { FormError } from '@/components/ui/form-error';
 import { ConsentLine, CONSENT_LINE_ID } from '@/components/legal/consent-line';
 import { creditsLabel } from '@/components/marketing/credits-label';
+import type { FirebaseWebConfig } from '@/lib/firebase-config';
 import { useI18n } from '@/lib/i18n/client';
 import { AuthHeading, AuthSwitch, authLink } from './auth-parts';
+import { GoogleSignIn } from './google-button';
 import { PasswordField } from './password-field';
 import { scorePassword } from './password-strength';
 import { PasswordStrengthMeter } from './password-strength-meter';
@@ -27,6 +29,8 @@ export interface RegisterFormProps {
   signupOpen: boolean;
   /** Wide-screen decoration hanging beside the card (see `AuthAside`). */
   aside?: ReactNode;
+  /** The public Firebase identifiers; the "Continue with Google" button shows only with them. */
+  firebase?: FirebaseWebConfig | null;
 }
 
 function Benefits({ bonus }: { bonus: number }) {
@@ -59,7 +63,7 @@ function Benefits({ bonus }: { bonus: number }) {
   );
 }
 
-export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormProps) {
+export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: RegisterFormProps) {
   const { t, locale } = useI18n();
   const form = useAuthForm({
     mode: 'register',
@@ -92,6 +96,9 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
     <div className="relative grid gap-6">
       {heading}
       <Benefits bonus={bonus} />
+      {firebase ? (
+        <GoogleSignIn config={firebase} next={next} showConsent describedBy={CONSENT_LINE_ID} />
+      ) : null}
       <FormError>{form.formError}</FormError>
       <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <NameField
@@ -133,7 +140,10 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
             </>
           }
         />
-        <ConsentLine />
+        {/* With Google offered, the one line sits under its button (a Google sign-in creates the
+            account at once, so it must be read there) and still describes this button: the line
+            has a fixed id, so it cannot appear twice on the page. */}
+        {firebase ? null : <ConsentLine />}
         <Button
           type="submit"
           size="lg"

@@ -33,6 +33,7 @@ function identityOf(user: UserRow): SessionUser {
     role: user.role,
     locale: user.locale,
     creditBalance: user.creditBalance,
+    hasPassword: user.hasPassword,
   };
 }
 
@@ -43,5 +44,10 @@ export function toSessionUser(user: UserRow): SessionUser {
 
 /** The public shape of an account (`GET /auth/me`, `GET /account`). Never includes the hash. */
 export function toUserDTO(user: UserRow): UserDTO {
-  return { ...identityOf(user), createdAt: user.createdAt, ...verificationFacts(user) };
+  return {
+    ...identityOf(user),
+    hasPassword: user.hasPassword,
+    createdAt: user.createdAt,
+    ...verificationFacts(user),
+  };
 }

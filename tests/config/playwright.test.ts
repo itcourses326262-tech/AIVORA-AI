@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadEnvConfig, updateInitialEnv } from '@next/env';
@@ -15,6 +15,18 @@ const servers = new Map<string, Record<string, string>>();
  * both.
  */
 const RELAY_KEYS: ReadonlySet<string> = new Set(['SMTP_URL', 'EMAIL_FROM', 'EMAIL_VERIFICATION']);
+
+/** The Google sign-in and Google Cloud Storage settings: `.env.example` documents exactly these. */
+const FIREBASE_KEYS = [
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_APP_ID',
+  'FIREBASE_AUTH',
+  'FIREBASE_STORAGE_BUCKET',
+  'FIREBASE_SERVICE_ACCOUNT_FILE',
+  'FIREBASE_SERVICE_ACCOUNT_JSON',
+] as const;
 
 beforeAll(async () => {
   // The config creates (and removes at exit) its own scratch dir unless one is provided.
@@ -34,6 +46,17 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
+describe('the isolated environment list', () => {
+  it('holds every FIREBASE_* setting that .env.example documents, so a test run never inherits one', () => {
+    const example = readFileSync(join(__dirname, '..', '..', '.env.example'), 'utf8');
+    const documented = [...example.matchAll(/^#?\s*(FIREBASE_[A-Z_]+)=/gm)].map(
+      (match) => match[1],
+    );
+    expect(documented.toSorted()).toEqual([...FIREBASE_KEYS].toSorted());
+    for (const key of documented) expect(ISOLATED_ENV_KEYS, key).toContain(key);
+  });
+});
+
 describe.each(['app', 'app-smtp'])('e2e web server environment: %s', (name) => {
   const serverEnv = (): Record<string, string> => {
     const env = servers.get(name);
@@ -47,6 +70,10 @@ describe.each(['app', 'app-smtp'])('e2e web server environment: %s', (name) => {
       if (name === 'app-smtp' && RELAY_KEYS.has(key)) continue;
       expect(serverEnv(), key).toHaveProperty(key, '');
     }
+  });
+
+  it('blanks every Google sign-in and Google Cloud Storage setting', () => {
+    for (const key of FIREBASE_KEYS) expect(serverEnv(), key).toHaveProperty(key, '');
   });
 
   it('pins moderation and the prompt enhancer to offline implementations', () => {
@@ -99,6 +126,15 @@ describe.each(['app', 'app-smtp'])('e2e web server environment: %s', (name) => {
         MODERATION_BLOCKLIST: [],
         MODERATION_PROVIDER: 'none',
         PROMPT_ENHANCER: 'heuristic',
+        // No Google button on the sign-in pages, and the local disk stays the storage.
+        FIREBASE_API_KEY: undefined,
+        FIREBASE_AUTH_DOMAIN: undefined,
+        FIREBASE_PROJECT_ID: undefined,
+        FIREBASE_STORAGE_BUCKET: undefined,
+        FIREBASE_SERVICE_ACCOUNT_FILE: undefined,
+        FIREBASE_SERVICE_ACCOUNT_JSON: undefined,
+        FIREBASE_AUTH: 'auto',
+        STORAGE_DRIVER: 'local',
       });
     } finally {
       for (const [key, value] of saved) {

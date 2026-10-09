@@ -106,6 +106,11 @@ export const userSchema = exact<UserDTO>()(
       .describe(
         'Free credits that confirming the address would add right now; 0 when there are none.',
       ),
+    hasPassword: z
+      .boolean()
+      .describe(
+        'Whether the account has a password. It is false for an account that signs in with Google and never chose one: changing the password or deleting the account with it answers `password_not_set` (409) until one is set through the reset email.',
+      ),
   }),
 );
 

@@ -56,6 +56,38 @@ export default defineMessages({
       rateLimitedIn: 'Too many attempts. Try again in {time}.',
       passwordRejected: 'This password is too common or easy to guess. Try another one.',
     },
+    google: {
+      button: 'Continue with Google',
+      busy: 'Waiting for Google…',
+      divider: 'or',
+      errors: {
+        popupBlocked:
+          'Your browser blocked the Google window. Allow pop-ups for this site, then try again.',
+        failed: 'We could not sign you in with Google. Please try again.',
+        verifyFailed: 'We could not verify your Google sign-in. Please try again.',
+        disabled: 'This account is disabled. Contact support if you think this is a mistake.',
+        notConfigured:
+          'Google sign-in is not set up for this site yet. Please use your email and password for now.',
+        inAppBrowser:
+          "Google sign-in does not work inside this app's browser. Open this page in your browser (Chrome or Safari) and try again.",
+      },
+      inApp: {
+        note: 'Opened this page inside another app? Google may not let you sign in here. Open it in your browser (Chrome or Safari) to continue with Google.',
+        copy: 'Copy link',
+        copied: 'Link copied. Paste it into your browser.',
+        copyFailed: 'Could not copy. Select the link and copy it by hand:',
+        linkLabel: 'Page link',
+      },
+    },
+    setPassword: {
+      changeNote:
+        'Your account signs in with Google and has no password yet. If you also want to log in with your email and a password, we can email you a link to set one.',
+      deleteNote:
+        'Your account signs in with Google, so there is no password to confirm with. Set a password first: we will email you a link. Then come back here to delete your account.',
+      button: 'Email me a link to set a password',
+      sending: 'Sending…',
+      sent: 'We sent a link to {email}. Open it to choose a password; it works for one hour.',
+    },
     strength: {
       label: 'Password strength',
       weak: 'Weak',
@@ -232,6 +264,38 @@ export default defineMessages({
       emailTaken: 'يوجد حساب مسجّل بهذا البريد الإلكتروني بالفعل.',
       rateLimitedIn: 'محاولات كثيرة. حاول مرة أخرى بعد {time}.',
       passwordRejected: 'كلمة المرور هذه شائعة أو سهلة التخمين. جرّب كلمة أخرى.',
+    },
+    google: {
+      button: 'المتابعة باستخدام Google',
+      busy: 'في انتظار Google…',
+      divider: 'أو',
+      errors: {
+        popupBlocked:
+          'منع المتصفح نافذة Google. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.',
+        failed: 'تعذّر تسجيل دخولك عبر Google. حاول مرة أخرى.',
+        verifyFailed: 'تعذّر التحقق من تسجيل الدخول عبر Google. حاول مرة أخرى.',
+        disabled: 'هذا الحساب معطّل. تواصل مع الدعم إن كنت ترى أن ذلك خطأ.',
+        notConfigured:
+          'تسجيل الدخول عبر Google غير مُعدّ لهذا الموقع بعد. استخدم بريدك الإلكتروني وكلمة المرور في الوقت الحالي.',
+        inAppBrowser:
+          'لا يعمل تسجيل الدخول عبر Google داخل متصفح هذا التطبيق. افتح هذه الصفحة في متصفحك (Chrome أو Safari) ثم حاول مرة أخرى.',
+      },
+      inApp: {
+        note: 'فتحت هذه الصفحة داخل تطبيق آخر؟ قد لا تسمح Google بتسجيل الدخول هنا. افتحها في متصفحك (Chrome أو Safari) لتتابع عبر Google.',
+        copy: 'نسخ الرابط',
+        copied: 'تم نسخ الرابط. الصقه في متصفحك.',
+        copyFailed: 'تعذّر النسخ. حدّد الرابط وانسخه يدويًا:',
+        linkLabel: 'رابط الصفحة',
+      },
+    },
+    setPassword: {
+      changeNote:
+        'يسجّل حسابك الدخول عبر Google وليست له كلمة مرور بعد. إن أردت الدخول أيضًا بالبريد الإلكتروني وكلمة المرور، فسنرسل إليك رابطًا لتعيين واحدة.',
+      deleteNote:
+        'يسجّل حسابك الدخول عبر Google، فلا توجد كلمة مرور للتأكيد بها. عيّن كلمة مرور أولًا: سنرسل إليك رابطًا. ثم عُد إلى هنا لحذف حسابك.',
+      button: 'أرسل لي رابطًا لتعيين كلمة مرور',
+      sending: 'جارٍ الإرسال…',
+      sent: 'أرسلنا رابطًا إلى {email}. افتحه لاختيار كلمة مرور، وهو صالح لمدة ساعة.',
     },
     strength: {
       label: 'قوة كلمة المرور',

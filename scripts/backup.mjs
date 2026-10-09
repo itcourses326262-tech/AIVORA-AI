@@ -19,7 +19,9 @@
 //     manifest.json    format, sizes, sha256 of each file, row counts, migrations
 //
 // Media is archived with the system `tar` (present in the Docker image, macOS, Linux and Windows 10+).
-// With STORAGE_DRIVER=s3 there is no local media: back the bucket up with its own versioning/replication.
+// With STORAGE_DRIVER=s3 or gcs there is no local media: back the bucket up with its own versioning/replication.
+// Files that are still in STORAGE_LOCAL_DIR (the driver was switched before `migrate:media` ran) are not
+// archived either, but they are counted and the run says that they are NOT in the backup.
 //
 // Options (defaults from the same environment variables the app reads):
 //   --db <path>      database file                         DATABASE_PATH, ./data/aivore.db
@@ -133,16 +135,20 @@ export function parseBackupArgs(argv, env, cwd) {
   const at = (value) => resolve(cwd, value);
   const database = at(String(flags.db ?? fromEnv(env, 'DATABASE_PATH') ?? DEFAULT_DATABASE));
   const explicitMedia = typeof flags.media === 'string';
-  const s3 = fromEnv(env, 'STORAGE_DRIVER') === 's3';
+  const driver = fromEnv(env, 'STORAGE_DRIVER');
+  const remote = driver === 's3' || driver === 'gcs';
   const media =
-    flags['no-media'] === true || (s3 && !explicitMedia)
+    flags['no-media'] === true || (remote && !explicitMedia)
       ? null
       : at(String(flags.media ?? fromEnv(env, 'STORAGE_LOCAL_DIR') ?? DEFAULT_MEDIA));
+  const remoteSkipped = remote && !explicitMedia && flags['no-media'] !== true;
   return {
     help: false,
     database,
     media,
-    mediaSkippedForS3: s3 && !explicitMedia && flags['no-media'] !== true,
+    remoteDriverSkipped: remoteSkipped ? String(driver) : null,
+    // Where the files of a site that used the disk before the switch would still be.
+    leftoverMediaDir: remoteSkipped ? at(fromEnv(env, 'STORAGE_LOCAL_DIR') ?? DEFAULT_MEDIA) : null,
     out: at(String(flags.out ?? join(dirname(database), 'backups'))),
     keep,
   };
@@ -452,6 +458,31 @@ export async function createBackup(options, hooks = {}) {
   }
 }
 
+/**
+ * How many media files are on disk under `dir`: plain files, without the hidden bookkeeping files of
+ * the local driver and without links, exactly what `migrate:media` would copy. 0 for a missing folder.
+ * @param {string} dir
+ */
+export function countMediaFiles(dir) {
+  let count = 0;
+  /** @param {string} directory */
+  const walk = (directory) => {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      if (entry.isDirectory()) walk(join(directory, entry.name));
+      else if (entry.isFile()) count += 1;
+    }
+  };
+  walk(dir);
+  return count;
+}
+
 export function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KiB', 'MiB', 'GiB', 'TiB'];
@@ -479,8 +510,21 @@ export async function runBackup(argv, io = {}) {
       log(USAGE.trimEnd());
       return 0;
     }
-    if (options.mediaSkippedForS3)
-      log('STORAGE_DRIVER=s3: media is not on this disk, only the database is backed up.');
+    if (options.remoteDriverSkipped) {
+      log(
+        `STORAGE_DRIVER=${options.remoteDriverSkipped}: media is not on this disk, only the database is backed up.`,
+      );
+      // Flipping the driver before `migrate:media` leaves every earlier picture only in this folder.
+      const left = options.leftoverMediaDir ? countMediaFiles(options.leftoverMediaDir) : 0;
+      if (left > 0) {
+        const one = left === 1;
+        log(
+          `WARNING: ${left} ${one ? 'file' : 'files'} in ${options.leftoverMediaDir} ${one ? 'is' : 'are'} NOT in this backup. ` +
+            `Unless \`npm run migrate:media\` copied ${one ? 'it' : 'them'} to the bucket, ${one ? 'it exists' : 'they exist'} nowhere else: ` +
+            'run that first, or add --media <dir> to archive the folder too.',
+        );
+      }
+    }
     const result = await createBackup(options, { log: (line) => log(`  ${line}`), now: io.now });
     log(`Backup written: ${result.dir}`);
     if (result.removed.length > 0)

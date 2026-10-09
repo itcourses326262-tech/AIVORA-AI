@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { securityHeaders } from '@/server/security/headers';
+import { AUTH_PAGE_PATHS, authPageHeaders, securityHeaders } from '@/server/security/headers';
 
 function headerMap(isProd: boolean): Map<string, string> {
   return new Map(securityHeaders(isProd).map(({ key, value }) => [key, value]));
@@ -98,5 +98,92 @@ describe('securityHeaders', () => {
   it('emits each header once', () => {
     const keys = securityHeaders(true).map((header) => header.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('authPageHeaders (the sign-in pages that open the Google popup)', () => {
+  const authMap = (isProd: boolean) =>
+    new Map(authPageHeaders(isProd).map(({ key, value }) => [key, value]));
+  const directive = (policy: string | undefined, name: string) =>
+    (policy ?? '')
+      .split('; ')
+      .find((part) => part.startsWith(`${name} `))
+      ?.slice(name.length + 1)
+      .split(' ');
+
+  it('applies to the login and register pages and to nothing else', () => {
+    expect([...AUTH_PAGE_PATHS]).toEqual(['/login', '/register']);
+  });
+
+  it('carries exactly the two headers that differ, each once', () => {
+    const keys = authPageHeaders(true).map((header) => header.key);
+    expect(keys.toSorted()).toEqual(['Content-Security-Policy', 'Cross-Origin-Opener-Policy']);
+  });
+
+  it('keeps the opener policy that lets the popup report back, not the one that cuts it off', () => {
+    expect(authMap(true).get('Cross-Origin-Opener-Policy')).toBe('same-origin-allow-popups');
+    expect(headerMap(true).get('Cross-Origin-Opener-Policy')).toBe('same-origin');
+  });
+
+  it('adds the Firebase hosts to the script, connect and frame directives only', () => {
+    const csp = authMap(true).get('Content-Security-Policy');
+    expect(directive(csp, 'script-src')).toEqual([
+      "'self'",
+      "'unsafe-inline'",
+      'https://apis.google.com',
+    ]);
+    expect(directive(csp, 'connect-src')).toEqual([
+      "'self'",
+      'https://identitytoolkit.googleapis.com',
+    ]);
+    expect(directive(csp, 'frame-src')).toEqual(['https://*.firebaseapp.com']);
+  });
+
+  it('is a full policy, since it replaces the strict one rather than extending it', () => {
+    const strict = (headerMap(true).get('Content-Security-Policy') ?? '').split('; ');
+    const relaxed = (authMap(true).get('Content-Security-Policy') ?? '').split('; ');
+    expect(relaxed.map((part) => part.split(' ')[0])).toEqual(
+      strict.map((part) => part.split(' ')[0]),
+    );
+  });
+
+  it('never opens up the dangerous directives', () => {
+    const csp = authMap(true).get('Content-Security-Policy') ?? '';
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("base-uri 'self'");
+    expect(csp).toContain("form-action 'self'");
+    expect(csp).not.toMatch(/\*(?![.])|http:|data:[^ ;]*script/); // no bare wildcard, no plain http
+    expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp.match(/https:\/\/[^ ;]+/g)?.toSorted()).toEqual([
+      'https://*.firebaseapp.com',
+      'https://apis.google.com',
+      'https://identitytoolkit.googleapis.com',
+    ]);
+  });
+
+  it('does not allow the token refresh host: the token is used once, fresh, and never refreshed', () => {
+    for (const isProd of [true, false]) {
+      expect(authMap(isProd).get('Content-Security-Policy')).not.toContain('securetoken');
+    }
+  });
+
+  it('allows the development tooling only in development, like the strict policy', () => {
+    const dev = authMap(false).get('Content-Security-Policy') ?? '';
+    expect(dev).toContain("'unsafe-eval'");
+    expect(directive(dev, 'connect-src')).toEqual(
+      expect.arrayContaining(["'self'", 'ws:', 'wss:', 'https://identitytoolkit.googleapis.com']),
+    );
+    expect(authMap(true).get('Content-Security-Policy')).not.toContain('ws:');
+  });
+
+  it('does not import anything, so next.config.ts can load it', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(
+      new URL('../../../src/server/security/headers.ts', import.meta.url),
+      'utf8',
+    );
+    expect(source).not.toMatch(/^\s*import\s/m);
   });
 });

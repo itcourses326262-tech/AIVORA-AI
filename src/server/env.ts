@@ -47,6 +47,13 @@ const list = text(
 );
 const lowerList = list.transform((items) => items.map((item) => item.toLowerCase()));
 
+/** `gs://my-bucket/` is the bucket `my-bucket`. Blank after stripping means unset. */
+const bareBucketName = (value: string) =>
+  value
+    .trim()
+    .replace(/^gs:\/\//i, '')
+    .replace(/\/+$/, '') || undefined;
+
 const baseUrl = text(
   z
     .url({
@@ -81,8 +88,12 @@ const envSchema = z
     FIREBASE_APP_ID: text(z.string().optional()),
     /** `off` hides the Google button even when the settings above are present. */
     FIREBASE_AUTH: choice(['auto', 'off'], 'auto'),
-    /** The Cloud Storage bucket of the Firebase project (`<project>.firebasestorage.app`). */
-    FIREBASE_STORAGE_BUCKET: text(z.string().optional()),
+    /**
+     * The Cloud Storage bucket of the Firebase project (`<project>.firebasestorage.app`). The console
+     * shows it as `gs://<name>`: that and a trailing slash are removed here, so the driver id and
+     * every consumer see one value.
+     */
+    FIREBASE_STORAGE_BUCKET: text(z.string().transform(bareBucketName).optional()),
     /** Path of the downloaded service-account JSON (preferred), or the JSON text itself. */
     FIREBASE_SERVICE_ACCOUNT_FILE: text(z.string().optional()),
     FIREBASE_SERVICE_ACCOUNT_JSON: text(z.string().optional()),

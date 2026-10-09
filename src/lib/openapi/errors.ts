@@ -86,6 +86,11 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, ErrorCodeDoc> = {
     meaning: 'Too many accounts were created from the same network today. Try again tomorrow.',
     sample: 'Too many sign-ups from this network',
   },
+  password_not_set: {
+    meaning:
+      'The account signs in with Google and has no password yet, so there is none to check or change. Request a reset email (`POST /auth/password/forgot`) to set one first.',
+    sample: 'This account has no password yet',
+  },
   provider_error: {
     meaning:
       'The generation provider could not be reached or answered with an error. Nothing was charged. Retry later.',

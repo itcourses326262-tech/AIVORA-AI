@@ -32,11 +32,12 @@ describe('error codes', () => {
       email_not_verified: 403,
       email_not_allowed: 422,
       signup_limit: 429,
+      password_not_set: 409,
       provider_error: 502,
       service_busy: 503,
       internal: 500,
     });
-    expect(ERROR_CODES).toHaveLength(19);
+    expect(ERROR_CODES).toHaveLength(20);
   });
 
   it('recognizes codes without being fooled by inherited object keys', () => {

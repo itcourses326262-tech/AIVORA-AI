@@ -114,14 +114,15 @@ export function parseRestoreArgs(argv, env, cwd) {
   }
   const at = (value) => resolve(cwd, value);
   const database = at(String(flags.db ?? fromEnv(env, 'DATABASE_PATH') ?? DEFAULT_DATABASE));
-  const s3 = fromEnv(env, 'STORAGE_DRIVER') === 's3';
+  const driver = fromEnv(env, 'STORAGE_DRIVER');
+  const remote = driver === 's3' || driver === 'gcs';
   return {
     help: false,
     from: typeof flags.from === 'string' ? at(flags.from) : null,
     out: at(String(flags.out ?? join(dirname(database), 'backups'))),
     database,
     media:
-      flags['no-media'] === true || (s3 && flags.media === undefined)
+      flags['no-media'] === true || (remote && flags.media === undefined)
         ? null
         : at(String(flags.media ?? fromEnv(env, 'STORAGE_LOCAL_DIR') ?? DEFAULT_MEDIA)),
     force: flags.force === true,

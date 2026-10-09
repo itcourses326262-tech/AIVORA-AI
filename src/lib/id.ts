@@ -19,6 +19,7 @@ export const ID_PREFIXES = [
   'ord',
   'sub',
   'bev',
+  'idn',
 ] as const;
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 export type Id<P extends IdPrefix = IdPrefix> = `${P}_${string}`;

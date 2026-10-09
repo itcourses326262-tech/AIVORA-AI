@@ -6,6 +6,7 @@ import { firstParam } from '@/components/auth/search-params';
 import { getOptionalUser } from '@/lib/auth-guard';
 import { getI18n } from '@/lib/i18n/server';
 import { safeNextPath } from '@/lib/next-path';
+import { firebaseWebConfig } from '@/server/auth/firebase';
 import { getEnv } from '@/server/env';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -22,5 +23,12 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   const next = safeNextPath(firstParam((await searchParams).next));
   if (await getOptionalUser()) redirect(next);
-  return <LoginForm next={next} aside={<AuthAside bonus={getEnv().SIGNUP_BONUS_CREDITS} />} />;
+  const env = getEnv();
+  return (
+    <LoginForm
+      next={next}
+      aside={<AuthAside bonus={env.SIGNUP_BONUS_CREDITS} />}
+      firebase={firebaseWebConfig(env)}
+    />
+  );
 }

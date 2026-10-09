@@ -10,6 +10,8 @@ import { isProviderError } from '@/server/providers/errors';
 import { falProvider } from '@/server/providers/fal';
 import type { ProviderContext, ProviderInput } from '@/server/providers/types';
 
+export { upsertEnv } from './env-file';
+
 /** The cheapest verified fal model: one image costs about USD 0.003 at fal. */
 export const CHECK_MODEL_ID = 'fal-flux-schnell';
 export const CHECK_PROMPT = 'a single red apple on a plain white table, studio photo';
@@ -45,28 +47,6 @@ export function validateFalKey(
     };
   }
   return { ok: true, key };
-}
-
-/**
- * Sets `NAME=value` lines in the text of an env file: replaces an existing line, appends a missing
- * one, keeps every other line and comment, and always ends with a newline. Pure: no file access.
- */
-export function upsertEnv(content: string, updates: Record<string, string>): string {
-  const eol = content.includes('\r\n') ? '\r\n' : '\n';
-  const lines =
-    content === '' ? [] : content.replace(/\r\n/g, '\n').replace(/\n+$/, '').split('\n');
-  const remaining = new Map(Object.entries(updates));
-  const next = lines.map((line) => {
-    const name = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];
-    if (name !== undefined && remaining.has(name)) {
-      const value = remaining.get(name) as string;
-      remaining.delete(name);
-      return `${name}=${value}`;
-    }
-    return line;
-  });
-  for (const [name, value] of remaining) next.push(`${name}=${value}`);
-  return next.join(eol) + eol;
 }
 
 function causeCodes(error: unknown): string {

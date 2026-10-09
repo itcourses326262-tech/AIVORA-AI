@@ -40,6 +40,7 @@ export default defineMessages({
       },
     },
     security: {
+      noPasswordTitle: 'Password',
       passwordTitle: 'Change password',
       passwordDescription:
         'Choose a long password you do not use anywhere else. Other devices are signed out when you change it.',
@@ -418,6 +419,7 @@ export default defineMessages({
       },
     },
     security: {
+      noPasswordTitle: 'كلمة المرور',
       passwordTitle: 'تغيير كلمة المرور',
       passwordDescription:
         'اختر كلمة مرور طويلة لا تستخدمها في مكان آخر. عند تغييرها يُسجَّل خروجك من الأجهزة الأخرى.',

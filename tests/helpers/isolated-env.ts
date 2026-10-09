@@ -37,4 +37,16 @@ export const ISOLATED_ENV_KEYS = [
   'MOYASAR_API_BASE',
   'MOYASAR_ALLOW_LIVE_IN_DEV',
   'MOYASAR_ALLOW_TEST_IN_PRODUCTION',
+  // Google sign-in and Google Cloud Storage: with the public identifiers set, the log in and
+  // register pages grow a "Continue with Google" button (and the page tests would see it); with the
+  // bucket and a service account set, media would go to a real bucket. Neither may come from a
+  // developer's machine into a test run.
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_APP_ID',
+  'FIREBASE_AUTH',
+  'FIREBASE_STORAGE_BUCKET',
+  'FIREBASE_SERVICE_ACCOUNT_FILE',
+  'FIREBASE_SERVICE_ACCOUNT_JSON',
 ] as const;

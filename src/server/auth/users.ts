@@ -26,7 +26,7 @@ import {
 } from './password';
 import { openSession, revokeOtherSessions } from './sessions';
 import { assertEmailAllowed, assertSignupsWithinCap, signupAddress } from './signup-guard';
-import { fieldError, normalizeEmail, parseEmail, parseName } from './validation';
+import { fieldError, normalizeEmail, parseEmail, parseName, passwordNotSet } from './validation';
 import { pendingSignupBonus } from './verification';
 
 export interface RegisterInput {
@@ -76,7 +76,7 @@ function invalidCredentials(): AppError {
   return AppError.of('unauthorized', 'Invalid email or password');
 }
 
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   for (let current: unknown = error, depth = 0; current && depth < 4; depth += 1) {
     const { code, cause } = current as { code?: unknown; cause?: unknown };
     if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT_')) {
@@ -102,12 +102,18 @@ export interface NewAccount {
   bonusCredits: number;
   /** Client address of the registration (counts towards the daily cap); null for operator-made accounts. */
   signupIp: string | null;
-  /** Set for accounts whose address nobody needs to confirm (operator-made). */
+  /** Set for accounts whose address nobody needs to confirm (operator-made, or confirmed by Google). */
   verifiedAt: number | null;
+  /** False for an account created with Google: `passwordHash` is then an unusable value. Default true. */
+  hasPassword?: boolean;
 }
 
-/** Inserts the user and its signup bonus. Synchronous: call it inside `withTx`. */
-function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow {
+/**
+ * Inserts the user and its signup bonus. Synchronous: call it inside `withTx`. Shared by every way
+ * an account comes to exist (registration, operator tooling, first Google sign-in), so the
+ * canonical-email uniqueness and the bonus rules are the same for all of them.
+ */
+export function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow {
   const emailCanonical = canonicalizeEmail(account.email);
   // The canonical form catches `a.b+x@gmail.com` after `ab@gmail.com`; comparing it with `email`
   // as well covers rows that predate the column.
@@ -131,6 +137,7 @@ function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow {
       email: account.email,
       name: account.name,
       passwordHash: account.passwordHash,
+      hasPassword: account.hasPassword ?? true,
       role: account.role,
       locale: account.locale,
       creditBalance: 0,
@@ -276,7 +283,8 @@ function enforceLoginLimit(ip: string, email: string): void {
 /**
  * Constant-time-ish, with one generic `unauthorized` error for every failure. Rate limited per
  * IP+email. An unknown email still runs a full password verification against a dummy hash, so
- * the response time does not tell "no such account" from "wrong password". A disabled account
+ * the response time does not tell "no such account" from "wrong password"; so does an account that
+ * has no password. A disabled account
  * gets a distinct `forbidden`, but only after the password was right, so it reveals nothing to
  * someone who does not already hold the credentials.
  */
@@ -287,7 +295,9 @@ export async function loginUser(input: LoginInput, meta: SessionMeta = {}): Prom
 
   const db = getDb();
   const row = email ? db.select().from(users).where(eq(users.email, email)).get() : undefined;
-  if (!row) {
+  // An account without a password (Google only) answers exactly like an unknown email: the same
+  // error after the same amount of work, so the response does not tell it apart.
+  if (!row || !row.hasPassword) {
     await verifyAgainstDummy(password);
     throw invalidCredentials();
   }
@@ -332,6 +342,7 @@ export async function changePassword(
 ): Promise<void> {
   const row = getUserById(userId);
   if (!row) throw AppError.of('not_found', 'User not found');
+  if (!row.hasPassword) throw passwordNotSet();
   assertPasswordPolicy(next, { email: row.email });
   // 422 on the field rather than 401: the user is signed in, only this input is wrong.
   if (!(await verifyPassword(current, row.passwordHash))) {

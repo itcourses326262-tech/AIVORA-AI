@@ -27,6 +27,10 @@ import { BILLING_EMAIL_KINDS } from '@/server/email/types';
  * `npm run db:generate` and commit the new SQL in `drizzle/`.
  */
 
+/** Sign-in providers an account can be linked to besides its password. */
+export const AUTH_PROVIDERS = ['google'] as const;
+export type AuthProvider = (typeof AUTH_PROVIDERS)[number];
+
 /** `column IN ('a', 'b')` built from a constant list, so TS unions and SQL CHECKs cannot drift. */
 function oneOf(column: AnySQLiteColumn, values: readonly string[]): SQL {
   const literals = values.map((value) => sql.raw(`'${value.replace(/'/g, "''")}'`));
@@ -40,6 +44,12 @@ export const users = sqliteTable(
     email: text('email').notNull().unique(),
     name: text('name').notNull(),
     passwordHash: text('password_hash').notNull(),
+    /**
+     * False for an account that was created with Google (or whose password was neutralized when it
+     * was claimed through Google): `passwordHash` then holds a value no password can match. The
+     * reset flow sets a real hash and flips it back.
+     */
+    hasPassword: integer('has_password', { mode: 'boolean' }).notNull().default(true),
     role: text('role', { enum: USER_ROLES }).notNull().default('user'),
     locale: text('locale', { enum: LOCALES }).notNull().default('ar'),
     /** Cached balance; the ledger is the audit trail. Never negative. */
@@ -86,6 +96,32 @@ export const sessions = sqliteTable(
     ip: text('ip'),
   },
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
+);
+
+/**
+ * A provider account linked to a user (`google` today). `subject` is the provider's stable id for
+ * the person, so a sign-in finds the account even after the Google address changed. It is never
+ * shown or exported; `email` is what the provider reported at the last sign-in. Rows go with the
+ * account when it is deleted (the user row itself stays as a tombstone).
+ */
+export const authIdentities = sqliteTable(
+  'auth_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider', { enum: AUTH_PROVIDERS }).notNull(),
+    subject: text('subject').notNull(),
+    email: text('email').notNull(),
+    createdAt: integer('created_at').notNull(),
+    lastLoginAt: integer('last_login_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('auth_identities_provider_subject_uq').on(t.provider, t.subject),
+    index('auth_identities_user_idx').on(t.userId),
+    check('auth_identities_provider_valid', oneOf(t.provider, AUTH_PROVIDERS)),
+  ],
 );
 
 export const apiKeys = sqliteTable(
@@ -480,6 +516,8 @@ export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
+export type AuthIdentityRow = typeof authIdentities.$inferSelect;
+export type NewAuthIdentityRow = typeof authIdentities.$inferInsert;
 export type ApiKeyRow = typeof apiKeys.$inferSelect;
 export type NewApiKeyRow = typeof apiKeys.$inferInsert;
 export type LedgerEntry = typeof creditLedger.$inferSelect;

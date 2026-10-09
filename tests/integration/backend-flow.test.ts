@@ -53,6 +53,7 @@ describe('a new user from sign-up to a viewable image', () => {
         'email',
         'emailVerificationRequired',
         'emailVerified',
+        'hasPassword',
         'id',
         'locale',
         'name',

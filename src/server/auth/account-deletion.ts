@@ -5,6 +5,7 @@ import { getDb, withTx, type Db } from '@/server/db';
 import {
   apiKeys,
   assets,
+  authIdentities,
   creditLedger,
   emailTokens,
   generations,
@@ -20,7 +21,7 @@ import { runInBackground } from './background';
 import { queueAccountDeletedEmail } from './notifications';
 import { verifyPassword } from './password';
 import { signupAddressAfterDeletion } from './signup-guard';
-import { fieldError } from './validation';
+import { fieldError, passwordNotSet } from './validation';
 
 /**
  * Account deletion (GDPR-style erasure with the accounting exception).
@@ -28,7 +29,7 @@ import { fieldError } from './validation';
  * What goes: sessions, API keys, email links, every generation (prompts included), every asset row
  * and its stored files, and everything personal on the user row: the email becomes a tombstone
  * (`<id>@deleted.invalid`, which can never receive mail or sign in), the name is cleared, the
- * password hash is destroyed, the sign-up address is erased (for the rest of its first day only a
+ * password hash is destroyed, the links to Google accounts are removed, the sign-up address is erased (for the rest of its first day only a
  * keyed digest stays, so deleting accounts does not free slots of the per-address sign-up cap)
  * and `disabledAt`/`deletedAt` are set.
  *
@@ -296,6 +297,9 @@ export async function deleteAccount(
       .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)))
       .run();
     tx.delete(emailTokens).where(eq(emailTokens.userId, userId)).run();
+    // The link to the Google account goes too: it names a person, and signing in with that
+    // Google account later must start a new account, not wake this tombstone.
+    tx.delete(authIdentities).where(eq(authIdentities.userId, userId)).run();
     const email = tombstoneEmail(userId);
     tx.update(users)
       .set({
@@ -303,6 +307,7 @@ export async function deleteAccount(
         emailCanonical: email,
         name: '',
         passwordHash: DESTROYED_PASSWORD_HASH,
+        hasPassword: false,
         role: 'user',
         signupIp: signupAddressAfterDeletion(current, now),
         emailVerifiedAt: null,
@@ -348,6 +353,8 @@ export async function deleteAccountWithPassword(
 ): Promise<DeletionResult<PurgeResult | null>> {
   const row = getDb().select().from(users).where(eq(users.id, userId)).get();
   if (!row || row.deletedAt !== null) throw AppError.of('not_found', 'User not found');
+  // A Google-only account has nothing to re-enter: it sets a password through the reset email first.
+  if (!row.hasPassword) throw passwordNotSet();
   if (!(await verifyPassword(password, row.passwordHash))) {
     throw fieldError('password', 'Password is incorrect');
   }

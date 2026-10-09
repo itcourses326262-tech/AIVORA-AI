@@ -1,5 +1,5 @@
 import type { NextConfig } from 'next';
-import { securityHeaders } from './src/server/security/headers';
+import { AUTH_PAGE_PATHS, authPageHeaders, securityHeaders } from './src/server/security/headers';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -12,7 +12,12 @@ const nextConfig: NextConfig = {
   // Migrations are read from `<cwd>/drizzle` at runtime, which file tracing cannot see.
   outputFileTracingIncludes: { '/**/*': ['./drizzle/**/*'] },
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders(isProd) }];
+    return [
+      { source: '/:path*', headers: securityHeaders(isProd) },
+      // After the baseline rule on purpose: where both set a header, the later rule wins. These two
+      // pages open the Google popup and need a CSP and COOP that allow it; nothing else does.
+      ...AUTH_PAGE_PATHS.map((source) => ({ source, headers: authPageHeaders(isProd) })),
+    ];
   },
 };
 

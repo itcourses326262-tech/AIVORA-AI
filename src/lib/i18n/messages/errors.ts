@@ -26,6 +26,8 @@ const en = {
     "Temporary or disposable email addresses can't be used. Please sign up with your permanent email address.",
   signup_limit:
     'Too many accounts were created from your network today. Please try again tomorrow.',
+  password_not_set:
+    'This account signs in with Google and has no password yet. Use "Forgot password" to set one.',
   provider_error: 'The generation service ran into a problem. Please try again.',
   service_busy: 'The service is under heavy load right now. Please try again in a little while.',
   internal: 'Something went wrong on our side. Please try again.',
@@ -55,6 +57,8 @@ const ar = {
   email_not_allowed:
     'لا يمكن استخدام البريد المؤقت أو القابل للتخلص منه. سجّل ببريدك الإلكتروني الدائم.',
   signup_limit: 'أُنشئ عدد كبير من الحسابات من شبكتك اليوم. حاول مرة أخرى غدًا.',
+  password_not_set:
+    'يسجّل هذا الحساب الدخول عبر Google وليست له كلمة مرور بعد. استخدم «نسيت كلمة المرور» لتعيين واحدة.',
   provider_error: 'واجهت خدمة التوليد مشكلة. حاول مرة أخرى.',
   service_busy: 'الخدمة تشهد ضغطًا كبيرًا حاليًا. حاول مرة أخرى بعد قليل.',
   internal: 'حدث خطأ من جانبنا. حاول مرة أخرى.',

@@ -321,6 +321,137 @@ describe('backup: the media directory', () => {
   });
 });
 
+describe('backup: Google Cloud Storage', () => {
+  it('backs up only the database when the application stores media in a Google bucket', async () => {
+    const dir = tempDir();
+    const { path } = liveDatabase(dir, 1);
+    writeMedia(join(dir, 'media'));
+    const { io, lines } = capture();
+
+    const code = await backup.runBackup(['--out', join(dir, 'backups')], {
+      ...io,
+      cwd: dir,
+      env: { DATABASE_PATH: path, STORAGE_DRIVER: 'gcs', STORAGE_LOCAL_DIR: join(dir, 'media') },
+    });
+
+    expect(code).toBe(0);
+    expect(lines.join('\n')).toContain('STORAGE_DRIVER=gcs: media is not on this disk');
+    const [name] = backup.listBackups(join(dir, 'backups'));
+    expect(readManifest(join(dir, 'backups', name ?? '')).media).toBeNull();
+  });
+
+  it('still archives a media folder you name explicitly', async () => {
+    const dir = tempDir();
+    const { path } = liveDatabase(dir, 1);
+    writeMedia(join(dir, 'media'));
+    const { io, lines } = capture();
+
+    const code = await backup.runBackup(
+      ['--out', join(dir, 'backups'), '--media', join(dir, 'media')],
+      { ...io, cwd: dir, env: { DATABASE_PATH: path, STORAGE_DRIVER: 'gcs' } },
+    );
+
+    expect(code).toBe(0);
+    expect(lines.join('\n')).not.toContain('media is not on this disk');
+    const [name] = backup.listBackups(join(dir, 'backups'));
+    expect(readManifest(join(dir, 'backups', name ?? '')).media).not.toBeNull();
+  });
+});
+
+describe('backup: media left on the disk after the driver was switched', () => {
+  // Switching to a bucket before `migrate:media` leaves every earlier picture only in the folder, and
+  // a backup that says "media is not on this disk" would be untrue about exactly those files.
+  const warningOf = (lines: string[]) => lines.filter((line) => line.startsWith('WARNING'));
+
+  it.each(['gcs', 's3'])(
+    'counts the files still in STORAGE_LOCAL_DIR and says they are NOT in the backup (%s)',
+    async (driver) => {
+      const dir = tempDir();
+      const { path } = liveDatabase(dir, 1);
+      const media = join(dir, 'media');
+      writeMedia(media); // two pictures and one hidden sidecar, which is not counted
+      const { io, lines } = capture();
+
+      const code = await backup.runBackup(['--out', join(dir, 'backups')], {
+        ...io,
+        cwd: dir,
+        env: { DATABASE_PATH: path, STORAGE_DRIVER: driver, STORAGE_LOCAL_DIR: media },
+      });
+
+      expect(code).toBe(0);
+      const warnings = warningOf(lines);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('2 files');
+      expect(warnings[0]).toContain(media);
+      expect(warnings[0]).toContain('NOT in this backup');
+      expect(warnings[0]).toContain('migrate:media');
+      // Still only the database, as documented.
+      const [name] = backup.listBackups(join(dir, 'backups'));
+      expect(readManifest(join(dir, 'backups', name ?? '')).media).toBeNull();
+    },
+  );
+
+  it('says nothing when the folder is empty or missing, and counts a single file in the singular', async () => {
+    const dir = tempDir();
+    const { path } = liveDatabase(dir, 1);
+    const env = { DATABASE_PATH: path, STORAGE_DRIVER: 'gcs', STORAGE_LOCAL_DIR: join(dir, 'm') };
+
+    const missing = capture();
+    await backup.runBackup(['--out', join(dir, 'backups')], { ...missing.io, cwd: dir, env });
+    expect(warningOf(missing.lines)).toEqual([]);
+
+    mkdirSync(join(dir, 'm', 'u'), { recursive: true });
+    writeFileSync(join(dir, 'm', 'u', '.tmp-abc'), 'x');
+    const hiddenOnly = capture();
+    await backup.runBackup(['--out', join(dir, 'backups')], { ...hiddenOnly.io, cwd: dir, env });
+    expect(warningOf(hiddenOnly.lines)).toEqual([]);
+
+    writeFileSync(join(dir, 'm', 'u', 'ast_a.png'), 'x');
+    const one = capture();
+    await backup.runBackup(['--out', join(dir, 'backups')], { ...one.io, cwd: dir, env });
+    expect(warningOf(one.lines)[0]).toContain('1 file in ');
+    expect(warningOf(one.lines)[0]).toContain(' is NOT in this backup');
+  });
+
+  it('does not warn when the folder is archived (--media) or left out on purpose (--no-media)', async () => {
+    const dir = tempDir();
+    const { path } = liveDatabase(dir, 1);
+    const media = join(dir, 'media');
+    writeMedia(media);
+    const env = { DATABASE_PATH: path, STORAGE_DRIVER: 'gcs', STORAGE_LOCAL_DIR: media };
+
+    const archived = capture();
+    await backup.runBackup(['--out', join(dir, 'backups'), '--media', media], {
+      ...archived.io,
+      cwd: dir,
+      env,
+    });
+    expect(warningOf(archived.lines)).toEqual([]);
+
+    const skipped = capture();
+    await backup.runBackup(['--out', join(dir, 'backups'), '--no-media'], {
+      ...skipped.io,
+      cwd: dir,
+      env,
+    });
+    expect(warningOf(skipped.lines)).toEqual([]);
+  });
+
+  it('does not warn for a site that stores media on the disk', async () => {
+    const dir = tempDir();
+    const { path } = liveDatabase(dir, 1);
+    const media = join(dir, 'media');
+    writeMedia(media);
+    const { io, lines } = capture();
+    await backup.runBackup(['--out', join(dir, 'backups')], {
+      ...io,
+      cwd: dir,
+      env: { DATABASE_PATH: path, STORAGE_LOCAL_DIR: media },
+    });
+    expect(warningOf(lines)).toEqual([]);
+  });
+});
+
 describe('backup: retention', () => {
   it('keeps the newest n complete backups and touches nothing else', async () => {
     const dir = tempDir();

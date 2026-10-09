@@ -1,4 +1,4 @@
-import type { APIResponse } from '@playwright/test';
+import type { APIResponse, Page } from '@playwright/test';
 import { E2E_SESSION_SECRET } from './env';
 import { expect, test } from './fixtures';
 import { createDemoImage } from './fixtures/api';
@@ -43,10 +43,50 @@ function header(response: APIResponse, name: string): string {
   return response.headers()[name] ?? '';
 }
 
-test.describe('security headers', () => {
-  const documents = ['/', '/login', '/pricing', '/docs', '/explore', '/does-not-exist'];
+/** `directive -> sources` of a Content-Security-Policy. */
+function directivesOf(policy: string): Map<string, string[]> {
+  return new Map(
+    policy.split('; ').map((part) => {
+      const [name = '', ...sources] = part.split(' ');
+      return [name, sources] as const;
+    }),
+  );
+}
 
-  for (const path of documents) {
+/** What every page sends whichever policy it has: only the CSP and the opener policy may differ. */
+const SHARED_HEADERS = [
+  'x-content-type-options',
+  'x-frame-options',
+  'referrer-policy',
+  'permissions-policy',
+  'strict-transport-security',
+  'x-permitted-cross-domain-policies',
+] as const;
+
+test.describe('security headers', () => {
+  // Every page except the two sign-in pages keeps the strict policy, including near misses of
+  // their addresses and the answer for a page that does not exist.
+  const strictDocuments = [
+    '/',
+    '/pricing',
+    '/docs',
+    '/explore',
+    '/forgot-password',
+    '/privacy',
+    '/login/extra',
+    '/loginx',
+    '/does-not-exist',
+  ];
+  // The only pages that open the Google popup. The relaxation is fixed when the app is built, so
+  // they carry it on a deployment without Google sign-in too (the e2e servers have none).
+  const authDocuments = [
+    '/login',
+    '/register',
+    '/login?next=%2Fstudio',
+    '/register?next=%2Fstudio',
+  ];
+
+  for (const path of strictDocuments) {
     test(`${path} sends the hardening headers`, async ({ request }) => {
       const response = await request.get(path);
       const csp = header(response, 'content-security-policy');
@@ -65,6 +105,7 @@ test.describe('security headers', () => {
       // Production never needs eval, and nothing may load script from another origin.
       expect(csp).not.toContain("'unsafe-eval'");
       expect(csp.match(/script-src[^;]*/)?.[0]).toBe("script-src 'self' 'unsafe-inline'");
+      expect(csp).not.toMatch(/google|firebase/i);
 
       expect(header(response, 'x-content-type-options')).toBe('nosniff');
       expect(header(response, 'x-frame-options')).toBe('DENY');
@@ -74,6 +115,52 @@ test.describe('security headers', () => {
       expect(header(response, 'permissions-policy')).toContain('camera=()');
       expect(header(response, 'permissions-policy')).toContain('microphone=()');
       expect(header(response, 'permissions-policy')).toContain('geolocation=()');
+      expect(response.headers()['x-powered-by']).toBeUndefined();
+    });
+  }
+
+  for (const path of authDocuments) {
+    test(`${path} sends the documented sign-in variant: the strict policy plus the Google popup hosts`, async ({
+      request,
+    }) => {
+      const strict = await request.get('/');
+      const response = await request.get(path);
+      expect(response.status()).toBe(200);
+
+      const relaxed = directivesOf(header(response, 'content-security-policy'));
+      const baseline = directivesOf(header(strict, 'content-security-policy'));
+      // Same directives in the same order; only three of them differ, by exactly the Firebase hosts.
+      expect([...relaxed.keys()]).toEqual([...baseline.keys()]);
+      const changed = [...relaxed.keys()].filter(
+        (name) => relaxed.get(name)?.join(' ') !== baseline.get(name)?.join(' '),
+      );
+      expect(changed.toSorted()).toEqual(['connect-src', 'frame-src', 'script-src']);
+      expect(relaxed.get('script-src')).toEqual([
+        "'self'",
+        "'unsafe-inline'",
+        'https://apis.google.com',
+      ]);
+      expect(relaxed.get('connect-src')).toEqual([
+        "'self'",
+        'https://identitytoolkit.googleapis.com',
+      ]);
+      expect(relaxed.get('frame-src')).toEqual(['https://*.firebaseapp.com']);
+      // What keeps the page from being framed, posting elsewhere or running plugins stays.
+      expect(relaxed.get('default-src')).toEqual(["'self'"]);
+      expect(relaxed.get('object-src')).toEqual(["'none'"]);
+      expect(relaxed.get('base-uri')).toEqual(["'self'"]);
+      expect(relaxed.get('form-action')).toEqual(["'self'"]);
+      expect(relaxed.get('frame-ancestors')).toEqual(["'none'"]);
+      expect(header(response, 'content-security-policy')).not.toMatch(
+        /unsafe-eval|securetoken|accounts\.google|www\.googleapis|http:/,
+      );
+
+      // The popup must keep `window.opener`; `same-origin` would cut it off.
+      expect(header(response, 'cross-origin-opener-policy')).toBe('same-origin-allow-popups');
+      for (const name of SHARED_HEADERS) {
+        expect(header(response, name), `${name} of ${path}`).toBe(header(strict, name));
+      }
+      expect(header(response, 'x-frame-options')).toBe('DENY');
       expect(response.headers()['x-powered-by']).toBeUndefined();
     });
   }
@@ -154,6 +241,53 @@ test.describe('content security policy in the browser', () => {
     expect(violations.outcome).toBe('blocked');
     expect(violations.seen).toEqual(expect.arrayContaining(['connect-src', 'img-src']));
   });
+});
+
+test.describe('the Google popup helpers are allowed on the sign-in pages only', () => {
+  test.use({ expectedConsoleErrors: [/Content Security Policy/] });
+
+  /** Tries to load Google's script and the Firebase helper frame, and reports what the policy refused. */
+  async function refusals(page: Page, path: string): Promise<string[]> {
+    // Nothing leaves the machine: where the policy allows a request, a stand-in answers it.
+    await page.route('https://apis.google.com/**', (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: '' }),
+    );
+    await page.route('https://e2e-project.firebaseapp.com/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>helper</title>' }),
+    );
+    await page.goto(path);
+    return page.evaluate(async () => {
+      const seen: string[] = [];
+      // Only the two requests below: zod's probe for `eval` raises a violation of its own on any
+      // page that validates a form, and it is not what is being asked here.
+      document.addEventListener('securitypolicyviolation', (event) => {
+        if (/apis\.google\.com|firebaseapp\.com/.test(event.blockedURI)) {
+          seen.push(event.violatedDirective);
+        }
+      });
+      const script = document.createElement('script');
+      script.src = 'https://apis.google.com/js/api.js';
+      const frame = document.createElement('iframe');
+      frame.src = 'https://e2e-project.firebaseapp.com/__/auth/iframe';
+      document.head.append(script);
+      document.body.append(frame);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return seen;
+    });
+  }
+
+  for (const path of ['/login', '/register']) {
+    test(`${path} may load them`, async ({ page }) => {
+      expect(await refusals(page, path)).toEqual([]);
+    });
+  }
+
+  for (const path of ['/', '/pricing', '/forgot-password']) {
+    test(`${path} refuses both`, async ({ page }) => {
+      const seen = await refusals(page, path);
+      expect(seen).toEqual(expect.arrayContaining(['script-src-elem', 'frame-src']));
+    });
+  }
 });
 
 test.describe('cross-site requests are refused', () => {

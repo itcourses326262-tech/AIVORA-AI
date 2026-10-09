@@ -22,6 +22,8 @@ export interface SessionUser {
   emailVerified?: boolean;
   emailVerificationRequired?: boolean;
   pendingBonusCredits?: number;
+  /** False for an account that signs in with Google only (see `UserDTO.hasPassword`). */
+  hasPassword?: boolean;
 }
 
 export interface AuthContext {

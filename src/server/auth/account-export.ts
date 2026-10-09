@@ -5,6 +5,7 @@ import { getDb } from '@/server/db';
 import {
   apiKeys,
   assets,
+  authIdentities,
   creditLedger,
   generations,
   orders,
@@ -89,7 +90,8 @@ async function* jsonArray<Row extends { id: string }>(
 }
 
 /**
- * The user's data as a JSON document, in chunks: profile, sign-in sessions (no tokens), API key
+ * The user's data as a JSON document, in chunks: profile, linked sign-in providers (no provider
+ * ids), sign-in sessions (no tokens), API key
  * metadata (never a secret or its hash), the full credit ledger, the purchases (orders and plans:
  * what was bought, for how much, how it ended; no payment page address, gateway ids or card data,
  * of which we hold none), generations (what was asked and the outcome) and every asset with its
@@ -114,12 +116,31 @@ export async function* exportAccountChunks(
     locale: user.locale,
     creditBalance: user.creditBalance,
     emailVerifiedAt: user.emailVerifiedAt,
+    hasPassword: user.hasPassword,
     signupIp: user.signupIp,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   })},\n`;
 
-  yield '  "sessions": ';
+  // Which sign-in providers are linked, not the provider's id for the person.
+  yield '  "linkedAccounts": ';
+  yield* jsonArray(
+    (after) =>
+      db
+        .select()
+        .from(authIdentities)
+        .where(and(eq(authIdentities.userId, userId), gt(authIdentities.id, after)))
+        .orderBy(asc(authIdentities.id))
+        .limit(PAGE)
+        .all(),
+    (row) => ({
+      provider: row.provider,
+      email: row.email,
+      linkedAt: row.createdAt,
+      lastLoginAt: row.lastLoginAt,
+    }),
+  );
+  yield ',\n  "sessions": ';
   yield* jsonArray(
     (after) =>
       db

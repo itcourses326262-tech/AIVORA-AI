@@ -96,6 +96,10 @@ export const accountEndpoints: EndpointSpec[] = [
       validationFailed('The password is wrong.', [
         { path: 'password', message: 'Password is incorrect' },
       ]),
+      failure(
+        'password_not_set',
+        'The account has no password (it signs in with Google), so there is nothing to confirm with. Set one through the password reset email first.',
+      ),
       rateLimited(),
       failure(
         'provider_error',
@@ -129,6 +133,10 @@ export const accountEndpoints: EndpointSpec[] = [
       validationFailed(
         'The current password is wrong (`currentPassword`), the new one breaks the policy (`password`) or equals the current one (`newPassword`).',
         [{ path: 'currentPassword', message: 'Current password is incorrect' }],
+      ),
+      failure(
+        'password_not_set',
+        'The account has no password (it signs in with Google), so there is no current password to change. Set one through the password reset email.',
       ),
       rateLimited(),
     ],

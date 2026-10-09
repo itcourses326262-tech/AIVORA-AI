@@ -89,6 +89,7 @@ export function expectUserDTO(value: unknown): asserts value is UserDTO {
     emailVerified: expect.any(Boolean),
     emailVerificationRequired: expect.any(Boolean),
     pendingBonusCredits: expect.any(Number),
+    hasPassword: expect.any(Boolean),
   });
   expect(Object.keys(value as object).sort()).toEqual([
     'createdAt',
@@ -96,6 +97,7 @@ export function expectUserDTO(value: unknown): asserts value is UserDTO {
     'email',
     'emailVerificationRequired',
     'emailVerified',
+    'hasPassword',
     'id',
     'locale',
     'name',

@@ -12,6 +12,11 @@ export function fieldError(path: string, message: string): AppError {
   });
 }
 
+/** The account signs in with Google only: there is no password to verify or to change. */
+export function passwordNotSet(): AppError {
+  return AppError.of('password_not_set', 'This account has no password yet');
+}
+
 const emailSchema = z.email().max(EMAIL_MAX_LENGTH);
 
 /** Lower-cased, trimmed form used for storage and lookups. No validation. */

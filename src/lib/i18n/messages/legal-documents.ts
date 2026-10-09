@@ -220,7 +220,7 @@ Questions about these terms: {contactEmail}.`,
         data: {
           title: 'What we collect',
           body: `### Account details
-Your email address, your name, your preferred language and a password. We never see or store your password itself, only a protected, salted hash of it.
+Your email address, your name, your preferred language and a password. We never see or store your password itself, only a protected, salted hash of it. If you sign in with Google instead, we keep the email address and name Google gives us and the identifier of your Google account, and we never receive your Google password.
 
 ### What you create
 The prompts and settings you submit, the images you upload, and the images and videos generated for you, along with the status of each request.
@@ -248,7 +248,7 @@ Where the law requires your consent, we ask for it, and you can withdraw it at a
         },
         cookies: {
           title: 'Cookies and local storage',
-          body: `AIVORE uses only the cookies and similar storage that the Service needs to work or to remember a choice you made. We use no advertising, analytics or tracking cookies, and no third-party cookies.
+          body: `AIVORE uses only the cookies and similar storage that the Service needs to work or to remember a choice you made. We use no advertising, analytics or tracking cookies, and we set no third-party cookies. If you choose "Continue with Google", the sign-in window and its scripts are loaded from Google, which may use its own cookies or storage while you sign in; we do not control them, and Google's own notices describe them {confirm}.
 
 - [[aivore_session]] keeps you signed in. It is HttpOnly, so scripts on the page cannot read it. A session stays valid while you use the Service and ends after 30 days without use or when you log out, and at most 180 days after you signed in.
 - [[aivore_locale]] remembers your language, for one year.
@@ -268,6 +268,7 @@ Because these are strictly necessary, we do not show a cookie banner {confirm}. 
 - **Our email provider** delivers service emails, such as address confirmation and password reset. It receives your email address and the content of the message.
 - **Prompt screening and improvement services.** If we switch them on, text you enter may be sent to a third-party AI provider to check it against our content rules or to improve a prompt {confirm}.
 - **Hosting and storage providers** keep the Service and its files running {confirm}.
+- **Google (Firebase sign-in and Cloud Storage)**, if we switch them on. When you choose "Continue with Google", your browser talks to Google to sign you in, Google receives the usual technical data of that connection (such as your IP address) under its own privacy notice, and it tells us your email address, your name and an account identifier. If we keep files in a Google Cloud Storage bucket, your uploaded images and the images and videos generated for you are stored there on our behalf {confirm}.
 
 We may also disclose data to authorities when the law requires it, to protect rights, safety or the Service, and to a buyer if our business is sold. We require the companies we work with to protect your data and to use it only for our purposes {confirm}.`,
         },
@@ -666,7 +667,7 @@ If someone is in immediate danger, or you come across child sexual abuse materia
         data: {
           title: 'ما الذي نجمعه',
           body: `### بيانات الحساب
-بريدك الإلكتروني واسمك ولغتك المفضلة وكلمة المرور. ولا نطّلع على كلمة مرورك نفسها ولا نخزّنها، بل نحتفظ فقط بقيمة تجزئة محمية ومُضاف إليها قيمة عشوائية (Salt).
+بريدك الإلكتروني واسمك ولغتك المفضلة وكلمة المرور. ولا نطّلع على كلمة مرورك نفسها ولا نخزّنها، بل نحتفظ فقط بقيمة تجزئة محمية ومُضاف إليها قيمة عشوائية (Salt). وإذا سجّلت الدخول عبر Google بدلًا من ذلك، فنحتفظ بالبريد الإلكتروني والاسم اللذين تزوّدنا بهما Google ومعرّف حسابك لديها، ولا تصلنا كلمة مرور حسابك في Google أبدًا.
 
 ### ما تنشئه
 النصوص والإعدادات التي تقدّمها، والصور التي ترفعها، والصور والفيديوهات التي تُولَّد لك، مع حالة كل طلب.
@@ -694,7 +695,7 @@ If someone is in immediate danger, or you come across child sexual abuse materia
         },
         cookies: {
           title: 'ملفات تعريف الارتباط والتخزين المحلي',
-          body: `لا يستخدم AIVORE إلا ملفات تعريف الارتباط وما يشبهها من وسائل التخزين التي تحتاج إليها الخدمة لتعمل أو لتتذكّر اختيارًا قمت به. ولا نستخدم ملفات تعريف ارتباط للإعلانات أو التحليلات أو التتبّع، ولا ملفات تعريف ارتباط تابعة لأطراف خارجية.
+          body: `لا يستخدم AIVORE إلا ملفات تعريف الارتباط وما يشبهها من وسائل التخزين التي تحتاج إليها الخدمة لتعمل أو لتتذكّر اختيارًا قمت به. ولا نستخدم ملفات تعريف ارتباط للإعلانات أو التحليلات أو التتبّع، ولا نضع ملفات تعريف ارتباط تابعة لأطراف خارجية. وإذا اخترت «المتابعة باستخدام Google» فإن نافذة تسجيل الدخول ونصوصها البرمجية تُحمَّل من Google، وقد تستخدم ملفات تعريف ارتباط أو تخزينًا خاصًّا بها أثناء تسجيل الدخول؛ ولا نتحكم بها، وتصفها إشعارات Google نفسها {confirm}.
 
 - [[aivore_session]] يُبقيك مسجّل الدخول. وهو محمي (HttpOnly) فلا تستطيع النصوص البرمجية في الصفحة قراءته. وتبقى الجلسة صالحة ما دمت تستخدم الخدمة، وتنتهي بعد ٣٠ يومًا دون استخدام أو عند تسجيل الخروج، وبحد أقصى ١٨٠ يومًا من تسجيل الدخول.
 - [[aivore_locale]] يحفظ لغتك المفضلة لمدة سنة.
@@ -714,6 +715,7 @@ If someone is in immediate danger, or you come across child sexual abuse materia
 - **مزوّد البريد الإلكتروني لدينا** يوصل رسائل الخدمة، مثل تأكيد البريد وإعادة تعيين كلمة المرور. ويتلقى عنوان بريدك ومحتوى الرسالة.
 - **خدمات فحص الطلبات وتحسينها.** إذا فعّلناها فقد يُرسل النص الذي تكتبه إلى مزوّد ذكاء اصطناعي خارجي لفحصه وفق قواعد المحتوى لدينا أو لتحسين الوصف {confirm}.
 - **مزوّدو الاستضافة والتخزين** يُبقون الخدمة وملفاتها قيد التشغيل {confirm}.
+- **Google (تسجيل الدخول عبر Firebase والتخزين السحابي Google Cloud Storage)**، إذا فعّلناهما. فعند اختيارك «المتابعة باستخدام Google» يتصل متصفحك بـGoogle لتسجيل دخولك، وتتلقى Google البيانات التقنية المعتادة لهذا الاتصال (مثل عنوان IP) وفق إشعار الخصوصية الخاص بها، وتخبرنا ببريدك الإلكتروني واسمك ومعرّف حسابك. وإذا حفظنا الملفات في حاوية على Google Cloud Storage فإن الصور التي ترفعها والصور والفيديوهات التي تُولَّد لك تُخزَّن هناك نيابةً عنا {confirm}.
 
 وقد نفصح عن البيانات للجهات المختصة حين يقتضي القانون ذلك، أو لحماية الحقوق أو السلامة أو الخدمة، وإلى مشترٍ إذا بيعت أعمالنا. ونلزم الشركات التي نتعامل معها بحماية بياناتك وباستخدامها لأغراضنا فقط {confirm}.`,
         },

@@ -194,7 +194,7 @@ export async function resetPassword(context: CommandContext): Promise<void> {
   const passwordHash = await hashPassword(password);
   withTx(getDb(), (tx) => {
     tx.update(users)
-      .set({ passwordHash, updatedAt: Date.now() })
+      .set({ passwordHash, hasPassword: true, updatedAt: Date.now() })
       .where(eq(users.id, user.id))
       .run();
     tx.delete(sessions).where(eq(sessions.userId, user.id)).run();

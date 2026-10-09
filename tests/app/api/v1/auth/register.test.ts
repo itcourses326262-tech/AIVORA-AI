@@ -48,7 +48,8 @@ describe('POST /api/v1/auth/register', () => {
       locale: 'en',
       creditBalance: 50,
     });
-    expect(result.text).not.toMatch(/passwordHash|scrypt|password/i);
+    // `hasPassword` is a public flag; the hash and the password never are.
+    expect(result.text).not.toMatch(/passwordHash|scrypt|unusable/i);
     expect(result.headers.get('cache-control')).toBe('no-store');
     expect(result.headers.get('x-ratelimit-limit')).toBe('60'); // no proxy: the shared budget
 
