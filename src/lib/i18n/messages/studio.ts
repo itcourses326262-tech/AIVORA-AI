@@ -68,6 +68,9 @@ export default defineMessages({
     },
     model: {
       label: 'Model',
+      choose: 'Choose a model',
+      chooseTitle: 'Choose a model',
+      change: 'Change',
       loading: 'Loading models',
       loadFailed: 'We could not load the models',
       notConfigured: 'Not set up on this server',
@@ -397,6 +400,9 @@ export default defineMessages({
     },
     model: {
       label: 'النموذج',
+      choose: 'اختر نموذجًا',
+      chooseTitle: 'اختر النموذج',
+      change: 'تغيير',
       loading: 'جارٍ تحميل النماذج',
       loadFailed: 'تعذّر تحميل النماذج',
       notConfigured: 'غير مُعدّ على هذا الخادم',

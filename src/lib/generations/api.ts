@@ -20,8 +20,14 @@ export const MAX_POLL_IDS = 50;
 /** 24 per page: four rows of a six-column grid, or a screenful on a phone. */
 export const DEFAULT_PAGE_SIZE = 24;
 
-export function fetchModels(signal?: AbortSignal): Promise<ModelDTO[]> {
-  return api.get<ModelDTO[]>('/models', { signal });
+export function fetchModels(
+  signal?: AbortSignal,
+  options: { fresh?: boolean } = {},
+): Promise<ModelDTO[]> {
+  return api.get<ModelDTO[]>('/models', {
+    signal,
+    ...(options.fresh ? { cache: 'no-store' as const } : {}),
+  });
 }
 
 export function fetchGenerationPage(

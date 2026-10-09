@@ -3,7 +3,7 @@ import { expect, test } from './fixtures';
 import { createDemoImage, createDemoVideo, seedGallery } from './fixtures/api';
 import { setPreferences, type Locale } from './fixtures/preferences';
 import { settlePage } from './fixtures/studio';
-import { en } from './fixtures/i18n';
+import { en, translate } from './fixtures/i18n';
 
 // A phone: 390 x 844 CSS pixels, touch, mobile viewport handling.
 test.use({
@@ -140,6 +140,28 @@ test.describe('responsive: 390px, no sideways scroll', () => {
           );
           await page.keyboard.press('Escape');
           await expect(sheet).toBeHidden();
+
+          // The model chip above Generate stays one line, and its list fits as well.
+          const chip = page.getByRole('button', {
+            name: new RegExp(`^${translate(locale)('studio.model.label')}:`),
+          });
+          await expect(chip).toBeEnabled();
+          expect(
+            (await chip.boundingBox())?.height,
+            `model chip of ${tool} ${locale}`,
+          ).toBeLessThan(48);
+          await chip.click();
+          const models = page.getByRole('dialog');
+          await expect(models).toBeVisible();
+          const modelsWidth = await models.evaluate((element) => ({
+            scroll: element.scrollWidth,
+            client: element.clientWidth,
+          }));
+          expect(modelsWidth.scroll, `model sheet of ${tool} ${locale}`).toBeLessThanOrEqual(
+            modelsWidth.client,
+          );
+          await page.keyboard.press('Escape');
+          await expect(models).toBeHidden();
         }
       });
     }

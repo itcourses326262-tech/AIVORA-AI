@@ -34,6 +34,8 @@ export interface RequestOptions {
   query?: Readonly<Record<string, QueryValue>>;
   headers?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
+  /** Passed to `fetch`; `'no-store'` skips the browser cache for a read that must be fresh. */
+  cache?: RequestCache;
 }
 
 export interface UploadOptions extends RequestOptions {
@@ -114,6 +116,7 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
         headers,
         body: payload?.body,
         signal: options?.signal,
+        ...(options?.cache ? { cache: options.cache } : {}),
       });
     } catch (cause) {
       // Aborting is the caller's decision, not a failure to report.

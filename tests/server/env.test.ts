@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEV_SESSION_SECRET, EnvError, getEnv, parseEnv, resetEnvForTests } from '@/server/env';
+import {
+  DEV_SESSION_SECRET,
+  EnvError,
+  getEnv,
+  parseEnv,
+  resetEnvForTests,
+  type Env,
+} from '@/server/env';
 import { resetLoggerForTests } from '@/server/logger';
 
 const GOOD_SECRET = 'x'.repeat(40);
@@ -337,5 +344,215 @@ describe('getEnv', () => {
     expect(getEnv().SESSION_SECRET).toBe(GOOD_SECRET);
     expect(stderr).not.toHaveBeenCalled();
     expect(stdout).not.toHaveBeenCalled();
+  });
+});
+
+// `next dev` reloads .env.local into process.env while the site runs; `npm run setup:fal` relies on
+// getEnv() noticing, so a provider key takes effect without a restart. Only in development.
+describe('getEnv hot reload', () => {
+  // Built at runtime: key-shaped literals are rejected by tests/security/no-secret-literals.test.ts.
+  const FAKE_KEY = 'k'.repeat(30);
+
+  /** Starts capturing what the logger writes to stderr; call the result for the lines so far. */
+  function captureStderr(): () => string[] {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return () => write.mock.calls.map(([chunk]) => String(chunk));
+  }
+
+  describe('in development', () => {
+    it.each<[string, string, (env: Env) => unknown, unknown]>([
+      ['FAL_KEY', FAKE_KEY, (env) => env.FAL_KEY, FAKE_KEY],
+      ['OPENAI_API_KEY', FAKE_KEY, (env) => env.OPENAI_API_KEY, FAKE_KEY],
+      ['REPLICATE_API_TOKEN', FAKE_KEY, (env) => env.REPLICATE_API_TOKEN, FAKE_KEY],
+      ['ENABLE_MOCK_PROVIDER', 'false', (env) => env.ENABLE_MOCK_PROVIDER, false],
+      ['DAILY_UPSTREAM_BUDGET_CREDITS', '500', (env) => env.DAILY_UPSTREAM_BUDGET_CREDITS, 500],
+    ])('sees %s changed after the first read', (name, value, read, expected) => {
+      vi.stubEnv('NODE_ENV', 'development');
+      const first = getEnv();
+      expect(read(first)).not.toBe(expected);
+      vi.stubEnv(name, value);
+      const second = getEnv();
+      expect(second).not.toBe(first);
+      expect(read(second)).toBe(expected);
+    });
+
+    it('sees a provider key added after the first read, and then keeps it', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      expect(getEnv().FAL_KEY).toBeUndefined();
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      const withKey = getEnv();
+      expect(withKey.FAL_KEY).toBe(FAKE_KEY);
+      expect(getEnv()).toBe(withKey);
+    });
+
+    it('sees a provider key removed again', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(getEnv().FAL_KEY).toBe(FAKE_KEY);
+      vi.stubEnv('FAL_KEY', '');
+      expect(getEnv().FAL_KEY).toBeUndefined();
+    });
+
+    it('returns the very same object while the settings are unchanged', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      const first = getEnv();
+      expect(getEnv()).toBe(first);
+      expect(getEnv()).toBe(first);
+    });
+
+    it('does not parse again for a blank value that was already unset', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      const first = getEnv();
+      vi.stubEnv('FAL_KEY', '');
+      expect(getEnv()).toBe(first);
+    });
+
+    it('leaves every other setting alone: only the provider and spend settings are re-read', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('WORKER_CONCURRENCY', '5');
+      const first = getEnv();
+      vi.stubEnv('WORKER_CONCURRENCY', '7');
+      expect(getEnv()).toBe(first);
+      expect(getEnv().WORKER_CONCURRENCY).toBe(5);
+    });
+
+    it('keeps the previous settings when a changed value no longer parses, and does not throw', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');
+      const good = getEnv();
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      // The broken edit comes with a valid one; the whole environment is kept, not half of it.
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(() => getEnv()).not.toThrow();
+      expect(getEnv()).toBe(good);
+      expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(100);
+      expect(getEnv().FAL_KEY).toBeUndefined();
+    });
+
+    it('picks the settings up once the value is fixed', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');
+      const good = getEnv();
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(getEnv()).toBe(good);
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '200');
+      const fixed = getEnv();
+      expect(fixed).not.toBe(good);
+      expect(fixed).toMatchObject({ DAILY_UPSTREAM_BUDGET_CREDITS: 200, FAL_KEY: FAKE_KEY });
+    });
+
+    it('also recovers when the broken value is put back to what it was', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');
+      const good = getEnv();
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      expect(getEnv()).toBe(good);
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '100');
+      expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(100);
+    });
+
+    it('still throws when the very first read is invalid: there is nothing to keep', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      expect(() => getEnv()).toThrow(EnvError);
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '5');
+      expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(5);
+    });
+
+    it('says once that a changed value does not parse, naming the setting', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('LOG_LEVEL', 'warn');
+      resetLoggerForTests();
+      const written = captureStderr();
+      getEnv();
+      vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', 'lots');
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      getEnv();
+      getEnv();
+      const lines = written();
+      expect(lines).toHaveLength(1);
+      const entry = JSON.parse(lines[0] ?? '') as {
+        level: string;
+        msg: string;
+        problems: string[];
+      };
+      expect(entry).toMatchObject({
+        level: 'warn',
+        msg: expect.stringContaining('does not parse'),
+      });
+      expect(entry.problems.join('\n')).toContain('DAILY_UPSTREAM_BUDGET_CREDITS');
+      expect(lines.join('\n')).not.toContain(FAKE_KEY);
+    });
+
+    it('does not repeat the start-up warnings when it reloads', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('SESSION_SECRET', '');
+      vi.stubEnv('LOG_LEVEL', 'warn');
+      resetLoggerForTests();
+      const written = captureStderr();
+      getEnv();
+      expect(written()).toHaveLength(1);
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(getEnv().FAL_KEY).toBe(FAKE_KEY);
+      vi.stubEnv('FAL_KEY', `${FAKE_KEY}2`);
+      expect(getEnv().FAL_KEY).toBe(`${FAKE_KEY}2`);
+      expect(written()).toHaveLength(1);
+      expect(written()[0]).toContain('SESSION_SECRET is not set');
+    });
+
+    it('logs each reload with which providers are configured, never the key itself', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('LOG_LEVEL', 'info');
+      resetLoggerForTests();
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      getEnv();
+      expect(stdout).not.toHaveBeenCalled();
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      getEnv();
+      getEnv();
+      const lines = stdout.mock.calls.map(([chunk]) => String(chunk));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? '')).toMatchObject({
+        level: 'info',
+        msg: expect.stringContaining('Reloaded provider settings'),
+        fal: true,
+        openai: false,
+        replicate: false,
+      });
+      expect(
+        [...lines, ...stderr.mock.calls.map(([chunk]) => String(chunk))].join('\n'),
+      ).not.toContain(FAKE_KEY);
+    });
+  });
+
+  describe('outside development', () => {
+    it.each(['test', 'production'])(
+      'keeps the first settings for the life of the process in %s',
+      (mode) => {
+        vi.stubEnv('NODE_ENV', mode);
+        vi.stubEnv('LOG_LEVEL', 'silent');
+        vi.stubEnv('SESSION_SECRET', GOOD_SECRET);
+        const first = getEnv();
+        expect(first.NODE_ENV).toBe(mode);
+        expect(first.FAL_KEY).toBeUndefined();
+        vi.stubEnv('FAL_KEY', FAKE_KEY);
+        vi.stubEnv('ENABLE_MOCK_PROVIDER', 'false');
+        vi.stubEnv('DAILY_UPSTREAM_BUDGET_CREDITS', '900');
+        expect(getEnv()).toBe(first);
+        expect(getEnv().FAL_KEY).toBeUndefined();
+        expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(0);
+      },
+    );
+
+    it('still re-reads after resetEnvForTests', () => {
+      vi.stubEnv('NODE_ENV', 'test');
+      getEnv();
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      resetEnvForTests();
+      expect(getEnv().FAL_KEY).toBe(FAKE_KEY);
+    });
   });
 });

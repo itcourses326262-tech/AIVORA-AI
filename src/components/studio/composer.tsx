@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { useI18n } from '@/lib/i18n/client';
 import { Button } from '../ui/button';
 import { CreditNotice, GenerateButton } from './generate-bar';
+import { ModelChip } from './model-chip';
 import { ImageSection, PromptSection } from './sections';
 import type { StudioController } from './use-studio';
 
@@ -39,7 +40,7 @@ export interface ComposerProps {
 
 /**
  * The phone's control strip, pinned above the tab bar: the picture to start from (image tools), the
- * prompt, and the Generate button. Everything else is one tap away in the settings sheet.
+ * prompt, the model in use (one tap to change it), and the Generate button. Everything else is one tap away in the settings sheet.
  */
 export function Composer({ studio, onOpenSettings }: ComposerProps) {
   const { t } = useI18n();
@@ -49,10 +50,11 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
   return (
     <div
       ref={strip}
-      className="sticky bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))] z-20 grid gap-2 border-t border-border bg-surface/95 px-3 pt-3 pb-3 backdrop-blur-md"
+      className="sticky bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))] z-20 grid grid-cols-1 gap-2 border-t border-border bg-surface/95 px-3 pt-3 pb-3 backdrop-blur-md"
     >
       <ImageSection studio={studio} variant="compact" />
       <PromptSection studio={studio} variant="composer" />
+      <ModelChip studio={studio} />
       <CreditNotice
         compact
         status={{

@@ -112,6 +112,44 @@ describe('success responses', () => {
   });
 });
 
+describe('cache option', () => {
+  const listed = () => jsonResponse({ data: [], nextCursor: null });
+
+  it('sends nothing about caching unless the caller asks, so the browser keeps its defaults', async () => {
+    const { api, calls } = clientWith(listed);
+    await api.get('/models');
+    await api.page('/generations');
+    await api.post('/generations', { prompt: 'a cat' });
+    await api.patch('/generations/gen_1', { isPublic: true });
+    await api.delete('/keys/key_1');
+    for (const call of calls) expect(Object.keys(call.init), call.url).not.toContain('cache');
+    // The exact shape every other test relies on.
+    expect(Object.keys(calls[0]?.init ?? {}).sort()).toEqual(
+      ['body', 'headers', 'method', 'signal'].sort(),
+    );
+  });
+
+  it('hands `cache` to fetch as given', async () => {
+    const { api, calls } = clientWith(listed);
+    await api.get('/models', { cache: 'no-store' });
+    await api.page('/generations', { cache: 'reload' });
+    expect(calls.map((call) => call.init.cache)).toEqual(['no-store', 'reload']);
+    // Together with the other options, none of which it displaces.
+    const controller = new AbortController();
+    await api.get('/models', {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: { 'X-Test': '1' },
+      query: { kind: 'image' },
+    });
+    const last = calls[2];
+    expect(last?.url).toBe('/api/v1/models?kind=image');
+    expect(last?.init.cache).toBe('no-store');
+    expect(last?.init.signal).toBe(controller.signal);
+    expect(new Headers(last?.init.headers).get('x-test')).toBe('1');
+  });
+});
+
 describe('upload', () => {
   it('posts multipart form data without setting the content type itself', async () => {
     const { api, calls } = clientWith(() => jsonResponse({ data: { id: 'ast_1' } }));

@@ -230,3 +230,80 @@ describe('GET /api/v1/models', () => {
     expect(POST).toBeUndefined();
   });
 });
+
+// `npm run setup:fal` writes FAL_KEY to .env.local while `next dev` runs; the next request has to
+// list the fal models as available without a restart. The real adapters answer here, so the
+// availability comes from FAL_KEY itself rather than from a stub.
+describe('GET /api/v1/models while the environment changes', () => {
+  // Built at runtime: key-shaped literals are rejected by tests/security/no-secret-literals.test.ts.
+  const FAKE_KEY = 'k'.repeat(30);
+  const falModels = (data: ModelDTO[]) => data.filter((model) => model.provider === 'fal');
+
+  beforeEach(() => {
+    setProviderOverrides(null);
+  });
+
+  describe('in development', () => {
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'development');
+      resetEnvForTests();
+    });
+
+    it('lists the fal models as unavailable until FAL_KEY appears, then as available', async () => {
+      const before = falModels((await list()).json.data);
+      expect(before.length).toBeGreaterThan(0);
+      for (const model of before) {
+        expect(model, model.id).toMatchObject({
+          available: false,
+          unavailableReason: 'not_configured',
+        });
+      }
+
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      const after = (await list()).json.data;
+      expect(falModels(after).map((model) => model.id)).toEqual(
+        expect.arrayContaining(before.map((model) => model.id)),
+      );
+      for (const model of falModels(after)) {
+        expect(model, model.id).toMatchObject({ available: true });
+        expect(model).not.toHaveProperty('unavailableReason');
+      }
+      // Configured models now come before the ones that still are not.
+      const order = after.map((model) => model.available);
+      expect(order).toEqual([...order].sort((a, b) => Number(b) - Number(a)));
+    });
+
+    it('goes back to unavailable when the key is removed again', async () => {
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(falModels((await list()).json.data).every((model) => model.available)).toBe(true);
+      vi.stubEnv('FAL_KEY', '');
+      expect(falModels((await list()).json.data).some((model) => model.available)).toBe(false);
+    });
+
+    it('never puts the key in the response', async () => {
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect((await list()).text).not.toContain(FAKE_KEY);
+    });
+
+    it('follows ENABLE_MOCK_PROVIDER too', async () => {
+      const ids = async () => (await list()).json.data.map((model) => model.id);
+      expect(await ids()).toContain('aivore-demo-image');
+      vi.stubEnv('ENABLE_MOCK_PROVIDER', 'false');
+      expect(await ids()).not.toContain('aivore-demo-image');
+      vi.stubEnv('ENABLE_MOCK_PROVIDER', 'true');
+      expect(await ids()).toContain('aivore-demo-image');
+    });
+  });
+
+  it.each(['test', 'production'])(
+    'keeps the first answer for the life of the process in %s',
+    async (mode) => {
+      vi.stubEnv('NODE_ENV', mode);
+      vi.stubEnv('LOG_LEVEL', 'silent');
+      resetEnvForTests();
+      expect(falModels((await list()).json.data).some((model) => model.available)).toBe(false);
+      vi.stubEnv('FAL_KEY', FAKE_KEY);
+      expect(falModels((await list()).json.data).some((model) => model.available)).toBe(false);
+    },
+  );
+});

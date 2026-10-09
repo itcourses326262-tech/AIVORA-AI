@@ -300,9 +300,33 @@ export function parseEnv(source: Readonly<Record<string, string | undefined>> = 
 }
 
 let cached: Env | undefined;
+let cachedStamp = '';
+
+/**
+ * The settings a developer changes while the site is running: provider keys, the Demo switch and
+ * the spend cap. `next dev` reloads `.env.local` into `process.env` when it changes, so in
+ * development `getEnv()` re-reads when one of these differs from what was parsed. That is what lets
+ * `npm run setup:fal` take effect without restarting the site. Never consulted in production or in
+ * tests, where the environment is fixed for the life of the process.
+ */
+const HOT_RELOAD_NAMES = [
+  'FAL_KEY',
+  'OPENAI_API_KEY',
+  'REPLICATE_API_TOKEN',
+  'ENABLE_MOCK_PROVIDER',
+  'DAILY_UPSTREAM_BUDGET_CREDITS',
+] as const;
+
+function hotReloadStamp(): string {
+  return HOT_RELOAD_NAMES.map((name) => process.env[name] ?? '').join('\u0000');
+}
 
 export function getEnv(): Env {
-  if (cached) return cached;
+  if (cached) {
+    if (cached.NODE_ENV !== 'development' || hotReloadStamp() === cachedStamp) return cached;
+    return reloadHotSettings(cached);
+  }
+  const stamp = hotReloadStamp();
   const env = parseEnv();
   if (env.NODE_ENV !== 'test' && !process.env.SESSION_SECRET?.trim()) {
     getLogger().warn(
@@ -310,8 +334,35 @@ export function getEnv(): Env {
     );
   }
   cached = env;
+  cachedStamp = stamp;
   warnAboutRiskySettings(env);
   return env;
+}
+
+/**
+ * Development only: parses again after one of {@link HOT_RELOAD_NAMES} changed. A value that does not
+ * parse (a half-typed edit) keeps the settings in use and says so once, instead of failing every
+ * request until the file is fixed.
+ */
+function reloadHotSettings(previous: Env): Env {
+  const stamp = hotReloadStamp();
+  cachedStamp = stamp;
+  try {
+    const env = parseEnv();
+    cached = env;
+    getLogger().info('Reloaded provider settings from the environment.', {
+      fal: Boolean(env.FAL_KEY),
+      openai: Boolean(env.OPENAI_API_KEY),
+      replicate: Boolean(env.REPLICATE_API_TOKEN),
+    });
+    return env;
+  } catch (error) {
+    getLogger().warn(
+      'The environment changed but does not parse; keeping the previous settings until it is fixed.',
+      { problems: error instanceof EnvError ? error.problems : String(error) },
+    );
+    return previous;
+  }
 }
 
 /**
@@ -352,4 +403,5 @@ function warnAboutRiskySettings(env: Env): void {
 /** Forgets the memoized env so the next `getEnv()` re-reads `process.env`. For tests only. */
 export function resetEnvForTests(): void {
   cached = undefined;
+  cachedStamp = '';
 }

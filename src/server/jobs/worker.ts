@@ -14,6 +14,7 @@ export function createJobRunner(overrides: Partial<JobRunnerDeps> = {}): JobRunn
     storage: getStorage(),
     providers: { getProvider },
     env: getEnv(),
+    readEnv: getEnv,
     log: getLogger().child({ component: 'worker' }),
     ...overrides,
   });

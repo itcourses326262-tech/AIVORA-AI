@@ -21,6 +21,11 @@ export interface JobRunnerDeps {
   storage: StorageDriver;
   providers: { getProvider(id: ProviderId): GenerationProvider };
   env: Env;
+  /**
+   * Returns the current env for each job, so settings that change while the process runs (a provider
+   * key added in development) apply to jobs started afterwards. Defaults to the fixed `env`.
+   */
+  readEnv?: () => Env;
   log: Logger;
   /** Clock for leases and deadlines; defaults to `Date.now`. */
   now?: () => number;
@@ -139,7 +144,7 @@ export class JobRunner {
       db: deps.db,
       storage: deps.storage,
       providers: deps.providers,
-      env: deps.env,
+      env: deps.readEnv?.() ?? deps.env,
       log: deps.log,
       workerId: claimId,
       tuning: this.tuning,

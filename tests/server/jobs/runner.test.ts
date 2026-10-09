@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDb } from '@/server/db';
 import { assets, generations } from '@/server/db/schema';
-import { getEnv } from '@/server/env';
+import { getEnv, type Env } from '@/server/env';
 import { markCanceled } from '@/server/generations/lifecycle';
 import { createGeneration } from '@/server/generations/service';
 import { JobRunner } from '@/server/jobs/runner';
@@ -13,6 +13,7 @@ import { ProviderError } from '@/server/providers/errors';
 import { setProviderOverrides } from '@/server/providers/registry';
 import { freshDb } from '../../helpers/db';
 import { createUser, fakeProvider, fakeStorage, tinyOutput } from '../../helpers/factories';
+import { queue } from '../generations/support';
 import {
   createClock,
   createHarness,
@@ -37,6 +38,7 @@ afterEach(async () => {
   await Promise.all(runners.splice(0).map((runner) => runner.stop()));
   for (const item of open.splice(0)) item.close();
   setProviderOverrides(null);
+  vi.unstubAllEnvs();
 });
 
 /** A provider whose submit() blocks until the test lets it go, tracking how many run at once. */
@@ -543,5 +545,105 @@ describe('createJobRunner', () => {
     const custom = fakeProvider();
     const overridden = createJobRunner({ providers: { getProvider: () => custom } });
     expect(overridden.deps.providers.getProvider('mock')).toBe(custom);
+  });
+});
+
+// In development a provider key can be added while the site runs; jobs must see it without a
+// restart, so each job reads the current env instead of the one the runner was built with.
+describe('the env a job runs with', () => {
+  // Built at runtime: key-shaped literals are rejected by tests/security/no-secret-literals.test.ts.
+  const FAKE_KEY = 'k'.repeat(30);
+  const falJob = { provider: 'fal', modelId: 'fal-flux-schnell' } as const;
+  const keyed = () => fakeProvider({ id: 'fal', configured: (env) => Boolean(env.FAL_KEY) });
+  const withKey = (env: Env): Env => ({ ...env, FAL_KEY: FAKE_KEY });
+
+  it('fails as unavailable, and refunds, when neither the env nor readEnv has the key', async () => {
+    const provider = keyed();
+    const h = harness({ provider });
+    const runner = h.another({ readEnv: () => h.env });
+    const job = h.enqueue(falJob);
+    await runner.tick();
+    expect(h.row(job.id)).toMatchObject({
+      status: 'failed',
+      errorCode: 'unavailable',
+      errorMessage: 'The generation service is not available right now.',
+    });
+    expect(provider.submit).not.toHaveBeenCalled();
+    expect(h.balance()).toBe(50);
+  });
+
+  it('runs the job when readEnv has the key although the env it was built with does not', async () => {
+    const provider = keyed();
+    const h = harness({ provider });
+    expect(h.env.FAL_KEY).toBeUndefined();
+    const runner = h.another({ readEnv: () => withKey(h.env) });
+    const job = h.enqueue(falJob);
+    await runner.tick();
+    expect(h.row(job.id).status).toBe('succeeded');
+    expect(provider.submit).toHaveBeenCalledOnce();
+    // The adapter gets the same env, not the stale one: it is where the key is read from.
+    expect(provider.submit.mock.calls[0]?.[1].env.FAL_KEY).toBe(FAKE_KEY);
+  });
+
+  it('asks again for every job, so a key added later applies to the next job only', async () => {
+    const provider = keyed();
+    const h = harness({ provider });
+    let current: Env = h.env;
+    const runner = h.another({ readEnv: () => current });
+    const before = h.enqueue(falJob);
+    await runner.tick();
+    expect(h.row(before.id)).toMatchObject({ status: 'failed', errorCode: 'unavailable' });
+
+    current = withKey(h.env);
+    const after = h.enqueue(falJob);
+    await runner.tick();
+    expect(h.row(after.id).status).toBe('succeeded');
+    expect(h.row(before.id).status).toBe('failed');
+    expect(provider.submit).toHaveBeenCalledOnce();
+  });
+
+  it('prefers readEnv over the env it was built with', async () => {
+    const provider = keyed();
+    const h = harness({ provider, env: { FAL_KEY: FAKE_KEY } });
+    expect(h.env.FAL_KEY).toBe(FAKE_KEY);
+    const runner = h.another({ readEnv: () => ({ ...h.env, FAL_KEY: undefined }) });
+    const job = h.enqueue(falJob);
+    await runner.tick();
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'unavailable' });
+  });
+
+  it('uses the env it was built with when there is no readEnv', async () => {
+    const provider = keyed();
+    const h = harness({ provider, env: { FAL_KEY: FAKE_KEY } });
+    const job = h.enqueue(falJob);
+    await h.runner.tick();
+    expect(h.row(job.id).status).toBe('succeeded');
+    expect(provider.submit.mock.calls[0]?.[1].env.FAL_KEY).toBe(FAKE_KEY);
+  });
+
+  it('createJobRunner follows the process env: a key added in development reaches the next job', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const provider = keyed();
+    setProviderOverrides({ fal: provider });
+    const runner = createJobRunner({
+      storage: fakeStorage(),
+      persistOutput: fakePersist(),
+      log: createLogger({ level: 'silent' }),
+    });
+    runners.push(runner);
+    const user = createUser(service.db);
+    const status = (id: string) =>
+      service.db.select().from(generations).where(eq(generations.id, id)).get()?.status;
+
+    const before = queue(service.db, user, falJob);
+    await runner.tick();
+    expect(status(before.id)).toBe('failed');
+    expect(provider.submit).not.toHaveBeenCalled();
+
+    vi.stubEnv('FAL_KEY', FAKE_KEY);
+    const after = queue(service.db, user, falJob);
+    await runner.tick();
+    expect(status(after.id)).toBe('succeeded');
+    expect(provider.submit).toHaveBeenCalledOnce();
   });
 });
