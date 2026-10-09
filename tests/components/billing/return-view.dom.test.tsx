@@ -434,9 +434,13 @@ describe('Arabic', () => {
   });
 
   it('has no accessibility violations while waiting and once paid', async () => {
-    // axe needs real timers; the first answer arrives without any timer.
+    // axe needs real timers; the first answer arrives without any timer. With real timers the page
+    // reads the real clock, so the pending checkout must expire in the future of THAT clock: the
+    // shared fixture is dated by the fixed NOW and would read as expired once that day has passed.
     vi.useRealTimers();
-    installFakeApi({ [ROUTE]: answers(pending, () => paid()) });
+    const pendingNow = () =>
+      json({ data: pendingOrder({ id: ID, expiresAt: Date.now() + 24 * 60 * 60 * 1000 }) });
+    installFakeApi({ [ROUTE]: answers(pendingNow, () => paid()) });
     const view = mountReturn();
     await screen.findByRole('heading', { name: 'Waiting for your payment' });
     expect(await axeViolations(view.container)).toEqual([]);
