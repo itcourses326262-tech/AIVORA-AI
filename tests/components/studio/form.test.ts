@@ -42,8 +42,22 @@ function stateWith(models: ModelDTO[], tool: Tool = 'text-to-image'): StudioStat
 
 describe('pickModel', () => {
   it('prefers the chosen model while it serves the tool and is configured', () => {
+    const models = [DEMO_IMAGE(), modelDTO('fal-flux-schnell'), modelDTO('fal-flux-2-pro')];
+    expect(pickModel(models, 'text-to-image', 'fal-flux-2-pro')?.id).toBe('fal-flux-2-pro');
+  });
+
+  it('ignores a remembered Demo model once a real one is configured, unless Demo was picked on purpose', () => {
     const models = [DEMO_IMAGE(), modelDTO('fal-flux-schnell')];
-    expect(pickModel(models, 'text-to-image', 'aivore-demo-image')?.id).toBe('aivore-demo-image');
+    expect(pickModel(models, 'text-to-image', 'aivore-demo-image')?.id).toBe('fal-flux-schnell');
+    expect(pickModel(models, 'text-to-image', 'aivore-demo-image', true)?.id).toBe(
+      'aivore-demo-image',
+    );
+  });
+
+  it('keeps the Demo model as the only choice while nothing real is configured', () => {
+    expect(
+      pickModel([DEMO_IMAGE(), FLUX_UNAVAILABLE()], 'text-to-image', 'aivore-demo-image')?.id,
+    ).toBe('aivore-demo-image');
   });
 
   it('prefers a real model over a Demo one when nothing is chosen', () => {
@@ -164,6 +178,59 @@ describe('studioReducer', () => {
     expect(studioReducer(state, { type: 'model', modelId: 'fal-flux-schnell' })).toBe(state);
     expect(studioReducer(state, { type: 'model', modelId: 'aivore-demo-video' })).toBe(state);
     expect(studioReducer(state, { type: 'model', modelId: 'nope' })).toBe(state);
+  });
+
+  describe('Demo model versus a configured real model', () => {
+    const both = () => [DEMO_IMAGE(), modelDTO('fal-flux-schnell')];
+
+    it('moves a Demo model remembered from an earlier visit to the real one when the models arrive', () => {
+      const state = studioReducer(initialStudioState('text-to-image', {}, 'aivore-demo-image'), {
+        type: 'models',
+        models: both(),
+      });
+      expect(state.form.modelId).toBe('fal-flux-schnell');
+    });
+
+    it('does not let the address bar or a prefill put the Demo model over a real one', () => {
+      const state = studioReducer(stateWith(both()), {
+        type: 'prefill',
+        modelId: 'aivore-demo-image',
+      });
+      expect(state.form.modelId).toBe('fal-flux-schnell');
+      expect(state.demoChosen).toEqual({});
+    });
+
+    it('keeps the Demo model once the user picks it in the picker, until they pick another', () => {
+      let state = studioReducer(stateWith(both()), {
+        type: 'model',
+        modelId: 'aivore-demo-image',
+        explicit: true,
+      });
+      expect(state.form.modelId).toBe('aivore-demo-image');
+      // A later models refresh (polling, focus) must not undo the choice.
+      state = studioReducer(state, { type: 'models', models: both() });
+      expect(state.form.modelId).toBe('aivore-demo-image');
+      state = studioReducer(state, { type: 'model', modelId: 'fal-flux-schnell', explicit: true });
+      expect(state.form.modelId).toBe('fal-flux-schnell');
+      expect(state.demoChosen).toEqual({});
+    });
+
+    it('still accepts the Demo model when nothing real is configured', () => {
+      const state = studioReducer(stateWith([DEMO_IMAGE(), FLUX_UNAVAILABLE()]), {
+        type: 'prefill',
+        modelId: 'aivore-demo-image',
+      });
+      expect(state.form.modelId).toBe('aivore-demo-image');
+    });
+
+    it('honours a Demo model when the settings of a past creation are reused', () => {
+      const state = studioReducer(stateWith(both()), {
+        type: 'reuse',
+        generation: generationDTO({ modelId: 'aivore-demo-image' }),
+      });
+      expect(state.form.modelId).toBe('aivore-demo-image');
+      expect(state.demoChosen).toEqual({ 'text-to-image': true });
+    });
   });
 
   it('repairs a remembered model that is gone when the models arrive', () => {

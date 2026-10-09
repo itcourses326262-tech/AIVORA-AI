@@ -385,7 +385,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
 
   const reuseSettings = useCallback(
     (generation: GenerationDTO) => {
-      const wanted = pickModel(allModels, generation.tool, generation.modelId);
+      const wanted = pickModel(allModels, generation.tool, generation.modelId, true);
       reuse(generation);
       if (generation.input) image.adopt({ id: generation.input.id, asset: generation.input });
       else if (toolNeedsImage(generation.tool)) image.clear();

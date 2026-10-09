@@ -99,9 +99,10 @@ export function useStudioForm(prefill: StudioPrefill, models: ModelsState): Stud
     if (ready) syncUrl(form.tool, form.modelId);
   }, [ready, form.tool, form.modelId]);
 
+  const demoChosen = state.demoChosen[form.tool] === true;
   const model = useMemo(
-    () => pickModel(state.models, form.tool, form.modelId),
-    [state.models, form.tool, form.modelId],
+    () => pickModel(state.models, form.tool, form.modelId, demoChosen),
+    [state.models, form.tool, form.modelId, demoChosen],
   );
   const toolModels = useMemo(
     () => modelsForTool(state.models, form.tool),
@@ -115,7 +116,10 @@ export function useStudioForm(prefill: StudioPrefill, models: ModelsState): Stud
     toolModels,
     cost,
     setTool: useCallback((tool: Tool) => dispatch({ type: 'tool', tool }), []),
-    setModel: useCallback((modelId: string) => dispatch({ type: 'model', modelId }), []),
+    setModel: useCallback(
+      (modelId: string) => dispatch({ type: 'model', modelId, explicit: true }),
+      [],
+    ),
     patch: useCallback((patch) => dispatch({ type: 'patch', patch }), []),
     reuse: useCallback((generation: GenerationDTO) => dispatch({ type: 'reuse', generation }), []),
   };

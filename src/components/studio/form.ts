@@ -45,12 +45,22 @@ export interface StudioState {
   /** The settings of the other tools, restored when their tab is selected again. */
   saved: Partial<Record<Tool, ToolSettings>>;
   models: readonly ModelDTO[];
+  /**
+   * Tools for which the user clicked the Demo model in the picker. Only that beats a real model: a
+   * Demo choice that was merely remembered (it was the only model when it was saved) or came from
+   * the address bar must not keep the studio on fake pictures once a real model is configured.
+   */
+  demoChosen: Partial<Record<Tool, true>>;
 }
 
 export type StudioAction =
   | { type: 'models'; models: readonly ModelDTO[] }
   | { type: 'tool'; tool: Tool }
-  | { type: 'model'; modelId: string }
+  | {
+      type: 'model';
+      modelId: string;
+      /** Set by the picker: a Demo model then wins over real ones. */ explicit?: boolean;
+    }
   | { type: 'patch'; patch: Partial<Omit<StudioForm, 'tool'>> }
   | { type: 'reuse'; generation: GenerationDTO }
   | { type: 'prefill'; tool?: Tool; modelId?: string; prompt?: string };
@@ -67,19 +77,21 @@ export function isDemoModel(model: Pick<ModelDTO, 'badges'>): boolean {
 
 /**
  * The model to use: the preferred one while it serves the tool and its provider is configured,
- * otherwise the first configured one (real models before the Demo ones).
+ * otherwise the first configured one (real models before the Demo ones). A preferred Demo model is
+ * ignored while a real one is configured, unless `allowDemo` says the user chose it on purpose.
  */
 export function pickModel(
   models: readonly ModelDTO[],
   tool: Tool,
   preferredId: string | null,
+  allowDemo = false,
 ): ModelDTO | undefined {
   const usable = modelsForTool(models, tool).filter((model) => model.available);
-  return (
-    usable.find((model) => model.id === preferredId) ??
-    usable.find((model) => !isDemoModel(model)) ??
-    usable[0]
-  );
+  const real = usable.find((model) => !isDemoModel(model));
+  const preferred = usable.find((model) => model.id === preferredId);
+  // A preferred Demo model only counts when the user picked it on purpose or nothing real exists.
+  if (preferred && (allowDemo || !isDemoModel(preferred) || !real)) return preferred;
+  return real ?? usable[0];
 }
 
 /** `computeCost` takes a catalog `ModelSpec`; a `ModelDTO` is one without the upstream id. */
@@ -167,11 +179,17 @@ export function initialStudioState(
     form: createStudioForm(tool, { ...saved[tool], ...(modelId ? { modelId } : {}) }),
     saved,
     models: [],
+    demoChosen: {},
   };
 }
 
 function withModel(state: StudioState, form: StudioForm): StudioState {
-  const model = pickModel(state.models, form.tool, form.modelId);
+  const model = pickModel(
+    state.models,
+    form.tool,
+    form.modelId,
+    state.demoChosen[form.tool] === true,
+  );
   return { ...state, form: model ? reconcile(form, model) : form };
 }
 
@@ -192,7 +210,8 @@ function formFromGeneration(generation: GenerationDTO, models: readonly ModelDTO
     negativePrompt: generation.negativePrompt ?? '',
     seed: params.seed === undefined ? '' : String(params.seed),
   };
-  const model = pickModel(models, generation.tool, generation.modelId);
+  // Reusing a creation's settings is deliberate, so a Demo model it used is honoured.
+  const model = pickModel(models, generation.tool, generation.modelId, true);
   return model ? reconcile(form, model) : form;
 }
 
@@ -214,13 +233,35 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'model': {
       const model = state.models.find((candidate) => candidate.id === action.modelId);
       if (!model || !model.available || !model.tools.includes(state.form.tool)) return state;
-      return { ...state, form: reconcile({ ...state.form, modelId: model.id }, model) };
+      const tool = state.form.tool;
+      const demo = isDemoModel(model);
+      const realConfigured = modelsForTool(state.models, tool).some(
+        (candidate) => candidate.available && !isDemoModel(candidate),
+      );
+      // The address bar and stored settings never put a Demo model over a configured real one.
+      if (demo && !action.explicit && realConfigured) return state;
+      const demoChosen = { ...state.demoChosen };
+      if (action.explicit) {
+        if (demo) demoChosen[tool] = true;
+        else delete demoChosen[tool];
+      }
+      return {
+        ...state,
+        demoChosen,
+        form: reconcile({ ...state.form, modelId: model.id }, model),
+      };
     }
     case 'patch':
       return { ...state, form: { ...state.form, ...action.patch } };
     case 'reuse': {
       const saved = { ...state.saved, [state.form.tool]: settingsOf(state.form) };
-      return { ...state, saved, form: formFromGeneration(action.generation, state.models) };
+      const form = formFromGeneration(action.generation, state.models);
+      const used = state.models.find((candidate) => candidate.id === form.modelId);
+      const demoChosen =
+        used && isDemoModel(used)
+          ? { ...state.demoChosen, [form.tool]: true as const }
+          : state.demoChosen;
+      return { ...state, saved, demoChosen, form };
     }
     case 'prefill': {
       let next = state;
