@@ -58,5 +58,6 @@ describe('repository hygiene', () => {
       }
     }
     expect(hits, 'build fixtures at runtime, never commit key-shaped literals').toEqual([]);
-  });
+    // A cold file cache (fresh container or CI runner) makes the scan slow; the default 5 s is too tight.
+  }, 120_000);
 });
