@@ -85,6 +85,7 @@ function Workspace({ prefill, desktop }: { prefill: StudioPrefill; desktop: bool
                 cost={cost}
                 balance={studio.balance}
                 signedOut={studio.signedOut}
+                unconfirmed={studio.emailUnconfirmed}
                 loginHref={studio.loginHref}
                 busy={studio.busy}
                 noModel={!model}

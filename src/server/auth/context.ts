@@ -15,6 +15,13 @@ export interface SessionUser {
   role: 'user' | 'admin';
   locale: Locale;
   creditBalance: number;
+  /**
+   * Where the account stands with email confirmation (set by `toSessionUser`; optional so a hand
+   * built user, a preview or a test double stays valid). See `UserDTO` for what they mean.
+   */
+  emailVerified?: boolean;
+  emailVerificationRequired?: boolean;
+  pendingBonusCredits?: number;
 }
 
 export interface AuthContext {

@@ -12,6 +12,7 @@ import { UsageError, type CommandContext } from '@/server/auth/admin/commands';
 import { processIo, type CliIo } from '@/server/auth/admin/io';
 import { getDb } from '@/server/db';
 import { orders, users } from '@/server/db/schema';
+import { flushEmails } from '@/server/email';
 import { EnvError, getEnv, type Env } from '@/server/env';
 import { getGateway } from './config';
 import { BillingConfigError } from './moyasar';
@@ -235,6 +236,8 @@ async function refundOrderCommand(context: CommandContext): Promise<void> {
   const expectTotalHalalas = expectText === undefined ? undefined : parseSarToHalalas(expectText);
   assertGatewayFor(context, id);
   const result = await refundOrder(id, { amountHalalas, expectTotalHalalas });
+  // The buyer's refund notice was queued while the refund was settled; let it leave before exiting.
+  await flushEmails();
   const { order } = result;
   context.io.out(
     `Gateway: ${sar(result.refundedBeforeHalalas)} had been refunded before, ${sar(result.refundedNowHalalas)} refunded now.`,
@@ -258,6 +261,7 @@ async function settleOrderCommand(context: CommandContext): Promise<void> {
   const id = orderId(context);
   assertGatewayFor(context, id);
   const result = await settleOrder(id);
+  await flushEmails();
   if (!result) throw AppError.of('not_found', `No order ${id}`);
   context.io.out(`Order ${id}: ${result.outcome}, status ${result.order.status}.`);
 }

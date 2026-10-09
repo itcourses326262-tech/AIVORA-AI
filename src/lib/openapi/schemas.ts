@@ -94,6 +94,18 @@ export const userSchema = exact<UserDTO>()(
     locale: z.enum(LOCALES).describe('Preferred language of the web app.'),
     creditBalance: z.number().int().describe('Credits the account can spend right now.'),
     createdAt: timestamp('When the account was created'),
+    emailVerified: z.boolean().describe('Whether the sign-in address was confirmed.'),
+    emailVerificationRequired: z
+      .boolean()
+      .describe(
+        'Whether this server asks for a confirmed address before the account may generate or buy credits. While it is true and `emailVerified` is false, creating a generation answers `email_not_verified` (403).',
+      ),
+    pendingBonusCredits: z
+      .number()
+      .int()
+      .describe(
+        'Free credits that confirming the address would add right now; 0 when there are none.',
+      ),
   }),
 );
 

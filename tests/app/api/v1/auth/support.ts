@@ -86,14 +86,20 @@ export function expectUserDTO(value: unknown): asserts value is UserDTO {
     locale: expect.stringMatching(/^(ar|en)$/),
     creditBalance: expect.any(Number),
     createdAt: expect.any(Number),
+    emailVerified: expect.any(Boolean),
+    emailVerificationRequired: expect.any(Boolean),
+    pendingBonusCredits: expect.any(Number),
   });
   expect(Object.keys(value as object).sort()).toEqual([
     'createdAt',
     'creditBalance',
     'email',
+    'emailVerificationRequired',
+    'emailVerified',
     'id',
     'locale',
     'name',
+    'pendingBonusCredits',
     'role',
   ]);
 }

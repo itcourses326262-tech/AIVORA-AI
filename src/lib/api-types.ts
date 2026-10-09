@@ -90,6 +90,17 @@ export interface UserDTO {
   locale: Locale;
   creditBalance: number;
   createdAt: number;
+  /** The sign-in address was confirmed (emailed link, password reset or an operator). */
+  emailVerified: boolean;
+  /**
+   * The server asks for a confirmed address before this account may generate or buy credits
+   * (`EMAIL_VERIFICATION`): while it is true and `emailVerified` is false, `POST /generations` and
+   * `POST /billing/checkout` answer 403 `email_not_verified` and the balance is 0 until the
+   * sign-up bonus is paid on confirmation.
+   */
+  emailVerificationRequired: boolean;
+  /** Free credits confirming the address would add now; 0 when none (already granted, claimed by another account of the mailbox, or no confirmation needed). */
+  pendingBonusCredits: number;
 }
 
 export interface AssetDTO {
@@ -306,6 +317,12 @@ export interface OrderDTO {
   /** Present only while `status` is `pending`: send the buyer here to pay. */
   checkoutUrl?: string;
   refundedHalalas: number;
+  /**
+   * Credits taken back from the balance for refunds so far. After a refund that found the credits
+   * already spent this is less than the share the refund is worth; `credits - clawedBackCredits`
+   * is what the order still holds.
+   */
+  clawedBackCredits: number;
   subscriptionId?: string;
   /** The subscription month this order paid for. */
   periodStart?: number;

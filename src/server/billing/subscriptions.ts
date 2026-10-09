@@ -7,6 +7,7 @@ import { getDb, withTx, type Db } from '@/server/db';
 import { orders, subscriptions, type OrderRow, type SubscriptionRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { toSubscriptionDTO } from './dto';
+import { dispatchBillingMail, recordCanceled, recordResumed } from './mail';
 import { liveSubscription } from './orders';
 import { closeCheckout } from './settle';
 
@@ -91,7 +92,8 @@ export async function cancelSubscription(
   const running = subscription;
   withTx(db, (tx) => {
     if (running.status === 'past_due') {
-      tx.update(subscriptions)
+      const ended = tx
+        .update(subscriptions)
         .set({
           status: 'canceled',
           cancelAtPeriodEnd: true,
@@ -101,13 +103,26 @@ export async function cancelSubscription(
         })
         .where(and(eq(subscriptions.id, running.id), eq(subscriptions.status, 'past_due')))
         .run();
+      // Whoever really changed it confirms it; a repeated cancel changes nothing and says nothing.
+      if (ended.changes === 1) recordCanceled(tx, running, undefined, now);
     } else {
-      tx.update(subscriptions)
+      const marked = tx
+        .update(subscriptions)
         .set({ cancelAtPeriodEnd: true, nextChargeAt: running.currentPeriodEnd, updatedAt: now })
-        .where(and(eq(subscriptions.id, running.id), eq(subscriptions.status, 'active')))
+        .where(
+          and(
+            eq(subscriptions.id, running.id),
+            eq(subscriptions.status, 'active'),
+            eq(subscriptions.cancelAtPeriodEnd, false),
+          ),
+        )
         .run();
+      if (marked.changes === 1) {
+        recordCanceled(tx, running, running.currentPeriodEnd ?? undefined, now);
+      }
     }
   });
+  dispatchBillingMail({ db });
 
   // Withdraw the renewal link. If the gateway cannot do it now the cancellation still stands: the
   // scheduler finishes the job when the period ends.
@@ -142,8 +157,8 @@ export function resumeSubscription(userId: string, now: number = Date.now()): Su
 
   const periodEnd = subscription.currentPeriodEnd;
   if (subscription.status !== 'active' || periodEnd === null || periodEnd <= now) throw ended();
-  const resumed = withTx(db, (tx) =>
-    tx
+  const resumed = withTx(db, (tx) => {
+    const flipped = tx
       .update(subscriptions)
       .set({
         cancelAtPeriodEnd: false,
@@ -157,8 +172,11 @@ export function resumeSubscription(userId: string, now: number = Date.now()): Su
           eq(subscriptions.cancelAtPeriodEnd, true),
         ),
       )
-      .run(),
-  );
+      .run();
+    if (flipped.changes === 1) recordResumed(tx, subscription, periodEnd, now);
+    return flipped;
+  });
   if (resumed.changes !== 1) throw ended();
+  dispatchBillingMail({ db });
   return currentSubscription(userId, now) ?? failMissing();
 }

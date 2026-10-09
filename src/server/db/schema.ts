@@ -19,6 +19,7 @@ import {
   ORDER_STATUSES,
   SUBSCRIPTION_STATUSES,
 } from '@/lib/billing/types';
+import { BILLING_EMAIL_KINDS } from '@/server/email/types';
 
 /**
  * Database schema (docs/ARCHITECTURE.md section 4). Ids are text primary keys from `newId`;
@@ -442,6 +443,39 @@ export const billingEvents = sqliteTable(
   ],
 );
 
+/**
+ * The dedupe record of the mails billing sends about a change of state (receipt, renewal link,
+ * refund, ...). A row is inserted in the SAME transaction that makes the change, keyed by what the
+ * change is (`receipt:<orderId>`, `refund:<orderId>:<refunded total>`, ...), so a replayed webhook,
+ * a restarted scheduler or a second process finds the change already made and records nothing.
+ * `sent_at` is claimed by a compare-and-set before the message is queued, so at most one process
+ * ever sends a given row; a row whose process died between the commit and the claim is picked up
+ * by the next scheduler tick. No foreign key and no address: the row names a user id and the facts
+ * of one payment, nothing that identifies a person once the account is anonymized.
+ */
+export const emailEvents = sqliteTable(
+  'email_events',
+  {
+    key: text('key').primaryKey(),
+    userId: text('user_id').notNull(),
+    kind: text('kind', { enum: BILLING_EMAIL_KINDS }).notNull(),
+    /** The order or subscription the mail is about (`ord_...` / `sub_...`). */
+    subject: text('subject').notNull(),
+    /** JSON: the facts the message states, frozen when the change was made. */
+    payload: text('payload').notNull(),
+    createdAt: integer('created_at').notNull(),
+    /** Null until a process claimed the delivery. */
+    sentAt: integer('sent_at'),
+  },
+  (t) => [
+    index('email_events_unsent_idx')
+      .on(t.createdAt)
+      .where(sql`${t.sentAt} is null`),
+    index('email_events_subject_idx').on(t.subject, t.kind),
+    check('email_events_kind_valid', oneOf(t.kind, BILLING_EMAIL_KINDS)),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -463,3 +497,4 @@ export type OrderRow = typeof orders.$inferSelect;
 export type NewOrderRow = typeof orders.$inferInsert;
 export type BillingEventRow = typeof billingEvents.$inferSelect;
 export type NewBillingEventRow = typeof billingEvents.$inferInsert;
+export type EmailEventRow = typeof emailEvents.$inferSelect;

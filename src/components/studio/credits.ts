@@ -9,12 +9,26 @@ export interface CreditStatus {
    * request is then left to the server, which answers "log in".
    */
   signedOut?: boolean;
+  /**
+   * The server wants a confirmed email address before this account may generate: the balance reads
+   * 0 because the sign-up bonus is paid on confirmation, so "get credits" would be the wrong
+   * advice. The notice asks for the confirmation instead and Generate stays off.
+   */
+  unconfirmed?: boolean;
 }
 
-/** The person cannot pay for the request: too few credits. */
-export function isShort({ cost, balance, signedOut }: CreditStatus): boolean {
-  return !signedOut && cost !== null && balance < cost;
+/** The person cannot pay for the request: too few credits (and confirming is not what is missing). */
+export function isShort({ cost, balance, signedOut, unconfirmed }: CreditStatus): boolean {
+  return !signedOut && unconfirmed !== true && cost !== null && balance < cost;
 }
+
+/** The account has to confirm its address first, whatever its balance. */
+export function mustConfirmEmail({ signedOut, unconfirmed }: CreditStatus): boolean {
+  return !signedOut && unconfirmed === true;
+}
+
+/** The notice that explains why Generate is off; the button points at it with `aria-describedby`. */
+export const CONFIRM_NOTICE_ID = 'studio-confirm-email';
 
 /** Where to buy credits (the pricing page is built by another module). */
 export const PRICING_HREF = '/pricing';

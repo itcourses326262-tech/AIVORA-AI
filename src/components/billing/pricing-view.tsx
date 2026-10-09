@@ -12,6 +12,7 @@ import { useUser } from '@/lib/user-context';
 import { fetchSubscription } from './api';
 import { halalasPer100Credits, netHalalas } from './money';
 import { CheckoutFailure } from './checkout-failure';
+import { CONFIRM_EMAIL_NOTICE_ID, ConfirmEmailNotice } from './confirm-email-notice';
 import { Notice } from './notice';
 import { PriceCard } from './price-card';
 import { SubscribeDialog } from './subscribe-dialog';
@@ -39,7 +40,7 @@ export interface PricingViewProps {
 export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
   const i18n = useI18n();
   const { t, locale } = i18n;
-  const { user } = useUser();
+  const { user, emailConfirmationNeeded } = useUser();
   const signedIn = user !== null;
   const [mode, setMode] = useState<Mode>('plans');
   const [confirming, setConfirming] = useState<BillingPlanDTO | null>(null);
@@ -92,6 +93,15 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
           {running.planId === item.id
             ? t('billing.cta.currentPlan')
             : t('billing.cta.afterPlanEnds')}
+        </Button>
+      );
+    }
+    if (emailConfirmationNeeded) {
+      // The API refuses a purchase from an unconfirmed account (`email_not_verified`), and the
+      // credits could not be used meanwhile: the button says what is missing instead of failing.
+      return (
+        <Button variant="secondary" fullWidth disabled aria-describedby={CONFIRM_EMAIL_NOTICE_ID}>
+          {t('billing.cta.confirmEmail')}
         </Button>
       );
     }
@@ -156,6 +166,7 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
           {t('billing.pricing.notice.offBody')}
         </Notice>
       ) : null}
+      {emailConfirmationNeeded && catalog.canPurchase ? <ConfirmEmailNotice /> : null}
       {running ? (
         <Notice
           tone="info"

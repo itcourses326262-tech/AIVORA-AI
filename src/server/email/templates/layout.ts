@@ -33,13 +33,33 @@ export interface Paragraph {
   tone?: 'normal' | 'muted' | 'warning';
 }
 
+/** One line of a facts table: a label and the value it states. */
+export interface DetailRow {
+  label: string;
+  value: string;
+  /** Typed left to right inside right-to-left text (amounts in Latin script, references, dates). */
+  ltr?: boolean;
+  strong?: boolean;
+}
+
+/** A bordered table of facts (a receipt's lines), placed between paragraphs. */
+export interface Details {
+  rows: readonly DetailRow[];
+}
+
+export type Block = Paragraph | Details;
+
+function isDetails(block: Block): block is Details {
+  return 'rows' in block;
+}
+
 export interface LayoutInput {
   locale: Locale;
   subject: string;
   preheader: string;
   brand: string;
   heading: string;
-  paragraphs: readonly Paragraph[];
+  paragraphs: readonly Block[];
   action?: { label: string; url: string };
   linkHint?: string;
   footer: Paragraph;
@@ -78,6 +98,32 @@ function paragraphHtml(paragraph: Paragraph, align: string): string {
   const cls = tone === 'muted' ? 'muted' : 'text';
   const size = tone === 'muted' ? 14 : 16;
   return `<p class="${cls}" style="margin:16px 0 0;color:${color};font-size:${size}px;line-height:1.7;text-align:${align}">${paragraph.html}</p>`;
+}
+
+const LRI = String.fromCodePoint(0x2066);
+const FSI = String.fromCodePoint(0x2068);
+const PDI = String.fromCodePoint(0x2069);
+
+function detailsHtml(details: Details, align: string, dir: string): string {
+  const valueAlign = align === 'left' ? 'right' : 'left';
+  const rows = details.rows
+    .map((row, index) => {
+      const rule = index === 0 ? '' : `border-top:1px solid ${COLORS.border};`;
+      const value = `<span dir="${row.ltr ? 'ltr' : 'auto'}" style="unicode-bidi:isolate">${escapeHtml(singleLine(row.value))}</span>`;
+      return `<tr><td class="muted rule" style="${rule}padding:10px 14px;color:${COLORS.muted};font-size:14px;line-height:1.6;text-align:${align}">${escapeHtml(row.label)}</td><td class="text rule" style="${rule}padding:10px 14px;color:${COLORS.text};font-size:15px;line-height:1.6;text-align:${valueAlign}">${row.strong ? `<strong>${value}</strong>` : value}</td></tr>`;
+    })
+    .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="${dir}" class="rule" style="margin:20px 0 0;border:1px solid ${COLORS.border};border-radius:12px;border-collapse:separate;border-spacing:0">${rows}</table>`;
+}
+
+function detailsText(details: Details, locale: Locale): string {
+  return details.rows
+    .map((row) => {
+      const value = singleLine(row.value);
+      const shown = locale === 'ar' ? `${row.ltr ? LRI : FSI}${value}${PDI}` : value;
+      return `${row.label}: ${shown}`;
+    })
+    .join('\n');
 }
 
 export function renderLayout(input: LayoutInput): { html: string; text: string } {
@@ -127,7 +173,7 @@ body,.page{background:#100f1d!important}
 <tr><td style="padding:20px 28px;background:${COLORS.brand};background-image:linear-gradient(135deg,${COLORS.brand},${COLORS.brandEnd});text-align:${align}"><span dir="ltr" style="font-family:${FONT_LATIN};font-size:22px;font-weight:800;letter-spacing:3px;color:#ffffff;unicode-bidi:isolate">${escapeHtml(input.brand)}</span></td></tr>
 <tr><td class="pad" style="padding:32px 28px;font-family:${font};text-align:${align}">
 <h1 style="margin:0;color:${COLORS.text};font-family:${font};font-size:24px;line-height:1.4;font-weight:700;text-align:${align}">${escapeHtml(input.heading)}</h1>
-${input.paragraphs.map((paragraph) => paragraphHtml(paragraph, align)).join('\n')}
+${input.paragraphs.map((block) => (isDetails(block) ? detailsHtml(block, align, dir) : paragraphHtml(block, align))).join('\n')}
 ${button}
 ${fallbackLink}
 <hr class="rule" style="margin:28px 0 0;border:0;border-top:1px solid ${COLORS.border}">
@@ -141,7 +187,9 @@ ${fallbackLink}
   const text = [
     input.brand,
     input.heading,
-    ...input.paragraphs.map((paragraph) => paragraph.text),
+    ...input.paragraphs.map((block) =>
+      isDetails(block) ? detailsText(block, locale) : block.text,
+    ),
     ...(action ? [`${action.label}:\n${action.url}`] : []),
     `--\n${input.footer.text}`,
   ].join('\n\n');

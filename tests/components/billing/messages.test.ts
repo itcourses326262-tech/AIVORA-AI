@@ -135,25 +135,36 @@ describe('billing messages', () => {
     );
   });
 
-  it('says nobody is reminded, in the dialog, the FAQ and the plan card: renewal needs a visit to Billing', () => {
+  it('says the renewal link is emailed and a reminder follows, in the dialog, the FAQ and the plan card', () => {
     const en = createTranslator('en');
     const ar = createTranslator('ar');
     const faq = { days: 3, grace: 7, vat: 15 };
     expect(en.t('billing.confirm.renewalValue', { days: 3 })).toMatch(
-      /we do not send reminders, so check Billing before the month ends/,
+      /we email you a payment link, and it also waits in Billing.*we send a reminder/,
     );
     expect(en.t('billing.pricing.faq.items.renewal.answer', faq)).toMatch(
-      /We do not send payment reminders, so check that page before your month ends/,
+      /we email you a payment link for the next month, and it also waits on your Billing page.*we send a reminder/,
     );
     expect(en.t('billing.account.plan.notes.renewal', { days: 3 })).toMatch(
-      /We do not send reminders, so check this page/,
+      /we email it to you too/,
     );
     for (const text of [
       ar.t('billing.confirm.renewalValue', { days: 3 }),
       ar.t('billing.pricing.faq.items.renewal.answer', faq),
       ar.t('billing.account.plan.notes.renewal', { days: 3 }),
     ]) {
-      expect(text).toMatch(/ولا نرسل تذكيرات/);
+      expect(text).toMatch(/بالبريد/);
+      // The old promise that nothing is ever sent must be gone, in both languages.
+      expect(text).not.toMatch(/ولا نرسل تذكيرات/);
+    }
+    for (const text of [
+      en.t('billing.confirm.renewalValue', { days: 3 }),
+      en.t('billing.pricing.faq.items.renewal.answer', faq),
+      en.t('billing.account.plan.notes.renewal', { days: 3 }),
+    ]) {
+      expect(text).not.toMatch(/do not send (payment )?reminders/i);
+      // Email can get lost: Billing (or "here", on the Billing page itself) stays the place to look.
+      expect(text).toMatch(/Billing|appears here/);
     }
   });
 

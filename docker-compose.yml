@@ -1,0 +1,144 @@
+# AIVORE on one machine, with Docker Compose.
+#
+#   cp .env.example .env        # then fill it in: docs/LAUNCH.md and docs/DEPLOYMENT.md say what
+#   docker compose up -d --build
+#   docker compose logs -f app
+#
+# The application listens on 127.0.0.1:3000 only. Put a reverse proxy with HTTPS in front of it (the
+# Caddy block at the end of this file does that, with a certificate from Let's Encrypt): in production
+# the session cookie is `Secure`, so signing in does not work over plain http (localhost excepted).
+#
+# One container is the whole product: web server, job runner (WORKER_MODE=inline), billing scheduler.
+# SQLite is a single-writer database on one disk, so run exactly ONE app container; do not use
+# `docker compose up --scale app=2`.
+
+name: aivore
+
+services:
+  app:
+    build: .
+    image: aivore:local
+    # Use `restart: unless-stopped` so the server comes back after a crash or a reboot of the machine.
+    restart: unless-stopped
+    # tini as PID 1: reaps zombies and passes SIGTERM on, on top of Node's own handler.
+    init: true
+    env_file: .env
+    environment:
+      # These win over .env. The paths must stay on the volume whatever .env says: the values in
+      # .env.example (./data/...) would put the database inside the container, where a rebuild
+      # deletes it. APP_URL, SESSION_SECRET and every other setting come from .env.
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+      DATABASE_PATH: /data/aivore.db
+      STORAGE_LOCAL_DIR: /data/media
+    ports:
+      - '127.0.0.1:3000:3000'
+    volumes:
+      - data:/data
+      # Backups on a folder you can copy off the machine (docs/OPERATIONS.md): create it first and
+      # give it to the container user, `mkdir backups && sudo chown 1000:1000 backups`, then back
+      # up with `docker compose exec app node scripts/backup.mjs --out /backups --keep 14`.
+      # - ./backups:/backups
+    # SIGTERM stops the web server and hands running generations back to the queue; give it time to
+    # finish requests that are in flight (a large video download, say) before Docker sends SIGKILL.
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+
+  # Optional: the job runner as its own process. Off by default. Turn it on with these two lines in .env:
+  #   WORKER_MODE=external
+  #   COMPOSE_PROFILES=worker
+  # BOTH are needed. With WORKER_MODE=external and no worker running, generations stay queued and the
+  # credits stay debited until the user cancels. Use it when long video generations make the web
+  # process feel slow; for a first launch the default (inline) is simpler and just as correct.
+  # It shares the SQLite file with the app through the same volume, so it must run on the same machine.
+  worker:
+    profiles: [worker]
+    # The same image as the app (built once: the second build is a cache hit).
+    build: .
+    image: aivore:local
+    restart: unless-stopped
+    init: true
+    command: ['node', 'scripts/worker.mjs']
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /data/aivore.db
+      STORAGE_LOCAL_DIR: /data/media
+    volumes:
+      - data:/data
+    stop_grace_period: 30s
+    # The image's health check calls the web server, which this container does not run.
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+
+  # ---- Reverse proxy with automatic HTTPS (Caddy) ------------------------------------------------
+  # To use it:
+  #   1. Point the DNS A/AAAA record of your domain at this machine; open ports 80 and 443.
+  #   2. In .env set APP_URL=https://your-domain, TRUST_PROXY=true (TRUSTED_PROXY_HOPS stays 1) and
+  #      APP_DOMAIN=your-domain.
+  #   3. Create the file ./Caddyfile next to this one (below).
+  #   4. Uncomment the `caddy` service and the two volumes at the bottom, then
+  #      `docker compose up -d`. Caddy gets and renews the certificate by itself.
+  #
+  # ./Caddyfile
+  #   {$APP_DOMAIN} {
+  #       encode zstd gzip
+  #       reverse_proxy app:3000 {
+  #           # The client address the app uses for rate limits is the LAST entry of X-Forwarded-For
+  #           # (TRUSTED_PROXY_HOPS=1). Make that entry the address Caddy itself saw, whatever the
+  #           # client sent: a client-supplied header must never survive.
+  #           header_up X-Forwarded-For {remote_host}
+  #           header_up X-Forwarded-Proto {scheme}
+  #           header_up X-Forwarded-Host {host}
+  #       }
+  #   }
+  #
+  # With TRUST_PROXY=true and a proxy that does NOT replace X-Forwarded-For, anybody can pick the
+  # address the app sees. Check it after the first start (docs/DEPLOYMENT.md):
+  #   curl -si https://your-domain/api/v1/auth/me | grep -i x-ratelimit-limit   -> 120 (per client)
+  #   a value of 1200 means the app cannot tell clients apart (TRUST_PROXY is not reaching it).
+  #
+  # caddy:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports:
+  #     - '80:80'
+  #     - '443:443'
+  #     - '443:443/udp'
+  #   environment:
+  #     APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   depends_on:
+  #     app:
+  #       condition: service_healthy
+
+volumes:
+  data:
+  # caddy-data:
+  # caddy-config:

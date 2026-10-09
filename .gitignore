@@ -10,6 +10,16 @@ next-env.d.ts
 /data
 *.db*
 
+# backups made by scripts/backup.mjs (the ./backups folder of docker-compose.yml, or any aivore-<time>
+# folder copied here): they hold e-mail addresses, password hashes and every generated file. The
+# default folder, ./data/backups, is covered by /data above.
+/backups
+aivore-[0-9]*T[0-9]*Z/
+aivore-[0-9]*T[0-9]*Z.partial/
+
+# the owner's local Docker Compose overrides (docker-compose.override.example.yml is the template)
+docker-compose.override.yml
+
 # test output
 /coverage
 /playwright-report

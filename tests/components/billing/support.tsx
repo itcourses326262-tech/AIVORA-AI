@@ -1,6 +1,7 @@
 import { act } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { vi } from 'vitest';
+import { resetResendCooldownForTests } from '@/components/layout/verify-email-banner';
 import { Toaster, toast } from '@/components/ui/toast';
 import type { BillingCatalogDTO, OrderDTO, Page, SubscriptionDTO } from '@/lib/api-types';
 import { CREDIT_PACKS, SUBSCRIPTION_PLANS, splitVat } from '@/lib/billing/plans';
@@ -87,6 +88,7 @@ export function order(overrides: Partial<OrderDTO> = {}): OrderDTO {
     createdAt: NOW - DAY_MS,
     paidAt: NOW - DAY_MS + 60_000,
     refundedHalalas: 0,
+    clawedBackCredits: 0,
     ...overrides,
   };
 }
@@ -194,6 +196,7 @@ export function installFakeApi(routes: Record<string, Handler> = {}): FakeApi {
 
 /** Clears the toasts left on screen and restores `fetch` and the timers, between tests. */
 export function resetBillingTest() {
+  resetResendCooldownForTests();
   vi.useFakeTimers();
   act(() => {
     toast.dismissAll();

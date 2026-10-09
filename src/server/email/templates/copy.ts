@@ -66,6 +66,95 @@ export const emailCopy = defineMessages({
         'We only keep the balance and payment records that accounting requires. They are no longer linked to your name or email.',
       warning: "If you didn't ask for this, please contact us as soon as possible.",
     },
+    billing: {
+      support: 'Questions about a payment? Write to {email}.',
+      notInvoice: 'This message confirms your payment. It is not a tax invoice.',
+      noCharge: 'We never charge your card automatically.',
+      kept: 'Credits you already have stay in your balance and never expire.',
+      openBilling: 'Open billing',
+      planLabel: '{name} plan',
+      receipt: {
+        subject: 'Payment received: {item}',
+        preheader: 'Your credits are in your account.',
+        heading: 'Payment received',
+        intro:
+          'Thank you. We received your payment for {item} and added the credits to your balance.',
+        introRenewal:
+          'Thank you. We received the monthly payment for your {item} and added the credits for this month to your balance.',
+        renewalNote:
+          'Your plan renews every month. We email you the payment link {lead} before the month ends.',
+        noPlan:
+          'This payment did not start a new month of your plan, because the plan had already ended. The credits are in your balance, and you can subscribe again whenever you like.',
+        labels: {
+          amount: 'Amount paid (VAT included)',
+          vat: 'Of which VAT',
+          credits: 'Credits added',
+          reference: 'Order reference',
+          date: 'Date',
+          paidUntil: 'Plan paid until',
+        },
+      },
+      renewalLink: {
+        subject: 'Your {item} renewal is ready to pay',
+        preheader: 'Pay by {date} to keep your plan running.',
+        heading: 'Time to renew your plan',
+        intro:
+          'Your {item} renews on {date}. The payment for the next month, {amount} with VAT included, for {credits}, is ready.',
+        unpaid:
+          'If it is not paid by then, your plan becomes overdue. You can still pay until {graceEnd}; after that the plan expires and no more monthly credits are added.',
+        cancel: 'Do not want to renew? Cancel the plan in Billing and ignore this message.',
+        billingHint: 'You can also pay from your Billing page: {billing}',
+        action: 'Pay now',
+      },
+      overdue: {
+        subject: 'Payment overdue: your {item}',
+        preheader: 'Pay by {graceEnd} to keep your plan.',
+        heading: 'Your plan payment is overdue',
+        intro:
+          'The month of your {item} ended on {date} and the renewal payment of {amount} has not been paid yet.',
+        deadline:
+          'You can still pay until {graceEnd}. After that the plan expires and no more monthly credits are added.',
+        action: 'Pay now',
+      },
+      expired: {
+        subject: 'Your {item} has ended',
+        preheader: 'The renewal was not paid in time.',
+        heading: 'Your plan has ended',
+        intro:
+          'We did not receive the renewal payment for your {item} in time, so the plan expired and no more monthly credits will be added.',
+        again: 'You can subscribe again whenever you like.',
+        action: 'See plans',
+      },
+      refund: {
+        subject: 'Refund for {item}',
+        preheader: 'Part or all of a payment was returned.',
+        heading: 'A payment was returned',
+        intro:
+          '{amount} of your payment for {item} (order {reference}) was returned to you. How soon it shows on your statement depends on your bank.',
+        introNoCredit:
+          'Your payment of {amount} for {item} (order {reference}) was returned to you before any credits were added, so nothing was added to your balance.',
+        credits: '{credits} were taken back from your balance.',
+        total: 'Returned so far: {total} of {price}.',
+        planEnded: 'The plan that this payment covered has ended.',
+      },
+      canceled: {
+        subject: 'Your {item} is canceled',
+        preheader: 'It stays active until the month you paid for ends.',
+        heading: 'Plan canceled',
+        introEnd:
+          'Your {item} is canceled and ends on {date}. It stays fully active until then, and we will not send a renewal link.',
+        introNow:
+          'Your {item} was overdue, so canceling ended it right away. We will not send a renewal link.',
+        resume: 'Changed your mind? You can resume the plan in Billing until {date}.',
+      },
+      resumed: {
+        subject: 'Your {item} continues',
+        preheader: 'It will renew as usual.',
+        heading: 'Plan resumed',
+        intro: 'Your {item} will renew as usual on {date}.',
+        link: 'We email you the payment link {lead} before the month ends.',
+      },
+    },
   },
   ar: {
     brand: 'AIVORE',
@@ -123,6 +212,91 @@ export const emailCopy = defineMessages({
       records:
         'نحتفظ فقط بسجلات الرصيد والمدفوعات التي تتطلبها المحاسبة، ولم تعد مرتبطة باسمك أو بريدك.',
       warning: 'إن لم تطلب حذف حسابك، فتواصل معنا في أقرب وقت.',
+    },
+    billing: {
+      support: 'لديك سؤال عن دفعة؟ راسلنا على {email}.',
+      notInvoice: 'هذه الرسالة تأكيد لدفعتك وليست فاتورة ضريبية.',
+      noCharge: 'لا نخصم من بطاقتك تلقائيًا أبدًا.',
+      kept: 'الأرصدة التي لديك تبقى في رصيدك ولا تنتهي صلاحيتها.',
+      openBilling: 'افتح صفحة الفوترة',
+      planLabel: 'باقة {name}',
+      receipt: {
+        subject: 'تم استلام دفعتك: {item}',
+        preheader: 'أُضيفت الأرصدة إلى حسابك.',
+        heading: 'تم استلام الدفعة',
+        intro: 'شكرًا لك. استلمنا دفعتك مقابل {item} وأضفنا الأرصدة إلى رصيدك.',
+        introRenewal: 'شكرًا لك. استلمنا دفعة هذا الشهر مقابل {item} وأضفنا أرصدة الشهر إلى رصيدك.',
+        renewalNote: 'تتجدد باقتك كل شهر. نرسل لك رابط الدفع قبل {lead} من نهاية الشهر.',
+        noPlan:
+          'لم تبدأ هذه الدفعة شهرًا جديدًا من باقتك لأن الباقة كانت قد انتهت. الأرصدة في رصيدك، ويمكنك الاشتراك من جديد في أي وقت.',
+        labels: {
+          amount: 'المبلغ المدفوع (شامل الضريبة)',
+          vat: 'منه ضريبة القيمة المضافة',
+          credits: 'الأرصدة المضافة',
+          reference: 'رقم الطلب',
+          date: 'التاريخ',
+          paidUntil: 'الباقة مدفوعة حتى',
+        },
+      },
+      renewalLink: {
+        subject: 'تجديد {item} جاهز للدفع',
+        preheader: 'ادفع قبل {date} لتستمر باقتك.',
+        heading: 'حان وقت تجديد باقتك',
+        intro:
+          'تتجدد {item} في {date}. دفعة الشهر القادم جاهزة: {amount} شاملة الضريبة مقابل {credits}.',
+        unpaid:
+          'إن لم تُدفع حتى ذلك الوقت تصبح الباقة متأخرة الدفع. ويمكنك الدفع بعدها حتى {graceEnd}، وبعد ذلك تنتهي الباقة ولا تُضاف أرصدة شهرية جديدة.',
+        cancel: 'لا تريد التجديد؟ ألغِ الباقة من صفحة الفوترة وتجاهل هذه الرسالة.',
+        billingHint: 'يمكنك أيضًا الدفع من صفحة الفوترة: {billing}',
+        action: 'ادفع الآن',
+      },
+      overdue: {
+        subject: 'دفعة {item} متأخرة',
+        preheader: 'ادفع قبل {graceEnd} لتحتفظ بباقتك.',
+        heading: 'دفعة باقتك متأخرة',
+        intro: 'انتهى شهر {item} في {date} ولم تصلنا دفعة التجديد ({amount}) بعد.',
+        deadline:
+          'ما زال بإمكانك الدفع حتى {graceEnd}. بعد ذلك تنتهي الباقة ولا تُضاف أرصدة شهرية جديدة.',
+        action: 'ادفع الآن',
+      },
+      expired: {
+        subject: 'انتهت {item}',
+        preheader: 'لم تُدفع دفعة التجديد في موعدها.',
+        heading: 'انتهت باقتك',
+        intro:
+          'لم تصلنا دفعة تجديد {item} في موعدها، لذلك انتهت الباقة ولن تُضاف أرصدة شهرية جديدة.',
+        again: 'يمكنك الاشتراك من جديد في أي وقت.',
+        action: 'عرض الباقات',
+      },
+      refund: {
+        subject: 'استرداد مبلغ {item}',
+        preheader: 'رُدّ جزء من دفعتك أو كلها.',
+        heading: 'رُدّ مبلغ من دفعتك',
+        intro:
+          'رُدّ إليك {amount} من دفعتك مقابل {item} (الطلب {reference}). يعتمد موعد ظهور المبلغ في كشف حسابك على بنكك.',
+        introNoCredit:
+          'رُدّت إليك دفعتك البالغة {amount} مقابل {item} (الطلب {reference}) قبل إضافة أي أرصدة، لذلك لم يُضف شيء إلى رصيدك.',
+        credits: 'خصمنا {credits} من رصيدك.',
+        // The amount ends the sentence and "ر.س." already ends in a full stop: a second one would double it.
+        total: 'المبلغ المردود حتى الآن {total} من أصل {price}',
+        planEnded: 'انتهت الباقة التي كانت هذه الدفعة تغطيها.',
+      },
+      canceled: {
+        subject: 'تم إلغاء {item}',
+        preheader: 'تبقى فعّالة حتى نهاية الشهر المدفوع.',
+        heading: 'تم إلغاء الباقة',
+        introEnd:
+          'ألغينا {item} وستنتهي في {date}. تبقى فعّالة بالكامل حتى ذلك الوقت ولن نرسل رابط تجديد.',
+        introNow: 'كانت {item} متأخرة الدفع، لذلك أنهاها الإلغاء فورًا. لن نرسل رابط تجديد.',
+        resume: 'غيّرت رأيك؟ يمكنك استئناف الباقة من صفحة الفوترة حتى {date}.',
+      },
+      resumed: {
+        subject: 'تستمر {item}',
+        preheader: 'ستتجدد كالمعتاد.',
+        heading: 'تم استئناف الباقة',
+        intro: 'ستتجدد {item} كالمعتاد في {date}.',
+        link: 'نرسل لك رابط الدفع قبل {lead} من نهاية الشهر.',
+      },
     },
   },
 });

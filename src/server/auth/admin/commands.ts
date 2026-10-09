@@ -1,12 +1,21 @@
 import 'server-only';
-import { and, count, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { UserRole } from '@/lib/api-types';
 import { USER_ROLES } from '@/lib/api-types';
+import { LIVE_SUBSCRIPTION_STATUSES } from '@/lib/billing/types';
 import { AppError } from '@/lib/errors';
 import { LOCALES, isLocale, type Locale } from '@/lib/i18n/locales';
 import { MAX_CREDIT_AMOUNT, grantCredits } from '@/server/credits';
 import { getDb, withTx } from '@/server/db';
-import { assets, generations, sessions, users, type UserRow } from '@/server/db/schema';
+import {
+  assets,
+  generations,
+  orders,
+  sessions,
+  subscriptions,
+  users,
+  type UserRow,
+} from '@/server/db/schema';
 import { flushEmails, isSmtpConfigured, outboxFilePath } from '@/server/email';
 import { getEnv } from '@/server/env';
 import { deleteAccount, resumeAccountPurges } from '../account-deletion';
@@ -352,11 +361,29 @@ export async function deleteUser(context: CommandContext): Promise<void> {
     .get();
   const files = db.select({ total: count() }).from(assets).where(eq(assets.userId, user.id)).get();
   if (context.values.yes !== true) {
+    const payments = db
+      .select({ total: count() })
+      .from(orders)
+      .where(and(eq(orders.userId, user.id), eq(orders.status, 'pending')))
+      .get();
+    const plan = db
+      .select({ planId: subscriptions.planId, status: subscriptions.status })
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.userId, user.id),
+          inArray(subscriptions.status, LIVE_SUBSCRIPTION_STATUSES),
+        ),
+      )
+      .get();
+    const openPages = payments?.total ?? 0;
     context.io.out(
       [
         `Would delete ${user.deletedAt === null ? user.email : `${user.id} (already deleted)`}:`,
         `  ${content?.total ?? 0} generations and ${files?.total ?? 0} stored files are removed,`,
         '  sessions and API keys end, the account is anonymized (credit and billing rows stay).',
+        `  Billing: ${plan ? `the ${plan.status} plan "${plan.planId}" is ended at once (credits already granted stay)` : 'no running plan to end'}, ` +
+          `and ${openPages === 1 ? '1 open payment page is' : `${openPages} open payment pages are`} withdrawn at the payment gateway first (if one cannot be, nothing is deleted).`,
         `  Remaining balance ${user.creditBalance} credits is forfeited.`,
         'Run again with --yes to do it.',
       ].join('\n'),

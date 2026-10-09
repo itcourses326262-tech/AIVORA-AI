@@ -19,6 +19,7 @@ import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getGateway } from './config';
 import { toOrderDTO } from './dto';
+import { recordRenewalLink } from './mail';
 import { closeCheckout, refreshOrder } from './settle';
 import { closeOrder } from './transitions';
 
@@ -344,8 +345,8 @@ export async function attachCheckout(
     throw error;
   }
 
-  const stored = withTx(db, (tx) =>
-    tx
+  const stored = withTx(db, (tx) => {
+    const attached = tx
       .update(orders)
       .set({
         gatewayInvoiceId: checkout.invoiceId,
@@ -353,8 +354,11 @@ export async function attachCheckout(
         updatedAt: now,
       })
       .where(and(eq(orders.id, order.id), eq(orders.status, 'pending')))
-      .run(),
-  );
+      .run();
+    // A renewal's payment page is what the buyer is emailed; the row is written with the page.
+    if (attached.changes === 1) recordRenewalLink(tx, order, now);
+    return attached;
+  });
   if (stored.changes !== 1) {
     // The order was closed while the page was being made: take the page down again.
     await gateway.cancelCheckout(checkout.invoiceId).catch((error: unknown) => {

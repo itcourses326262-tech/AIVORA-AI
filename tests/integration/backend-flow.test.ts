@@ -47,8 +47,21 @@ describe('a new user from sign-up to a viewable image', () => {
       creditBalance: 50,
     });
     expect(Object.keys(alice.user).toSorted()).toEqual(
-      ['createdAt', 'creditBalance', 'email', 'id', 'locale', 'name', 'role'].toSorted(),
+      [
+        'createdAt',
+        'creditBalance',
+        'email',
+        'emailVerificationRequired',
+        'emailVerified',
+        'id',
+        'locale',
+        'name',
+        'pendingBonusCredits',
+        'role',
+      ].toSorted(),
     );
+    // No SMTP here, so confirmation is not asked for and no bonus waits for it.
+    expect(alice.user).toMatchObject({ emailVerificationRequired: false, pendingBonusCredits: 0 });
     const sessionCookie = alice.setCookies.find((line) => line.startsWith('aivore_session='));
     expect(sessionCookie).toMatch(/HttpOnly/);
     expect(sessionCookie).toMatch(/SameSite=Lax/);

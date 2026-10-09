@@ -1,0 +1,42 @@
+# Local development inside Docker, for people who do not want Node on their machine.
+#
+#   cp .env.example .env
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   docker compose up --build
+#
+# Docker Compose merges docker-compose.override.yml into docker-compose.yml by itself. The simplest
+# way to develop is still `npm ci && npm run dev` on the host (docs/DEPLOYMENT.md, README): that has
+# the fastest reloads and no file-ownership surprises. Do not commit docker-compose.override.yml and
+# never use it on a server.
+#
+# What changes: the image is built only up to the `build` stage (source + every dependency, running
+# as root), the container runs `next dev` on the source tree of your checkout, and the Demo provider
+# is on. The database and media still live in the `data` volume.
+
+services:
+  app:
+    build:
+      target: build
+    image: aivore:dev
+    command: ['npm', 'run', 'dev', '--', '--hostname', '0.0.0.0']
+    environment:
+      NODE_ENV: development
+      APP_URL: http://localhost:3000
+      ENABLE_MOCK_PROVIDER: 'true'
+      TRUST_PROXY: 'false'
+      WATCHPACK_POLLING: 'true'
+    volumes:
+      # Your checkout, edited on the host and hot-reloaded in the container ...
+      - .:/app
+      # ... except these two, which stay inside Docker: the host's node_modules may be built for
+      # another operating system, and .next would otherwise be written as root into your checkout.
+      # After changing package.json: docker volume rm aivore_dev-node-modules, then --build again.
+      - dev-node-modules:/app/node_modules
+      - dev-next:/app/.next
+    healthcheck:
+      # The first compile of `next dev` takes a while.
+      start_period: 180s
+
+volumes:
+  dev-node-modules:
+  dev-next:

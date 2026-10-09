@@ -1,11 +1,12 @@
 import { configure, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
+import { resetResendCooldownForTests } from '@/components/layout/verify-email-banner';
 import { Studio } from '@/components/studio/studio';
 import type { StudioPrefill } from '@/components/studio/prefill';
 import { toast } from '@/components/ui/toast';
 import { Toaster } from '@/components/ui/toast';
 import type { Locale } from '@/lib/i18n/locales';
-import { UserProvider } from '@/lib/user-context';
+import { UserProvider, type CurrentUser } from '@/lib/user-context';
 import { renderUi } from '../render';
 import { USER, installFakeApi, type FakeApi, type FakeApiOptions } from '../generations/support';
 
@@ -21,6 +22,8 @@ export interface MountOptions extends FakeApiOptions {
   desktop?: boolean;
   /** Runs after the fake API is installed and before the studio renders (to make the first requests fail). */
   prepare?: (api: FakeApi) => void;
+  /** Fields of the signed-in user the page starts with (the email confirmation state, say). */
+  user?: Partial<CurrentUser>;
 }
 
 export interface Mounted {
@@ -47,7 +50,7 @@ export function mountStudio(options: MountOptions = {}): Mounted {
   options.prepare?.(api);
   if (options.desktop === false) stubViewport(false);
   const view = renderUi(
-    <UserProvider initialUser={{ ...USER, creditBalance: api.balance }}>
+    <UserProvider initialUser={{ ...USER, creditBalance: api.balance, ...options.user }}>
       <Toaster />
       <Studio prefill={options.prefill ?? {}} />
     </UserProvider>,
@@ -79,6 +82,7 @@ export const generateButton = () =>
 export const cards = () => screen.queryAllByRole('article');
 
 export function resetEnvironment() {
+  resetResendCooldownForTests();
   toast.dismissAll();
   window.localStorage.clear();
   window.history.replaceState(null, '', '/studio');

@@ -123,6 +123,7 @@ describe('POST /billing/checkout', () => {
       credits: 500,
       status: 'pending',
       refundedHalalas: 0,
+      clawedBackCredits: 0,
       checkoutUrl: expect.stringMatching(/^https:\/\/checkout\.moyasar\.com\//),
     });
     // The gateway's ids and our idempotency key are internal.

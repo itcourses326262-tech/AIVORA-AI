@@ -1,81 +1,12 @@
 import 'server-only';
-import { createTranslator } from '@/lib/i18n';
-import type { Locale } from '@/lib/i18n/locales';
-import { formatDateTime, formatNumber } from '@/lib/utils';
+import { formatDateTime } from '@/lib/utils';
 import type { EmailMessage } from '../types';
 import { emailCopy } from './copy';
-import { escapeHtml, renderLayout, singleLine, type Paragraph } from './layout';
+import { creditsLabel, duration, paragraph, type Common, type Value } from './fill';
+import { renderBillingEmail, type BillingEmailSpec } from './billing';
+import { renderLayout, singleLine, type Paragraph } from './layout';
 
 type Dictionary = (typeof emailCopy)['en'];
-
-interface Value {
-  value: string;
-  /** Typed left to right inside right-to-left text (addresses, links, dates). */
-  ltr?: boolean;
-  strong?: boolean;
-}
-
-const LRI = String.fromCodePoint(0x2066);
-const FSI = String.fromCodePoint(0x2068);
-const PDI = String.fromCodePoint(0x2069);
-
-/**
- * Fills `{name}` placeholders. HTML output escapes every value and wraps it in an isolated span,
- * so an address or a name in Latin script cannot reorder the Arabic sentence around it; plain
- * text gets the Unicode isolates instead. A placeholder without a value stays visible.
- */
-function fill(template: string, values: Readonly<Record<string, Value>>, locale: Locale) {
-  let html = '';
-  let text = '';
-  for (const part of template.split(/(\{\w+\})/)) {
-    const key = /^\{(\w+)\}$/.exec(part)?.[1];
-    const entry = key !== undefined && Object.hasOwn(values, key) ? values[key] : undefined;
-    if (!entry) {
-      html += escapeHtml(part);
-      text += part;
-      continue;
-    }
-    const value = singleLine(entry.value);
-    const inner = escapeHtml(value);
-    const wrapped = `<span dir="${entry.ltr ? 'ltr' : 'auto'}" style="unicode-bidi:isolate">${inner}</span>`;
-    html += entry.strong ? `<strong>${wrapped}</strong>` : wrapped;
-    text += locale === 'ar' ? `${entry.ltr ? LRI : FSI}${value}${PDI}` : value;
-  }
-  return { html, text };
-}
-
-function paragraph(
-  template: string,
-  values: Readonly<Record<string, Value>>,
-  locale: Locale,
-  tone?: Paragraph['tone'],
-): Paragraph {
-  return { ...fill(template, values, locale), ...(tone ? { tone } : {}) };
-}
-
-/** "24 hours" / "ساعة واحدة": Intl knows the Arabic plural forms. */
-function duration(locale: Locale, unit: 'hour' | 'minute', amount: number): string {
-  return formatNumber(amount, locale, { style: 'unit', unit, unitDisplay: 'long' });
-}
-
-/** "50 credits" / "٥٠ رصيدًا": the plural form already carries the number. */
-function creditsLabel(locale: Locale, amount: number): string {
-  const { t, plural } = createTranslator(locale);
-  return plural(amount, {
-    zero: t('landing.credits.zero'),
-    one: t('landing.credits.one'),
-    two: t('landing.credits.two'),
-    few: t('landing.credits.few'),
-    many: t('landing.credits.many'),
-    other: t('landing.credits.other'),
-  });
-}
-
-interface Common {
-  locale: Locale;
-  to: string;
-  name: string;
-}
 
 export type EmailSpec =
   | (Common & {
@@ -95,10 +26,28 @@ export type EmailSpec =
       keysRevoked?: number;
     })
   | (Common & { kind: 'welcome'; link: string; bonusCredits?: number })
-  | (Common & { kind: 'account_deleted' });
+  | (Common & { kind: 'account_deleted' })
+  | BillingEmailSpec;
 
 /** Builds the subject, HTML and plain-text bodies of one email. Pure: no I/O, no clock. */
 export function renderEmail(spec: EmailSpec): EmailMessage {
+  switch (spec.kind) {
+    case 'payment_receipt':
+    case 'renewal_link':
+    case 'payment_overdue':
+    case 'subscription_expired':
+    case 'refund_notice':
+    case 'subscription_canceled':
+    case 'subscription_resumed':
+      return renderBillingEmail(spec);
+    default:
+      return renderAccountEmail(spec);
+  }
+}
+
+type AccountEmailSpec = Exclude<EmailSpec, BillingEmailSpec>;
+
+function renderAccountEmail(spec: AccountEmailSpec): EmailMessage {
   const { locale } = spec;
   const c: Dictionary = emailCopy[locale];
   const to = spec.to;

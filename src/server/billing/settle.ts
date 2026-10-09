@@ -5,6 +5,7 @@ import { orders, users, type OrderRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { getGateway } from './config';
 import type { GatewayPaymentState } from './gateway';
+import { dispatchBillingMail } from './mail';
 import {
   applyRefund,
   closeOrder,
@@ -173,10 +174,14 @@ export async function settleOrder(
     return { order, outcome: 'unchanged' };
   }
   const state = await gateway.fetchPayment({ invoiceId: order.gatewayInvoiceId });
-  return applyGatewayState(db, orderId, state, {
+  const result = applyGatewayState(db, orderId, state, {
     now: options.now ?? Date.now(),
     closeAs: options.closeAs,
   });
+  // The change is committed: send the mails it recorded (the receipt, a refund notice). A relay
+  // that is down never reaches this function's caller.
+  dispatchBillingMail({ db });
+  return result;
 }
 
 // One in-flight check per order per process, so a burst of polls costs one gateway call.

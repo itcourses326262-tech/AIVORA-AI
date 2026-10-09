@@ -1,0 +1,43 @@
+# Keep the build context small and free of secrets. Nothing listed here is needed to build the image.
+
+# dependencies and build output are produced inside the image
+node_modules
+.next
+out
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# runtime data and local configuration: never baked into an image (only the template may be)
+data
+backups
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+
+# version control and CI
+.git
+.github
+.gitignore
+
+# test output and tooling caches
+coverage
+playwright-report
+test-results
+blob-report
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Docker files and human documentation. tests/, e2e/ and the *.config.ts files stay in the context on
+# purpose: tsconfig.json includes them, so `next build` type-checks them and needs them to resolve.
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.override.yml
+docker-compose.override.example.yml
+docs
+README.md
+AGENTS.md

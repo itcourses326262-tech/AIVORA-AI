@@ -43,7 +43,7 @@ export function getEmailTransport(): EmailTransport {
     if (env.NODE_ENV === 'production' && !warnedAboutOutbox) {
       warnedAboutOutbox = true;
       getLogger().warn(
-        'SMTP is not configured: verification and password-reset emails are NOT being sent, only written to the outbox file. Set SMTP_URL and EMAIL_FROM.',
+        'SMTP is not configured: verification and password-reset emails are NOT being sent, and neither are billing emails (payment receipts, renewal links, overdue and expiry notices, refund notices); they are only written to the outbox file. Set SMTP_URL and EMAIL_FROM.',
         { component: 'email' },
       );
     }

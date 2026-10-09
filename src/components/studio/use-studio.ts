@@ -49,6 +49,11 @@ export interface StudioController {
   balance: number;
   /** The session ended while the page was open: the balance reads 0 only for want of a user. */
   signedOut: boolean;
+  /**
+   * The account must confirm its email address before it may generate (the balance reads 0 until
+   * the sign-up bonus is paid on confirmation): the studio asks for that instead of for credits.
+   */
+  emailUnconfirmed: boolean;
   /** `/login` back to this very studio; set once the session has ended. */
   loginHref: string | undefined;
   busy: boolean;
@@ -101,7 +106,7 @@ function problemMessageKey(problem: FormProblem) {
 export function useStudio(prefill: StudioPrefill): StudioController {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { user, creditBalance, refresh } = useUser();
+  const { user, creditBalance, refresh, emailConfirmationNeeded } = useUser();
   // The page is only served to a signed-in user, so a missing one means the session ended since.
   const signedOut = user === null;
 
@@ -287,6 +292,11 @@ export function useStudio(prefill: StudioPrefill): StudioController {
         if (first.field === 'prompt') promptRef.current?.focus();
         return;
       }
+      if (emailConfirmationNeeded) {
+        // The button is off; a keyboard shortcut still lands here. Say why, nothing is sent.
+        announce(t('studio.confirmEmail.title'));
+        return;
+      }
       if (isShort({ cost, balance: creditBalance, signedOut })) return;
       clearMessages();
       // The text that is being sent is final: an improvement still on its way must not rewrite it.
@@ -323,6 +333,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       problems,
       creditBalance,
       signedOut,
+      emailConfirmationNeeded,
       form,
       imageAsset,
       image.recover,
@@ -411,6 +422,10 @@ export function useStudio(prefill: StudioPrefill): StudioController {
         toast.warning(t('studio.submit.modelUnavailable'));
         return;
       }
+      if (emailConfirmationNeeded) {
+        toast.error(t('errors.email_not_verified'), { id: 'studio-submit' });
+        return;
+      }
       if (isShort({ cost: generation.cost, balance: creditBalance, signedOut })) {
         toast.error(t('errors.insufficient_credits'), {
           id: 'studio-submit',
@@ -443,7 +458,18 @@ export function useStudio(prefill: StudioPrefill): StudioController {
           sending.current = false;
         });
     },
-    [busy, allModels, creditBalance, signedOut, router, submit, announce, t, failWith],
+    [
+      busy,
+      allModels,
+      creditBalance,
+      signedOut,
+      emailConfirmationNeeded,
+      router,
+      submit,
+      announce,
+      t,
+      failWith,
+    ],
   );
 
   const handlers = useMemo<GenerationHandlers>(
@@ -486,6 +512,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
     messages,
     balance: creditBalance,
     signedOut,
+    emailUnconfirmed: emailConfirmationNeeded,
     loginHref,
     busy,
     generate,

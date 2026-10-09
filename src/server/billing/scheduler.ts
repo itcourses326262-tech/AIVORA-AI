@@ -8,6 +8,7 @@ import { orders, subscriptions, users, type SubscriptionRow } from '@/server/db/
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getGateway } from './config';
+import { dispatchBillingMail, recordExpired, recordPastDue } from './mail';
 import { ORPHAN_AFTER_MS, attachCheckout, isUniqueViolation } from './orders';
 import { closeCheckout, settleOrder } from './settle';
 import { pendingOrderOf } from './subscriptions';
@@ -133,6 +134,8 @@ export async function tick(now: number = Date.now()): Promise<TickReport> {
   try {
     gatewayId = getGateway().id;
   } catch {
+    // Billing is off or misconfigured, but mail recorded before that is still owed to its readers.
+    dispatchBillingMail({ now });
     return { ...report, active: false };
   }
   const db = getDb();
@@ -158,6 +161,8 @@ export async function tick(now: number = Date.now()): Promise<TickReport> {
   await guarded(async () => {
     report.paidChecked = await reconcilePaid(db, gatewayId, now, report);
   });
+  // Mail that a crashed process recorded but never sent (it dies between the commit and the claim).
+  dispatchBillingMail({ db, now });
   return report;
 }
 
@@ -429,8 +434,8 @@ async function advanceSubscription(db: Db, id: string, lease: number, now: numbe
       await issueRenewal(db, subscription, now);
       break;
     case 'mark_past_due':
-      withTx(db, (tx) =>
-        tx
+      withTx(db, (tx) => {
+        const flipped = tx
           .update(subscriptions)
           .set({ status: 'past_due', updatedAt: now })
           .where(
@@ -440,13 +445,15 @@ async function advanceSubscription(db: Db, id: string, lease: number, now: numbe
               lte(subscriptions.currentPeriodEnd, now),
             ),
           )
-          .run(),
-      );
+          .run();
+        // Only the process that turned it overdue tells the user (and once per unpaid month).
+        if (flipped.changes === 1) recordPastDue(tx, subscription, pending, now);
+      });
       break;
     case 'expire':
       if (pending) await closeCheckout(pending.id, 'failed', now);
-      withTx(db, (tx) =>
-        tx
+      withTx(db, (tx) => {
+        const expired = tx
           .update(subscriptions)
           .set({ status: 'expired', nextChargeAt: null, updatedAt: now })
           .where(
@@ -456,8 +463,9 @@ async function advanceSubscription(db: Db, id: string, lease: number, now: numbe
               lte(subscriptions.currentPeriodEnd, now - RENEWAL_GRACE_MS),
             ),
           )
-          .run(),
-      );
+          .run();
+        if (expired.changes === 1) recordExpired(tx, subscription, now);
+      });
       break;
     case 'finalize_cancel':
       if (pending) await closeCheckout(pending.id, 'canceled', now);
@@ -479,6 +487,10 @@ async function advanceSubscription(db: Db, id: string, lease: number, now: numbe
     case 'wait':
       break;
   }
+
+  // What this step recorded (the renewal link, the overdue reminder, the expiry notice) is
+  // committed now: send it. A failing relay is the email module's problem, not the scheduler's.
+  dispatchBillingMail({ db, now });
 
   // Hand the subscription back with its next appointment, unless something else (a payment, the
   // user) already rewrote it while we worked.

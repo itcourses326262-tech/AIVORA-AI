@@ -2,7 +2,7 @@ import 'server-only';
 import { getLogger } from '@/server/logger';
 import { recordFailedDelivery } from './outbox';
 import { emailFrom, getEmailTransport } from './transport';
-import { maskEmail, type EmailMessage } from './types';
+import { BILLING_EMAIL_KINDS, maskEmail, type EmailKind, type EmailMessage } from './types';
 
 /**
  * Delivery with a deadline and one retry. Requests never wait for it: routes call
@@ -10,6 +10,14 @@ import { maskEmail, type EmailMessage } from './types';
  * be delivered is never dropped silently: it is logged at error level and a metadata-only record
  * lands in the outbox file (the body holds a working link, and a secret has no business in a file
  * because a relay was down). Passwords and tokens are never logged.
+ *
+ * The retry never repeats a BILLING message whose attempt ended at our own deadline: the deadline
+ * only stops waiting, the relay may still accept that attempt (greylisting, a slow TLS or DATA
+ * phase), and a second copy of a receipt or a renewal link would be a duplicate the dedupe record
+ * of `server/billing/mail.ts` cannot see. Such a message is reported as failed with an unknown
+ * outcome. Verification and reset links are repeated: a second copy is harmless, a lost link costs
+ * the person a manual resend. A failure the transport itself reports (connection refused, a server
+ * answer) is retried for every kind.
  */
 
 export interface DeliveryTiming {
@@ -41,10 +49,19 @@ function isPermanent(error: unknown): boolean {
   return typeof code === 'number' && code >= 500 && code < 600;
 }
 
+/** Our own deadline fired: the attempt was abandoned, not known to have failed. */
+class DeadlineError extends Error {}
+
+const isBillingKind = (kind: EmailKind) =>
+  (BILLING_EMAIL_KINDS as readonly string[]).includes(kind);
+
 function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`Email delivery timed out after ${ms} ms`)), ms);
+    timer = setTimeout(
+      () => reject(new DeadlineError(`Email delivery timed out after ${ms} ms`)),
+      ms,
+    );
   });
   return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
@@ -56,13 +73,15 @@ export async function sendEmail(message: EmailMessage): Promise<DeliveryResult> 
   const log = getLogger();
   const outgoing = { ...message, from: emailFrom() };
   let lastError: unknown;
+  let outcomeUnknown = false;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
       await withDeadline(getEmailTransport().send(outgoing), timing.timeoutMs);
       return { ok: true };
     } catch (error) {
       lastError = error;
-      if (attempt === 1 && !isPermanent(error)) {
+      outcomeUnknown = error instanceof DeadlineError && isBillingKind(message.kind);
+      if (attempt === 1 && !isPermanent(error) && !outcomeUnknown) {
         log.warn('Email delivery failed, retrying once', {
           component: 'email',
           kind: message.kind,
@@ -75,12 +94,15 @@ export async function sendEmail(message: EmailMessage): Promise<DeliveryResult> 
       break;
     }
   }
-  const reason = describeError(lastError);
+  const reason = outcomeUnknown
+    ? `${describeError(lastError)}; the relay may still accept it, so it is not sent again`
+    : describeError(lastError);
   log.error('Email could not be delivered', {
     component: 'email',
     kind: message.kind,
     to: maskEmail(message.to),
     reason,
+    ...(outcomeUnknown ? { outcomeUnknown } : {}),
   });
   try {
     recordFailedDelivery(outgoing, reason);

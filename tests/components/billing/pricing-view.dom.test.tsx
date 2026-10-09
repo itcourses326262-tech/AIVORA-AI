@@ -263,7 +263,7 @@ describe('the confirmation before subscribing', () => {
     expect(dialog).toHaveTextContent('SAR 139 per month, VAT included');
     expect(dialog).toHaveTextContent('3,000 credits now, and again every month');
     expect(dialog).toHaveTextContent(
-      'Every month a payment link appears in Billing 3 days before your month ends. We never charge your card automatically and we do not send reminders, so check Billing before the month ends.',
+      'About 3 days before your month ends we email you a payment link, and it also waits in Billing. We never charge your card automatically. If the month ends unpaid we send a reminder.',
     );
     expect(dialog).toHaveTextContent('Cancel any time in Billing');
     expect(dialog).toHaveTextContent('You will pay on the payment provider’s secure page.');

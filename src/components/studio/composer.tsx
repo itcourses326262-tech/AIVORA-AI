@@ -54,7 +54,13 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
       <ImageSection studio={studio} variant="compact" />
       <PromptSection studio={studio} variant="composer" />
       <CreditNotice
-        status={{ cost, balance: studio.balance, signedOut: studio.signedOut }}
+        compact
+        status={{
+          cost,
+          balance: studio.balance,
+          signedOut: studio.signedOut,
+          unconfirmed: studio.emailUnconfirmed,
+        }}
         loginHref={studio.loginHref}
       />
       <div className="flex items-center gap-2">
@@ -72,6 +78,7 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
             cost={cost}
             balance={studio.balance}
             signedOut={studio.signedOut}
+            unconfirmed={studio.emailUnconfirmed}
             busy={studio.busy}
             noModel={!model}
             onGenerate={(event) => studio.generate({ keyboard: event.detail === 0 })}

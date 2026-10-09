@@ -25,6 +25,7 @@ export function toOrderDTO(order: OrderRow, now: number = Date.now()): OrderDTO 
     ...(order.expiresAt === null ? {} : { expiresAt: order.expiresAt }),
     ...(payable && order.checkoutUrl !== null ? { checkoutUrl: order.checkoutUrl } : {}),
     refundedHalalas: order.refundedHalalas,
+    clawedBackCredits: order.clawedBackCredits,
     ...(order.subscriptionId === null ? {} : { subscriptionId: order.subscriptionId }),
     ...(order.periodStart === null ? {} : { periodStart: order.periodStart }),
     ...(order.periodEnd === null ? {} : { periodEnd: order.periodEnd }),

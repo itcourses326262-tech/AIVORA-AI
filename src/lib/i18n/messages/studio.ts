@@ -128,6 +128,13 @@ export default defineMessages({
       getCredits: 'Get credits',
       unavailable: 'The cost cannot be calculated for these options.',
     },
+    confirmEmail: {
+      title: 'Confirm your email to get your free credits',
+      titleNoBonus: 'Confirm your email to start creating',
+      body: 'We sent a link to {email}. Open it, then come back: this page updates by itself.',
+      bodyBonus:
+        'We sent a link to {email}. Open it to add {credits} to your balance, then come back: this page updates by itself.',
+    },
     action: {
       generate: 'Generate · {price}',
       starting: 'Starting…',
@@ -449,6 +456,13 @@ export default defineMessages({
       short: 'ينقصك {missing}.',
       getCredits: 'احصل على رصيد',
       unavailable: 'تعذّر حساب التكلفة لهذه الخيارات.',
+    },
+    confirmEmail: {
+      title: 'أكّد بريدك الإلكتروني لتحصل على رصيدك المجاني',
+      titleNoBonus: 'أكّد بريدك الإلكتروني لتبدأ الإنشاء',
+      body: 'أرسلنا رابطًا إلى {email}. افتحه ثم عُد إلى هنا: تتحدّث الصفحة تلقائيًا.',
+      bodyBonus:
+        'أرسلنا رابطًا إلى {email}. افتحه ليُضاف {credits} إلى رصيدك، ثم عُد إلى هنا: تتحدّث الصفحة تلقائيًا.',
     },
     action: {
       generate: 'إنشاء · {price}',

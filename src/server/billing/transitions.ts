@@ -6,6 +6,7 @@ import type { Tx } from '@/server/db';
 import { orders, subscriptions, type OrderRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { clawbackCredits } from './clawback';
+import { recordReceipt, recordRefund } from './mail';
 
 /**
  * Every state change of an order or subscription that has to be atomic with a credit movement.
@@ -130,6 +131,7 @@ export function markPaid(tx: Tx, order: OrderRow, paymentId: string | null, now:
       .where(eq(orders.id, order.id))
       .run();
   }
+  recordReceipt(tx, order, now, period?.end);
   return true;
 }
 
@@ -237,6 +239,13 @@ export function markRefundedWithoutCredit(
     .run();
   if (claimed.changes !== 1) return false;
   endIncompleteSubscription(tx, order, 'expired', now);
+  const returned = Math.min(Math.max(Math.trunc(refundedHalalas), 0), order.amountHalalas);
+  recordRefund(
+    tx,
+    order,
+    { refundedHalalas: returned, creditsTakenBack: 0, credited: false, planEnded: false },
+    now,
+  );
   return true;
 }
 
@@ -318,7 +327,18 @@ export function applyRefund(tx: Tx, orderId: string, refundedTotal: number, now:
       },
     );
   }
-  if (full && granted) endSubscriptionFundedBy(tx, order, now);
+  const planEnded = full && granted && endSubscriptionFundedBy(tx, order, now);
+  recordRefund(
+    tx,
+    order,
+    {
+      refundedHalalas: target - order.refundedHalalas,
+      creditsTakenBack: taken,
+      credited: granted,
+      planEnded,
+    },
+    now,
+  );
   return readOrder(tx, orderId);
 }
 
@@ -347,10 +367,11 @@ export function endSubscriptionNow(tx: Tx, subscriptionId: string, now: number):
   return claimed.changes === 1;
 }
 
-/** Refunding the payment that funded the CURRENT month ends the subscription now. */
-function endSubscriptionFundedBy(tx: Tx, order: OrderRow, now: number): void {
-  if (order.subscriptionId === null || order.periodStart === null) return;
-  tx.update(subscriptions)
+/** Refunding the payment that funded the CURRENT month ends the subscription now. True when it did. */
+function endSubscriptionFundedBy(tx: Tx, order: OrderRow, now: number): boolean {
+  if (order.subscriptionId === null || order.periodStart === null) return false;
+  const ended = tx
+    .update(subscriptions)
     .set({
       status: 'canceled',
       cancelAtPeriodEnd: true,
@@ -366,4 +387,5 @@ function endSubscriptionFundedBy(tx: Tx, order: OrderRow, now: number): void {
       ),
     )
     .run();
+  return ended.changes === 1;
 }

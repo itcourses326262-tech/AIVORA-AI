@@ -1,8 +1,12 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VerifyEmailBanner } from '@/components/layout/verify-email-banner';
+import {
+  VerifyEmailBanner,
+  resetResendCooldownForTests,
+} from '@/components/layout/verify-email-banner';
 import { Toaster, toast } from '@/components/ui/toast';
+import { UserProvider, type CurrentUser } from '@/lib/user-context';
 import { axeViolations } from '../axe';
 import { renderUi } from '../render';
 import { apiError, json, router, stubFetch } from './support';
@@ -13,6 +17,7 @@ beforeEach(() => {
   router.refresh.mockReset();
 });
 afterEach(() => {
+  resetResendCooldownForTests();
   // The toast store outlives a test: clear it, letting the exit animation finish.
   vi.useFakeTimers();
   act(() => {
@@ -171,6 +176,82 @@ describe('VerifyEmailBanner', () => {
       vi.setSystemTime(Date.now() + 60_000);
       setVisibility('visible');
       expect(router.refresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('following the account the rest of the page follows', () => {
+    const WAITING: CurrentUser = {
+      id: 'usr_1',
+      email: 'layla@example.com',
+      name: 'Layla',
+      role: 'user',
+      locale: 'en',
+      creditBalance: 0,
+      emailVerified: false,
+      emailVerificationRequired: true,
+      pendingBonusCredits: 50,
+    };
+    const CONFIRMED_ME = {
+      ...WAITING,
+      creditBalance: 50,
+      emailVerified: true,
+      pendingBonusCredits: 0,
+      createdAt: 0,
+    };
+
+    const mountInApp = (user: CurrentUser = WAITING) =>
+      renderUi(
+        <UserProvider initialUser={user}>
+          <VerifyEmailBanner email="layla@example.com" bonusCredits={50} />
+        </UserProvider>,
+      );
+    const banner = () => screen.queryByRole('region', { name: 'Email confirmation' });
+
+    /** The person comes back to this window (nothing hid the tab): `Date` moves, the page's timers stay real. */
+    async function focusAfter(ms: number) {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + ms);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+    }
+
+    it('goes away when the window gets focus back and the address turns out confirmed, with no tab switch and no 15 second wait', async () => {
+      const fetchMock = stubFetch(() => json({ data: CONFIRMED_ME }));
+      mountInApp();
+      expect(banner()).toBeInTheDocument();
+
+      await focusAfter(5_000); // the page is only a few seconds old: the old 15 s throttle held it back
+
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/auth/me');
+      // The server-rendered layout is told too, so it stops rendering the banner at all.
+      await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(1));
+    });
+
+    it('stays while the address is still unconfirmed, however often the window is focused', async () => {
+      stubFetch(() => json({ data: { ...WAITING, createdAt: 0 } }));
+      mountInApp();
+      await focusAfter(5_000);
+      await focusAfter(5_000);
+      expect(banner()).toBeInTheDocument();
+      expect(router.refresh).not.toHaveBeenCalled();
+    });
+
+    it('renders nothing when the page already knows the account is confirmed', () => {
+      mountInApp({ ...WAITING, emailVerified: true, creditBalance: 50, pendingBonusCredits: 0 });
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it('renders nothing on a server that does not ask for a confirmation', () => {
+      mountInApp({ ...WAITING, emailVerificationRequired: false });
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it('is still shown without a user context around it (it needs none)', () => {
+      mount();
+      expect(banner()).toBeInTheDocument();
     });
   });
 

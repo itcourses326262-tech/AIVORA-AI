@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Application and tooling dependencies. One pull request per week for all minor and patch updates
+  # together; a major update arrives on its own, so it can be read and tested alone.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:00'
+      timezone: Asia/Riyadh
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # TypeScript 7 is deliberately not used yet (docs/ARCHITECTURE.md, section 2).
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # eslint-config-next's plugins do not support ESLint 10 yet.
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+      # The runtime is Node 22 (.nvmrc, engines, the Dockerfile): follow it by hand, together.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
+
+  # The actions used by .github/workflows/ci.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:00'
+      timezone: Asia/Riyadh
+    groups:
+      actions:
+        patterns: ['*']

@@ -41,6 +41,11 @@ export default defineMessages({
         title: 'One-time credit packs',
         description: 'Pay once and use the credits whenever you like. No subscription.',
       },
+      confirmEmail: {
+        title: 'Confirm your email to buy credits',
+        body: 'Purchases need a confirmed email address, so that receipts and renewal links reach you. We sent a link to {email}. Open it, then come back: this page updates by itself.',
+        bonus: 'Confirming also adds your sign-up bonus of {credits}.',
+      },
       hasPlan: {
         title: 'You already have a plan',
         body: 'A plan runs for the month you paid for. To switch to another one, cancel it in Billing and subscribe again once that month has ended. Packs are always available.',
@@ -122,7 +127,7 @@ export default defineMessages({
           renewal: {
             question: 'How does a plan renew? Is my card charged automatically?',
             answer:
-              'No. We do not store your card and never charge it on our own. About {days} days before your month ends, a payment link for the next month appears on your Billing page. We do not send payment reminders, so check that page before your month ends. Pay the link and the next batch of credits arrives. If you do not pay within {grace} days after the month ends, the plan ends; credits you already received stay in your balance.',
+              'No. We do not store your card and never charge it on our own. About {days} days before your month ends we email you a payment link for the next month, and it also waits on your Billing page. If the month ends unpaid we send a reminder. Pay the link and the next batch of credits arrives. If you do not pay within {grace} days after the month ends, the plan ends; credits you already received stay in your balance.',
           },
           cancel: {
             question: 'How do I cancel a plan?',
@@ -179,6 +184,7 @@ export default defineMessages({
       currentPlan: 'Your current plan',
       afterPlanEnds: 'Available after your plan ends',
       unavailable: 'Not available right now',
+      confirmEmail: 'Confirm your email first',
     },
     confirm: {
       title: 'Subscribe to {plan}?',
@@ -189,7 +195,7 @@ export default defineMessages({
       creditsValue: '{credits} now, and again every month',
       renewal: 'Renewal',
       renewalValue:
-        'Every month a payment link appears in Billing {days} days before your month ends. We never charge your card automatically and we do not send reminders, so check Billing before the month ends.',
+        'About {days} days before your month ends we email you a payment link, and it also waits in Billing. We never charge your card automatically. If the month ends unpaid we send a reminder.',
       cancel: 'Cancellation',
       cancelValue:
         'Cancel any time in Billing. The plan then ends with the month you paid for, and your credits never expire.',
@@ -328,7 +334,7 @@ export default defineMessages({
         },
         notes: {
           renewal:
-            'Renewal is by payment link, not by charging your card. The link for next month appears here {days} days before this month ends. We do not send reminders, so check this page.',
+            'Renewal is by payment link, not by charging your card. The link for next month appears here {days} days before this month ends, and we email it to you too.',
           canceling:
             'Your plan ends on {date}. Until then you keep using the credits you received, and credits in your balance never expire. You can undo the cancellation until then.',
           ended: 'This plan has ended. Credits already in your balance never expire.',
@@ -445,6 +451,11 @@ export default defineMessages({
         title: 'حزم الرصيد لمرة واحدة',
         description: 'ادفع مرة واحدة واستخدم الرصيد متى شئت. بلا اشتراك.',
       },
+      confirmEmail: {
+        title: 'أكّد بريدك الإلكتروني لتشتري رصيدًا',
+        body: 'تتطلب عمليات الشراء بريدًا إلكترونيًا مؤكّدًا حتى تصلك الإيصالات وروابط التجديد. أرسلنا رابطًا إلى {email}. افتحه ثم عُد إلى هنا: تتحدّث الصفحة تلقائيًا.',
+        bonus: 'وسيضيف التأكيد أيضًا مكافأة التسجيل البالغة {credits}.',
+      },
       hasPlan: {
         title: 'لديك باقة بالفعل',
         body: 'تعمل الباقة طوال الشهر الذي دفعته. للانتقال إلى باقة أخرى، ألغِ باقتك من صفحة الفوترة ثم اشترك من جديد بعد انتهاء ذلك الشهر. أما الحزم فمتاحة دائمًا.',
@@ -526,7 +537,7 @@ export default defineMessages({
           renewal: {
             question: 'كيف تتجدد الباقة؟ وهل تُخصم من بطاقتي تلقائيًا؟',
             answer:
-              'لا. نحن لا نحفظ بطاقتك ولا نخصم منها من تلقاء أنفسنا. قبل نهاية شهرك بنحو {days} أيام يظهر في صفحة الفوترة رابط دفع للشهر التالي. ولا نرسل تذكيرات بالدفع، لذا تفقّد هذه الصفحة قبل نهاية الشهر. وعند دفع الرابط يصلك رصيد الشهر الجديد. وإن لم تدفع خلال {grace} أيام بعد نهاية الشهر تنتهي الباقة، ويبقى في محفظتك ما حصلت عليه من رصيد.',
+              'لا. نحن لا نحفظ بطاقتك ولا نخصم منها من تلقاء أنفسنا. قبل نهاية شهرك بنحو {days} أيام نرسل إليك بالبريد رابط دفع للشهر التالي، وينتظرك أيضًا في صفحة الفوترة. وإن انتهى الشهر دون دفع نرسل لك تذكيرًا. وعند دفع الرابط يصلك رصيد الشهر الجديد. وإن لم تدفع خلال {grace} أيام بعد نهاية الشهر تنتهي الباقة، ويبقى في محفظتك ما حصلت عليه من رصيد.',
           },
           cancel: {
             question: 'كيف ألغي الباقة؟',
@@ -583,6 +594,7 @@ export default defineMessages({
       currentPlan: 'باقتك الحالية',
       afterPlanEnds: 'متاحة بعد انتهاء باقتك',
       unavailable: 'غير متاح حاليًا',
+      confirmEmail: 'أكّد بريدك أولًا',
     },
     confirm: {
       title: 'هل تريد الاشتراك في باقة {plan}؟',
@@ -593,7 +605,7 @@ export default defineMessages({
       creditsValue: '{credits} الآن، ثم مرة أخرى كل شهر',
       renewal: 'التجديد',
       renewalValue:
-        'يظهر في صفحة الفوترة كل شهر رابط دفع قبل نهاية شهرك بـ {days} أيام. ولا نخصم من بطاقتك تلقائيًا أبدًا، ولا نرسل تذكيرات، لذا تحقق من صفحة الفوترة قبل نهاية الشهر.',
+        'نرسل إليك بالبريد رابط دفع قبل نهاية شهرك بـ {days} أيام، وينتظرك أيضًا في صفحة الفوترة. ولا نخصم من بطاقتك تلقائيًا أبدًا. وإن انتهى الشهر دون دفع نرسل لك تذكيرًا.',
       cancel: 'الإلغاء',
       cancelValue:
         'يمكنك الإلغاء من صفحة الفوترة في أي وقت. تنتهي الباقة حينها بنهاية الشهر الذي دفعته، ولا ينتهي رصيدك أبدًا.',
@@ -731,7 +743,7 @@ export default defineMessages({
         },
         notes: {
           renewal:
-            'يتم التجديد برابط دفع، وليس بالخصم من بطاقتك. يظهر هنا رابط الشهر القادم قبل نهاية هذا الشهر بـ {days} أيام. ولا نرسل تذكيرات، لذا تفقّد هذه الصفحة.',
+            'يتم التجديد برابط دفع، وليس بالخصم من بطاقتك. يظهر هنا رابط الشهر القادم قبل نهاية هذا الشهر بـ {days} أيام، ونرسله إليك بالبريد أيضًا.',
           canceling:
             'تنتهي باقتك في {date}. وحتى ذلك الحين تواصل استخدام ما وصلك من رصيد، والرصيد الموجود في محفظتك لا ينتهي أبدًا. ويمكنك التراجع عن الإلغاء قبل ذلك.',
           ended: 'انتهت هذه الباقة. والرصيد الموجود في محفظتك لا ينتهي أبدًا.',

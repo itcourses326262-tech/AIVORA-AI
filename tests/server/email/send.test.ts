@@ -16,6 +16,7 @@ import {
   type OutgoingEmail,
 } from '@/server/email';
 import { resetEnvForTests } from '@/server/env';
+import { billingSpec } from './billing-fixtures';
 import { cleanEmailState } from './support';
 
 const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
@@ -40,6 +41,9 @@ function message(to = 'layla@example.com'): EmailMessage {
     ttlHours: 1,
   });
 }
+
+const receipt = (): EmailMessage => renderEmail(billingSpec('payment_receipt', 'en'));
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function fakeTransport(send: (message: OutgoingEmail) => Promise<void>) {
   const calls: OutgoingEmail[] = [];
@@ -184,6 +188,78 @@ describe('sendEmail', () => {
   });
 });
 
+describe('a billing message is never sent a second time because a relay was slow', () => {
+  it('a relay that accepts after our deadline gets the message once, not twice', async () => {
+    setEmailTimingForTests({ timeoutMs: 40, retryDelayMs: 1 });
+    const accepted: string[] = [];
+    const calls = fakeTransport(async (outgoing) => {
+      await pause(120); // greylisting, a slow TLS or DATA phase: it answers after the deadline
+      accepted.push(outgoing.kind);
+    });
+
+    const result = await sendEmail(receipt());
+    await pause(200);
+
+    expect(calls).toHaveLength(1);
+    expect(accepted).toEqual(['payment_receipt']);
+    // We stopped waiting: that is reported honestly, as a failure whose outcome is not known.
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok === false && result.error).toMatch(/timed out after 40 ms/);
+    expect(result.ok === false && result.error).toMatch(/not sent again/);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith(
+      'Email could not be delivered',
+      expect.objectContaining({ kind: 'payment_receipt', outcomeUnknown: true }),
+    );
+    expect(getOutbox().filter((entry) => entry.status === 'failed')).toHaveLength(1);
+  });
+
+  it.each(['renewal_link', 'refund_notice', 'subscription_canceled'] as const)(
+    'also holds for %s, in Arabic too',
+    async (kind) => {
+      setEmailTimingForTests({ timeoutMs: 20, retryDelayMs: 0 });
+      const calls = fakeTransport(() => new Promise<void>(() => {}));
+      await sendEmail(renderEmail(billingSpec(kind, 'ar')));
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  it('still retries a billing message after a failure the transport itself reported', async () => {
+    let attempt = 0;
+    const calls = fakeTransport(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('connect ECONNREFUSED 10.0.0.1:587');
+    });
+    await expect(sendEmail(receipt())).resolves.toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('does not mark an ordinary failure of the second attempt as unknown', async () => {
+    const calls = fakeTransport(async () => {
+      throw new Error('connect ECONNREFUSED 10.0.0.1:587');
+    });
+    const result = await sendEmail(receipt());
+    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ ok: false, error: 'connect ECONNREFUSED 10.0.0.1:587' });
+    expect(log.error).toHaveBeenCalledWith(
+      'Email could not be delivered',
+      expect.not.objectContaining({ outcomeUnknown: true }),
+    );
+  });
+
+  it('keeps repeating verification and reset links after the deadline: a second copy is harmless, a lost link is not', async () => {
+    setEmailTimingForTests({ timeoutMs: 20, retryDelayMs: 0 });
+    const calls = fakeTransport(() => new Promise<void>(() => {}));
+    await sendEmail(message());
+    expect(calls).toHaveLength(2);
+    expect(log.warn).toHaveBeenCalledWith(
+      'Email delivery failed, retrying once',
+      expect.objectContaining({ kind: 'password_reset' }),
+    );
+  });
+});
+
 describe('transport selection', () => {
   it('writes to the outbox when SMTP is not configured', () => {
     expect(isSmtpConfigured()).toBe(false);
@@ -226,5 +302,10 @@ describe('transport selection', () => {
       /SMTP is not configured/.test(String(line)),
     );
     expect(ours).toHaveLength(1);
+    // Billing depends on mail too: the warning has to name it (docs/LAUNCH.md quotes the first words).
+    const line = String(ours[0]?.[0]);
+    expect(line).toContain('verification and password-reset emails are NOT being sent');
+    expect(line).toMatch(/billing emails \(payment receipts, renewal links/);
+    expect(line).toContain('SMTP_URL');
   });
 });

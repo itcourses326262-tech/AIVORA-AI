@@ -16,11 +16,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "db:generate": "node --conditions=react-server ./node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.ts",
     "worker": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/worker.ts",
     "admin": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/admin.ts",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "docker:build": "docker build -t aivore:local .",
+    "backup": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/backup.mjs",
+    "restore": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/restore.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",
@@ -42,6 +46,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",

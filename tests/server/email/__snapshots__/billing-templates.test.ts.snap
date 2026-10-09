@@ -1,0 +1,233 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`snapshots (structure and wording) > the receipt > receipt-ar-html 1`] = `
+"<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>تم استلام دفعتك: باقة المحترف</title>
+<style>
+@media (prefers-color-scheme: dark){
+body,.page{background:#100f1d!important}
+.card{background:#1a1930!important}
+.text,h1{color:#ecebf8!important}
+.muted{color:#b4b3cf!important}
+.rule{border-color:#2f2d4d!important}
+}
+@media only screen and (max-width:600px){
+.card{border-radius:0!important}
+.pad{padding:24px 20px!important}
+}
+</style>
+</head>
+<body class="page" dir="rtl" style="margin:0;padding:0;background:#f3f2f9">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all">أُضيفت الأرصدة إلى حسابك.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="rtl" class="page" style="background:#f3f2f9"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" dir="rtl" class="card" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td style="padding:20px 28px;background:#5b3df5;background-image:linear-gradient(135deg,#5b3df5,#1f9fd0);text-align:right"><span dir="ltr" style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:3px;color:#ffffff;unicode-bidi:isolate">AIVORE</span></td></tr>
+<tr><td class="pad" style="padding:32px 28px;font-family:Tahoma,'Segoe UI',Arial,sans-serif;text-align:right">
+<h1 style="margin:0;color:#1b1a2e;font-family:Tahoma,'Segoe UI',Arial,sans-serif;font-size:24px;line-height:1.4;font-weight:700;text-align:right">تم استلام الدفعة</h1>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:right">مرحبًا <span dir="auto" style="unicode-bidi:isolate">Layla</span>،</p>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:right">شكرًا لك. استلمنا دفعتك مقابل <strong><span dir="auto" style="unicode-bidi:isolate">باقة المحترف</span></strong> وأضفنا الأرصدة إلى رصيدك.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="rtl" class="rule" style="margin:20px 0 0;border:1px solid #e4e2f0;border-radius:12px;border-collapse:separate;border-spacing:0"><tr><td class="muted rule" style="padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">المبلغ المدفوع (شامل الضريبة)</td><td class="text rule" style="padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><strong><span dir="auto" style="unicode-bidi:isolate">‏١٣٩٫٠٠ ر.س.‏</span></strong></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">منه ضريبة القيمة المضافة</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><span dir="auto" style="unicode-bidi:isolate">‏١٨٫١٣ ر.س.‏</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">الأرصدة المضافة</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><span dir="auto" style="unicode-bidi:isolate">٣٬٠٠٠ رصيد</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">رقم الطلب</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><span dir="ltr" style="unicode-bidi:isolate">ord_01k8m3v2h5j8k1m4n7p0q3r6st</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">التاريخ</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><span dir="auto" style="unicode-bidi:isolate">٨ أكتوبر ٢٠٢٦ في ١٠:٣٠ ص UTC</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:right">الباقة مدفوعة حتى</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:left"><span dir="auto" style="unicode-bidi:isolate">٨ نوفمبر ٢٠٢٦ في ١٠:٣٠ ص UTC</span></td></tr></table>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:right">تتجدد باقتك كل شهر. نرسل لك رابط الدفع قبل <span dir="auto" style="unicode-bidi:isolate">٣ أيام</span> من نهاية الشهر.</p>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:right">الأرصدة التي لديك تبقى في رصيدك ولا تنتهي صلاحيتها.</p>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:14px;line-height:1.7;text-align:right">هذه الرسالة تأكيد لدفعتك وليست فاتورة ضريبية.</p>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:14px;line-height:1.7;text-align:right">لديك سؤال عن دفعة؟ راسلنا على <span dir="ltr" style="unicode-bidi:isolate">support@aivore.example</span>.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" dir="rtl" style="margin:28px 0 8px"><tr><td align="right" style="border-radius:12px;background:#5b3df5"><a href="https://aivore.example/account/billing" style="display:inline-block;padding:14px 28px;border-radius:12px;background:#5b3df5;color:#ffffff;font-family:Tahoma,'Segoe UI',Arial,sans-serif;font-size:16px;font-weight:700;line-height:1.2;text-decoration:none">افتح صفحة الفوترة</a></td></tr></table>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:13px;line-height:1.7;text-align:right">إن لم يعمل الزر، انسخ هذا الرابط والصقه في المتصفح:<br><a href="https://aivore.example/account/billing" dir="ltr" style="color:#5b3df5;word-break:break-all;unicode-bidi:isolate">https://aivore.example/account/billing</a></p>
+<hr class="rule" style="margin:28px 0 0;border:0;border-top:1px solid #e4e2f0">
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:12px;line-height:1.7;text-align:right">أُرسلت هذه الرسالة إلى <span dir="ltr" style="unicode-bidi:isolate">layla@example.com</span> لوجود نشاط على حسابك في AIVORE.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>"
+`;
+
+exports[`snapshots (structure and wording) > the receipt > receipt-ar-text 1`] = `
+"AIVORE
+
+تم استلام الدفعة
+
+مرحبًا ⁨Layla⁩،
+
+شكرًا لك. استلمنا دفعتك مقابل ⁨باقة المحترف⁩ وأضفنا الأرصدة إلى رصيدك.
+
+المبلغ المدفوع (شامل الضريبة): ⁨‏١٣٩٫٠٠ ر.س.‏⁩
+منه ضريبة القيمة المضافة: ⁨‏١٨٫١٣ ر.س.‏⁩
+الأرصدة المضافة: ⁨٣٬٠٠٠ رصيد⁩
+رقم الطلب: ⁦ord_01k8m3v2h5j8k1m4n7p0q3r6st⁩
+التاريخ: ⁨٨ أكتوبر ٢٠٢٦ في ١٠:٣٠ ص UTC⁩
+الباقة مدفوعة حتى: ⁨٨ نوفمبر ٢٠٢٦ في ١٠:٣٠ ص UTC⁩
+
+تتجدد باقتك كل شهر. نرسل لك رابط الدفع قبل ⁨٣ أيام⁩ من نهاية الشهر.
+
+الأرصدة التي لديك تبقى في رصيدك ولا تنتهي صلاحيتها.
+
+هذه الرسالة تأكيد لدفعتك وليست فاتورة ضريبية.
+
+لديك سؤال عن دفعة؟ راسلنا على ⁦support@aivore.example⁩.
+
+افتح صفحة الفوترة:
+https://aivore.example/account/billing
+
+--
+أُرسلت هذه الرسالة إلى ⁦layla@example.com⁩ لوجود نشاط على حسابك في AIVORE.
+"
+`;
+
+exports[`snapshots (structure and wording) > the receipt > receipt-en-html 1`] = `
+"<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Payment received: Pro plan</title>
+<style>
+@media (prefers-color-scheme: dark){
+body,.page{background:#100f1d!important}
+.card{background:#1a1930!important}
+.text,h1{color:#ecebf8!important}
+.muted{color:#b4b3cf!important}
+.rule{border-color:#2f2d4d!important}
+}
+@media only screen and (max-width:600px){
+.card{border-radius:0!important}
+.pad{padding:24px 20px!important}
+}
+</style>
+</head>
+<body class="page" dir="ltr" style="margin:0;padding:0;background:#f3f2f9">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all">Your credits are in your account.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="ltr" class="page" style="background:#f3f2f9"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" dir="ltr" class="card" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td style="padding:20px 28px;background:#5b3df5;background-image:linear-gradient(135deg,#5b3df5,#1f9fd0);text-align:left"><span dir="ltr" style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:3px;color:#ffffff;unicode-bidi:isolate">AIVORE</span></td></tr>
+<tr><td class="pad" style="padding:32px 28px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-align:left">
+<h1 style="margin:0;color:#1b1a2e;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:1.4;font-weight:700;text-align:left">Payment received</h1>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:left">Hi <span dir="auto" style="unicode-bidi:isolate">Layla</span>,</p>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:left">Thank you. We received your payment for <strong><span dir="auto" style="unicode-bidi:isolate">Pro plan</span></strong> and added the credits to your balance.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="ltr" class="rule" style="margin:20px 0 0;border:1px solid #e4e2f0;border-radius:12px;border-collapse:separate;border-spacing:0"><tr><td class="muted rule" style="padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Amount paid (VAT included)</td><td class="text rule" style="padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><strong><span dir="auto" style="unicode-bidi:isolate">SAR 139.00</span></strong></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Of which VAT</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><span dir="auto" style="unicode-bidi:isolate">SAR 18.13</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Credits added</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><span dir="auto" style="unicode-bidi:isolate">3,000 credits</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Order reference</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><span dir="ltr" style="unicode-bidi:isolate">ord_01k8m3v2h5j8k1m4n7p0q3r6st</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Date</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><span dir="auto" style="unicode-bidi:isolate">October 8, 2026 at 10:30 AM UTC</span></td></tr><tr><td class="muted rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#5f5e78;font-size:14px;line-height:1.6;text-align:left">Plan paid until</td><td class="text rule" style="border-top:1px solid #e4e2f0;padding:10px 14px;color:#1b1a2e;font-size:15px;line-height:1.6;text-align:right"><span dir="auto" style="unicode-bidi:isolate">November 8, 2026 at 10:30 AM UTC</span></td></tr></table>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:left">Your plan renews every month. We email you the payment link <span dir="auto" style="unicode-bidi:isolate">3 days</span> before the month ends.</p>
+<p class="text" style="margin:16px 0 0;color:#1b1a2e;font-size:16px;line-height:1.7;text-align:left">Credits you already have stay in your balance and never expire.</p>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:14px;line-height:1.7;text-align:left">This message confirms your payment. It is not a tax invoice.</p>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:14px;line-height:1.7;text-align:left">Questions about a payment? Write to <span dir="ltr" style="unicode-bidi:isolate">support@aivore.example</span>.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" dir="ltr" style="margin:28px 0 8px"><tr><td align="left" style="border-radius:12px;background:#5b3df5"><a href="https://aivore.example/account/billing" style="display:inline-block;padding:14px 28px;border-radius:12px;background:#5b3df5;color:#ffffff;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;line-height:1.2;text-decoration:none">Open billing</a></td></tr></table>
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:13px;line-height:1.7;text-align:left">Button not working? Copy this link into your browser:<br><a href="https://aivore.example/account/billing" dir="ltr" style="color:#5b3df5;word-break:break-all;unicode-bidi:isolate">https://aivore.example/account/billing</a></p>
+<hr class="rule" style="margin:28px 0 0;border:0;border-top:1px solid #e4e2f0">
+<p class="muted" style="margin:16px 0 0;color:#5f5e78;font-size:12px;line-height:1.7;text-align:left">This message was sent to <span dir="ltr" style="unicode-bidi:isolate">layla@example.com</span> because of activity on your AIVORE account.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>"
+`;
+
+exports[`snapshots (structure and wording) > the refund notice and the expiry notice > expired-en-text 1`] = `
+"AIVORE
+
+Your plan has ended
+
+Hi Layla,
+
+We did not receive the renewal payment for your Pro plan in time, so the plan expired and no more monthly credits will be added.
+
+Credits you already have stay in your balance and never expire.
+
+You can subscribe again whenever you like.
+
+Questions about a payment? Write to support@aivore.example.
+
+See plans:
+https://aivore.example/pricing
+
+--
+This message was sent to layla@example.com because of activity on your AIVORE account.
+"
+`;
+
+exports[`snapshots (structure and wording) > the refund notice and the expiry notice > refund-ar-text 1`] = `
+"AIVORE
+
+رُدّ مبلغ من دفعتك
+
+مرحبًا ⁨Layla⁩،
+
+رُدّ إليك ⁨‏١٣٩٫٠٠ ر.س.‏⁩ من دفعتك مقابل ⁨باقة المحترف⁩ (الطلب ⁦ord_01k8m3v2h5j8k1m4n7p0q3r6st⁩). يعتمد موعد ظهور المبلغ في كشف حسابك على بنكك.
+
+خصمنا ⁨٣٬٠٠٠ رصيد⁩ من رصيدك.
+
+انتهت الباقة التي كانت هذه الدفعة تغطيها.
+
+لديك سؤال عن دفعة؟ راسلنا على ⁦support@aivore.example⁩.
+
+افتح صفحة الفوترة:
+https://aivore.example/account/billing
+
+--
+أُرسلت هذه الرسالة إلى ⁦layla@example.com⁩ لوجود نشاط على حسابك في AIVORE.
+"
+`;
+
+exports[`snapshots (structure and wording) > the renewal link > renewal-ar-text 1`] = `
+"AIVORE
+
+حان وقت تجديد باقتك
+
+مرحبًا ⁨Layla⁩،
+
+تتجدد ⁨باقة المحترف⁩ في ⁨٨ نوفمبر ٢٠٢٦ في ١٠:٣٠ ص UTC⁩. دفعة الشهر القادم جاهزة: ⁨‏١٣٩٫٠٠ ر.س.‏⁩ شاملة الضريبة مقابل ⁨٣٬٠٠٠ رصيد⁩.
+
+إن لم تُدفع حتى ذلك الوقت تصبح الباقة متأخرة الدفع. ويمكنك الدفع بعدها حتى ⁨١٥ نوفمبر ٢٠٢٦ في ١٠:٣٠ ص UTC⁩، وبعد ذلك تنتهي الباقة ولا تُضاف أرصدة شهرية جديدة.
+
+لا نخصم من بطاقتك تلقائيًا أبدًا.
+
+الأرصدة التي لديك تبقى في رصيدك ولا تنتهي صلاحيتها.
+
+لا تريد التجديد؟ ألغِ الباقة من صفحة الفوترة وتجاهل هذه الرسالة.
+
+يمكنك أيضًا الدفع من صفحة الفوترة: ⁦https://aivore.example/account/billing⁩
+
+لديك سؤال عن دفعة؟ راسلنا على ⁦support@aivore.example⁩.
+
+ادفع الآن:
+https://checkout.example.com/invoices/inv_123?lang=en
+
+--
+أُرسلت هذه الرسالة إلى ⁦layla@example.com⁩ لوجود نشاط على حسابك في AIVORE.
+"
+`;
+
+exports[`snapshots (structure and wording) > the renewal link > renewal-en-text 1`] = `
+"AIVORE
+
+Time to renew your plan
+
+Hi Layla,
+
+Your Pro plan renews on November 8, 2026 at 10:30 AM UTC. The payment for the next month, SAR 139.00 with VAT included, for 3,000 credits, is ready.
+
+If it is not paid by then, your plan becomes overdue. You can still pay until November 15, 2026 at 10:30 AM UTC; after that the plan expires and no more monthly credits are added.
+
+We never charge your card automatically.
+
+Credits you already have stay in your balance and never expire.
+
+Do not want to renew? Cancel the plan in Billing and ignore this message.
+
+You can also pay from your Billing page: https://aivore.example/account/billing
+
+Questions about a payment? Write to support@aivore.example.
+
+Pay now:
+https://checkout.example.com/invoices/inv_123?lang=en
+
+--
+This message was sent to layla@example.com because of activity on your AIVORE account.
+"
+`;

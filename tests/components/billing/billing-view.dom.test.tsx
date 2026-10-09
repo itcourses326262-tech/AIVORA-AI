@@ -148,8 +148,8 @@ describe('the plan card', () => {
     expect(
       card.getByText(/Renewal is by payment link, not by charging your card/),
     ).toBeInTheDocument();
-    // Nobody is emailed: the card says so, instead of letting the buyer expect a reminder.
-    expect(card.getByText(/We do not send reminders, so check this page\./)).toBeInTheDocument();
+    // The link is emailed too: the card says so, and it is still the place to find the link.
+    expect(card.getByText(/and we email it to you too\./)).toBeInTheDocument();
     expect(card.getByRole('link', { name: 'Change plan' })).toHaveAttribute('href', '/pricing');
     expect(card.getByRole('button', { name: 'Cancel plan' })).toBeInTheDocument();
     expect(card.queryByRole('button', { name: 'Resume plan' })).not.toBeInTheDocument();
@@ -573,6 +573,10 @@ describe('the payments list', () => {
 
   it('decides what the credits column shows from what the server says was granted', () => {
     expect(creditsCell(order({ status: 'paid' }))).toEqual({ kind: 'granted', value: 1_500 });
+    expect(
+      creditsCell(order({ status: 'refunded', refundedHalalas: 7_900, clawedBackCredits: 1_500 })),
+    ).toEqual({ kind: 'none', value: 0 });
+    // A refunded order is a dash even if a fixture forgot the clawback.
     expect(creditsCell(order({ status: 'refunded', refundedHalalas: 7_900 }))).toEqual({
       kind: 'none',
       value: 0,
@@ -582,18 +586,37 @@ describe('the payments list', () => {
     expect(creditsCell(order({ status: 'refunded', paidAt: undefined })).kind).toBe('none');
   });
 
-  it('takes the refunded share of the credits off a partially refunded order, rounded down as the server does', () => {
-    // SAR 19.75 of 79.00 is a quarter: 375 of 1,500 credits are taken back.
-    expect(creditsCell(order({ status: 'paid', refundedHalalas: 1_975 }))).toEqual({
-      kind: 'granted',
-      value: 1_125,
-    });
+  it('subtracts the credits the server really took back, whatever the refund was worth', () => {
+    // SAR 19.75 of 79.00 is a quarter: the server took back 375 of 1,500 credits.
+    expect(
+      creditsCell(order({ status: 'paid', refundedHalalas: 1_975, clawedBackCredits: 375 })),
+    ).toEqual({ kind: 'granted', value: 1_125 });
     // A tiny refund takes back no whole credit.
     expect(creditsCell(order({ status: 'paid', refundedHalalas: 1 }))).toEqual({
       kind: 'granted',
       value: 1_500,
     });
-    expect(creditsCell(order({ status: 'paid', refundedHalalas: 3_950 })).value).toBe(750);
+    expect(
+      creditsCell(order({ status: 'paid', refundedHalalas: 3_950, clawedBackCredits: 750 })).value,
+    ).toBe(750);
+  });
+
+  it('shows what a refund that found the credits spent really took back (needs_review)', () => {
+    // The whole order was refunded, but only 490 of its 500 credits were still in the balance.
+    const parked = order({
+      status: 'needs_review',
+      credits: 500,
+      amountHalalas: 2_900,
+      refundedHalalas: 2_900,
+      clawedBackCredits: 490,
+    });
+    expect(creditsCell(parked)).toEqual({ kind: 'granted', value: 10 });
+    // Nothing was left to take back: the order still counts all of them as held.
+    expect(creditsCell({ ...parked, clawedBackCredits: 0 })).toEqual({
+      kind: 'granted',
+      value: 500,
+    });
+    expect(creditsCell({ ...parked, clawedBackCredits: 500 })).toEqual({ kind: 'none', value: 0 });
   });
 
   it('shows a fully refunded order without credits, so the column adds up to the balance', async () => {
@@ -601,11 +624,13 @@ describe('the payments list', () => {
       id: 'ord_0123456789abcdefghjkmnpqr9',
       status: 'refunded',
       refundedHalalas: 7_900,
+      clawedBackCredits: 1_500,
     });
     const partly = order({
       id: 'ord_0123456789abcdefghjkmnpqr8',
       status: 'paid',
       refundedHalalas: 1_975,
+      clawedBackCredits: 375,
     });
     setup({ orders: () => json(pageOf([refunded, partly])) });
     mountPage();

@@ -19,10 +19,11 @@ import type { OrdersState } from './use-orders';
 /**
  * What the credits column says: the credits this order still holds in the balance. A number with a
  * plus sign means they are there (`paidAt` is only set in the transaction that grants them); a
- * refund takes credits back, all of them for a full refund and the refunded share (rounded down,
- * as the server does when it takes them back) for a partial one, so the column agrees with the
- * balance. An unpaid order shows what it would bring, in muted type; an order that never
- * delivered credits, or lost them all to a refund, shows a dash.
+ * refund takes credits back, and the server says how many it really took (`clawedBackCredits`:
+ * all of them for a full refund, the refunded share for a partial one, and fewer when the buyer had
+ * already spent them, the case of a refund that waits for review), so the column agrees with the
+ * balance. An unpaid order shows what it would bring, in muted type; an order that never delivered
+ * credits, or lost them all to a refund, shows a dash.
  */
 export function creditsCell(order: OrderDTO): {
   kind: 'granted' | 'pending' | 'none';
@@ -30,11 +31,8 @@ export function creditsCell(order: OrderDTO): {
 } {
   if (order.paidAt !== undefined) {
     if (order.status === 'refunded') return { kind: 'none', value: 0 };
-    const takenBack =
-      order.status === 'paid' && order.refundedHalalas > 0 && order.amountHalalas > 0
-        ? Math.floor((order.credits * order.refundedHalalas) / order.amountHalalas)
-        : 0;
-    return { kind: 'granted', value: order.credits - takenBack };
+    const held = Math.max(0, order.credits - order.clawedBackCredits);
+    return held === 0 ? { kind: 'none', value: 0 } : { kind: 'granted', value: held };
   }
   if (order.status === 'pending') return { kind: 'pending', value: order.credits };
   return { kind: 'none', value: 0 };

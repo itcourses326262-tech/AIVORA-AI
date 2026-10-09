@@ -3,6 +3,7 @@ import { renderEmail, type EmailSpec } from '@/server/email';
 import { escapeHtml, singleLine } from '@/server/email/templates/layout';
 import { EMAIL_KINDS } from '@/server/email';
 import type { Locale } from '@/lib/i18n/locales';
+import { billingSpec } from './billing-fixtures';
 
 const LINK = 'https://aivore.example/verify-email?token=abc_DEF-123';
 const NAME = 'Layla <b>"Q"</b> & Co';
@@ -38,6 +39,8 @@ function spec(
       return { ...common, kind, link: LINK, bonusCredits: 50, ...overrides } as EmailSpec;
     case 'account_deleted':
       return { ...common, kind, ...overrides } as EmailSpec;
+    default:
+      return billingSpec(kind, locale, overrides);
   }
 }
 

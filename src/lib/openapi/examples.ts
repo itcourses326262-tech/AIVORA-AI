@@ -40,6 +40,9 @@ export const userExample: UserDTO = {
   locale: 'ar',
   creditBalance: 49,
   createdAt: T0 - 86_400_000,
+  emailVerified: true,
+  emailVerificationRequired: true,
+  pendingBonusCredits: 0,
 };
 
 export const assetExample: AssetDTO = {
