@@ -21,6 +21,8 @@
     "db:migrate": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.ts",
     "worker": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/worker.ts",
     "admin": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/admin.ts",
+    "setup:fal": "tsx --conditions=react-server scripts/setup-fal.ts",
+    "check:fal": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/check-fal.ts",
     "format": "prettier --write .",
     "docker:build": "docker build -t aivore:local .",
     "backup": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/backup.mjs",

@@ -58,7 +58,10 @@ npm run dev
 
 لتشغيله في حاوية: `docker compose up -d --build` بعد نسخ `.env.example` إلى `.env` (التفاصيل في [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
+**ربط fal.ai (نماذج حقيقية) بأمر واحد:** `npm run setup:fal` (على PowerShell: `npm.cmd run setup:fal`). يطلب المفتاح بإدخال مخفي، ويحفظه في `.env.local` (يتجاهله Git فلا يُرفع)، ويضيف سقف إنفاق يوميًا `DAILY_UPSTREAM_BUDGET_CREDITS=200`، ثم يعرض عليك توليد صورة اختبار واحدة حقيقية (تكلفتها نحو 0.003 دولار عند fal) ويخبرك بدقة بسبب أي فشل (مفتاح مرفوض أو رصيد منتهٍ أو مشكلة شبكة). للفحص لاحقًا دون إعادة إدخال المفتاح: `npm run check:fal`. أعد تشغيل `npm run dev` بعد الحفظ، واكتب الأوصاف بالإنجليزية مع نماذج FLUX.
+
 **ويندوز (مشاكل معروفة):**
+
 - رسالة «running scripts is disabled on this system» في PowerShell: استعمل `npm.cmd install` و`npm.cmd run dev` بدل `npm`، أو نفّذ مرة واحدة `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
 - خطأ `gyp ERR! find VS` أثناء `npm install` (يطلب Visual Studio): سببه أن npm 11 يحاول تجميع `better-sqlite3` من الكود مع أن الحزمة تحمل بناءً جاهزًا. ملف `.npmrc` في المشروع يتجاوز سكربتات التثبيت لتفادي ذلك، فإن ظهر الخطأ عندك فاحصل على آخر نسخة (`git pull`)، واحذف مجلد `node_modules`، ثم أعد `npm install` (أو نفّذ `npm install --ignore-scripts`).
 
@@ -385,7 +388,10 @@ Data lives in `./data` (the SQLite database and the media). Delete the folder to
 
 To run it in a container: `docker compose up -d --build` after copying `.env.example` to `.env` (details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
+**Connect fal.ai (real models) with one command:** `npm run setup:fal` (PowerShell: `npm.cmd run setup:fal`). It asks for the key with hidden typing, saves it to `.env.local` (ignored by git, so it is never uploaded), adds a daily spend cap `DAILY_UPSTREAM_BUDGET_CREDITS=200`, then offers one real test image (about USD 0.003 at fal) and tells you exactly why it failed if it does (rejected key, exhausted balance, network). To re-check later without retyping the key: `npm run check:fal`. Restart `npm run dev` after saving, and write prompts in English for FLUX models.
+
 **Windows (known issues):**
+
 - "running scripts is disabled on this system" in PowerShell: use `npm.cmd install` and `npm.cmd run dev` instead of `npm`, or run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once.
 - `gyp ERR! find VS` during `npm install` (asks for Visual Studio): npm 11 tries to compile `better-sqlite3` from source although the package ships a prebuilt binary. The `.npmrc` in the project skips install scripts to avoid that. If you still see the error, pull the latest version (`git pull`), delete the `node_modules` folder and run `npm install` again (or `npm install --ignore-scripts`).
 
