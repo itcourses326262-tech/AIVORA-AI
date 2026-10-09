@@ -17,6 +17,10 @@ export const POST = route(
     maxBodyBytes: 16 * 1024,
   },
   async (ctx): Promise<EnhancePromptResponse> => {
+    // Same gate as creating a generation: an unconfirmed account must not spend a paid LLM call.
+    if (ctx.auth.mustVerifyEmail) {
+      throw AppError.of('email_not_verified', 'Confirm your email first');
+    }
     const body = await ctx.body(enhancePromptRequestSchema);
 
     const verdict = await moderatePrompt(body.prompt, { signal: ctx.req.signal });

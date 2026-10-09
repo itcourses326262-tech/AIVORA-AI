@@ -117,12 +117,6 @@ export function ShareView({ creation, origin, signedIn, i18n }: ShareViewProps) 
           {heading !== creation.prompt ? (
             <PromptBlock title={t('gallery.detail.prompt')} text={creation.prompt} />
           ) : null}
-          {creation.negativePrompt ? (
-            <PromptBlock
-              title={t('gallery.detail.negativePrompt')}
-              text={creation.negativePrompt}
-            />
-          ) : null}
 
           <section className="grid grid-cols-1 gap-3 rounded-2xl border border-border bg-surface p-5 shadow-xs">
             <Button

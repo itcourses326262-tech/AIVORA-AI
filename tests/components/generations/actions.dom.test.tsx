@@ -205,9 +205,7 @@ describe('cancel', () => {
       expect(api.callsTo('POST', `/generations/${generation.id}/cancel`)).toHaveLength(1),
     );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(
-      await screen.findByText('Generation canceled. Your credits were refunded.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Generation canceled.')).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole('article')).toHaveAttribute('data-status', 'canceled'),
     );
@@ -220,7 +218,9 @@ describe('cancel', () => {
     mount([generation]);
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Cancel this generation?' });
-    expect(within(dialog).getByText(/refunded in full/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/first few cancellations of running generations each day/),
+    ).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Keep going' })).toHaveFocus();
     expect(api.callsTo('POST', '/generations/')).toHaveLength(0);
 
@@ -331,7 +331,9 @@ describe('cancel', () => {
     const view = renderUi(tree([running]));
     await choose(user, 'Delete');
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(/canceled, your credits refunded/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/credits are refunded for the first few cancellations each day/),
+    ).toBeInTheDocument();
 
     view.rerender(
       tree([{ ...running, status: 'succeeded', progress: 100, outputs: [assetDTO()] }]),
@@ -395,7 +397,9 @@ describe('delete', () => {
     mount([generation]);
     await choose(user, 'Delete');
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(/canceled, your credits refunded/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/credits are refunded for the first few cancellations each day/),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByRole('article')).not.toBeInTheDocument());
     expect(api.callsTo('GET', '/auth/me').length).toBeGreaterThan(0);

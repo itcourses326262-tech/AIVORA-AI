@@ -205,7 +205,7 @@ tests/  e2e/        اختبارات Vitest واختبارات Playwright
 POST /generations ─► تحقق ─► إشراف ─► [معاملة واحدة: حد النشط + سقف الميزانية اليومية + خصم الرصيد + إدخال queued]
 المنفّذ: يطالب بالمهمة (queued→processing + عقد lease) ─► يعلّم «بدأ الإرسال» ─► provider.submit
         ─► (متزامن | معرّف مهمة غير متزامن) ─► استطلاع ─► تنزيل النتائج بأمان ─► تخزين ─► succeeded
-أي فشل أو مهلة ─► failed + استرداد كامل   |   الإلغاء ─► canceled + استرداد كامل
+أي فشل أو مهلة ─► failed + استرداد كامل   |   الإلغاء ─► canceled (استرداد كامل؛ وبعد قبول مزوّد مدفوع للمهمة تُردّ فقط أول 5 عمليات إلغاء يوميًا لكل حساب)
 انهيار العملية ─► ينتهي العقد (60 ث) ─► تُستأنف المهمة بالاستطلاع، أو تفشل بعد MAX_ATTEMPTS
 ```
 
@@ -314,7 +314,7 @@ POST /generations ─► تحقق ─► إشراف ─► [معاملة واح�
 - **لا فاتورة ضريبية إلكترونية (ZATCA)** ولا إيصال PDF؛ الضريبة مخزنة على كل طلب، ورسالة الإيصال بالبريد تذكر المبلغ والضريبة وتنص على أنها ليست فاتورة ضريبية.
 - **fal وMoyasar لم يُجرَّبا حيًّا**: بيئة التطوير تحجب مضيفيهما. الأسعار من مقتطفات صفحات النماذج وبعضها عمره شهور (`fal-flux-dev-img2img` مسعَّر بالأعلى من تسعيرتين متعارضتين).
 - **SMTP لم يُجرَّب حيًّا**: كل رسائل البريد (التأكيد والاستعادة والفوترة) اختُبرت بناقل وهمي وبمرحّل يرفض الاتصال فقط، ولم تصل رسالة واحدة عبر مرحّل حقيقي. جرّبها بنفسك قبل الإطلاق (docs/LAUNCH.md، القسم 3).
-- **سياسة الاسترداد الكامل بعد قبول المزوّد للمهمة**: الإلغاء والحذف يعيدان الرصيد كاملًا ولو بدأ المزوّد العمل؛ حلقة إنشاء وإلغاء تكلّفك مالًا. `DAILY_UPSTREAM_BUDGET_CREDITS` يحدّ الضرر.
+- **الإلغاء بعد قبول المزوّد للمهمة** (الإلغاء والحذف): المهمة التي لم يرها المزوّد تُردّ كاملة ويتحرر حجزها من سقف `DAILY_UPSTREAM_BUDGET_CREDITS`. أما بعد أن يحملها مزوّد مدفوع فيبقى الحجز في السقف ويُقنَّن الاسترداد بأول 5 عمليات إلغاء لكل حساب خلال 24 ساعة (`MAX_REFUNDED_ACCEPTED_CANCELS_PER_DAY` في `src/server/generations/lifecycle.ts`)، فتنتهي حلقة إنشاء وإلغاء بعد نحو 6 مهام مقبولة لكل حساب، ويبقى السقف اليومي الحد الأعلى للإنفاق. الإلغاء السادس يُحاسَب.
 - مزوّدا OpenAI وReplicate هيكلان فارغان؛ وواجهة S3 اختُبرت بعميل وهمي فقط.
 - **الإشراف** نقطة بداية محافظة: النص المعكوس والكلمات المفصولة والصور ولهجات عربية كثيرة غير مغطاة، والقوائم العربية تحتاج مراجعة ناطق أصلي. لا توجد شاشة إدارية لمراجعة المحتوى، ولا أمر لإلغاء توليد مستخدم.
 - الصور المرفوعة غير المستخدمة لا تُكنس ولا يوجد سقف تخزين للمستخدم.
@@ -528,7 +528,7 @@ tests/  e2e/        Vitest and Playwright tests
 POST /generations ─► validate ─► moderate ─► [one tx: active limit + daily budget + debit credits + insert queued]
 worker: claim (queued→processing + lease) ─► mark "submit started" ─► provider.submit
         ─► (sync outputs | async job id) ─► poll ─► download results safely ─► store ─► succeeded
-any failure or timeout ─► failed + full refund   |   cancel ─► canceled + full refund
+any failure or timeout ─► failed + full refund   |   cancel ─► canceled (full refund; once a paid provider accepted the job only the first 5 such cancels per account per day are refunded)
 process crash ─► lease expires (60 s) ─► the job is resumed by polling, or fails after MAX_ATTEMPTS
 ```
 
@@ -637,7 +637,7 @@ Backup and restore: `npm run backup` and `npm run restore` (see [docs/OPERATIONS
 - **No electronic tax invoice (ZATCA)** and no PDF receipt; the VAT is stored on each order, and the e-mailed receipt states the amount and the VAT and says it is not a tax invoice.
 - **fal and Moyasar were never called live**: the development environment blocks both hosts. Prices come from model-page excerpts and some are months old (`fal-flux-dev-img2img` uses the higher of two conflicting quotes).
 - **SMTP was never used live**: every e-mail (confirmation, reset, billing) was tested with a fake transport and with a relay that refuses the connection, and not one message has gone through a real relay. Try them yourself before launch (docs/LAUNCH.md, section 3).
-- **Full refund after the provider accepted a job**: cancel and delete refund in full even once the provider has started working, so a create-and-cancel loop costs you money. `DAILY_UPSTREAM_BUDGET_CREDITS` limits the damage.
+- **Cancelling after the provider accepted a job** (cancel and delete): a job the provider never saw is refunded in full and frees its budget booking. Once a paid provider holds it, the booking stays in `DAILY_UPSTREAM_BUDGET_CREDITS` and the refund is rationed to the first 5 such cancels per account per rolling 24 hours (`MAX_REFUNDED_ACCEPTED_CANCELS_PER_DAY` in `src/server/generations/lifecycle.ts`), so a create-and-cancel loop is bounded to about 6 accepted jobs per account per day and by the budget overall. The 6th cancel is charged.
 - OpenAI and Replicate are empty stubs; the S3 driver has only been tested with a fake client.
 - **Moderation** is a conservative starting point: reversed text, split words, images and many Arabic dialects are not covered, and the Arabic lists need a native-speaking reviewer. There is no admin screen to review content and no command to cancel a user's generation.
 - Unused uploaded images are never swept and there is no per-user storage cap.

@@ -19,3 +19,18 @@ describe('toPublicGenerationDTO owner name', () => {
     expect(JSON.stringify(dto)).not.toContain('Hassan');
   });
 });
+
+describe('toPublicGenerationDTO privacy', () => {
+  it('never carries the negative prompt or the favorite flag', () => {
+    const user = createUser(ctx.db);
+    const row = createGeneration(ctx.db, {
+      userId: user.id,
+      negativePrompt: 'private words to exclude',
+      isFavorite: true,
+    });
+    const dto = toPublicGenerationDTO(row, { outputs: [], owner: { name: 'Layla' } });
+    expect('negativePrompt' in dto).toBe(false);
+    expect(JSON.stringify(dto)).not.toContain('private words');
+    expect(dto.isFavorite).toBe(false);
+  });
+});

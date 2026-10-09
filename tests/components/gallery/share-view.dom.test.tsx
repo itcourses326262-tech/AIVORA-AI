@@ -114,10 +114,10 @@ describe('the public share page', () => {
     expect(screen.getByText('Shared video')).toBeInTheDocument();
   });
 
-  it('shows the negative prompt when there is one', () => {
+  it('never shows the negative prompt on a public page', () => {
     view(image({ negativePrompt: 'blurry, watermark' }));
-    expect(screen.getByText('Negative prompt')).toBeInTheDocument();
-    expect(screen.getByText('blurry, watermark')).toBeInTheDocument();
+    expect(screen.queryByText('Negative prompt')).not.toBeInTheDocument();
+    expect(screen.queryByText('blurry, watermark')).not.toBeInTheDocument();
   });
 
   it('cuts a very long prompt in the heading and gives the whole text below', () => {

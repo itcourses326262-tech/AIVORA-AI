@@ -337,4 +337,16 @@ describe('POST /api/v1/prompt/enhance: rate limit', () => {
     for (let i = 0; i < 20; i += 1) await enhance({ prompt: '', kind: 'image' });
     expect((await enhance({ prompt: 'a red fox', kind: 'image' })).status).toBe(429);
   });
+
+  it('refuses an account that has not confirmed its email, before any LLM call', async () => {
+    configure({ PROMPT_ENHANCER: 'openai', OPENAI_API_KEY: OPENAI_KEY });
+    auth.authenticate.mockImplementation(async () => ({
+      ...userAuth('dana'),
+      mustVerifyEmail: true,
+    }));
+    const res = await enhance({ prompt: 'a red fox', kind: 'image' }, 'dana');
+    expect(res.status).toBe(403);
+    expect(res.json.error?.code).toBe('email_not_verified');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

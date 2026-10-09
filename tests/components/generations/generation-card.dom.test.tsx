@@ -335,9 +335,7 @@ describe('GenerationCard: failure and cancellation', () => {
       />,
     );
     expect(screen.getByText('Canceled')).toBeInTheDocument();
-    expect(
-      screen.getByText('You canceled this generation. Your credits were refunded.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('You canceled this generation.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });
 

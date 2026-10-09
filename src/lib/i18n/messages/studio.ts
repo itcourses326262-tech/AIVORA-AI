@@ -262,10 +262,10 @@ export default defineMessages({
       cancel: {
         action: 'Cancel',
         title: 'Cancel this generation?',
-        body: 'It is already being created. Your credits will be refunded in full.',
+        body: 'It is already being created. Credits are refunded for the first few cancellations of running generations each day.',
         confirm: 'Cancel generation',
         keep: 'Keep going',
-        done: 'Generation canceled. Your credits were refunded.',
+        done: 'Generation canceled.',
         tooLate: 'It had already finished, so it could not be canceled.',
       },
       failure: {
@@ -283,7 +283,7 @@ export default defineMessages({
       },
       canceled: {
         title: 'Canceled',
-        note: 'You canceled this generation. Your credits were refunded.',
+        note: 'You canceled this generation.',
       },
       actions: {
         menu: 'More actions',
@@ -313,7 +313,7 @@ export default defineMessages({
         title: 'Delete this creation?',
         body: 'It is removed for good, together with its files. This cannot be undone.',
         bodyActive:
-          'It is still being created. It will be canceled, your credits refunded, and then removed for good.',
+          'It is still being created. It will be canceled (credits are refunded for the first few cancellations each day) and then removed for good.',
         confirm: 'Delete',
         keep: 'Keep',
       },
@@ -587,10 +587,10 @@ export default defineMessages({
       cancel: {
         action: 'إلغاء',
         title: 'إلغاء عملية الإنشاء؟',
-        body: 'العمل جارٍ عليها بالفعل. سيُرَدّ رصيدك بالكامل.',
+        body: 'العمل جارٍ عليها بالفعل. يُردّ الرصيد لأول عمليات إلغاء تتم كل يوم، وليس لما يتكرر منها بكثرة.',
         confirm: 'إلغاء العملية',
         keep: 'متابعة الإنشاء',
-        done: 'أُلغيت العملية وأُعيد رصيدك.',
+        done: 'أُلغيت العملية.',
         tooLate: 'انتهى الإنشاء قبل الإلغاء، فلم يعد إلغاؤه ممكنًا.',
       },
       failure: {
@@ -607,7 +607,7 @@ export default defineMessages({
       },
       canceled: {
         title: 'أُلغي',
-        note: 'ألغيت هذه العملية وأُعيد رصيدك.',
+        note: 'ألغيت هذه العملية.',
       },
       actions: {
         menu: 'المزيد من الإجراءات',
@@ -635,7 +635,8 @@ export default defineMessages({
       delete: {
         title: 'حذف هذا العمل؟',
         body: 'سيُحذف نهائيًا مع ملفاته، ولا يمكن التراجع عن ذلك.',
-        bodyActive: 'ما زال قيد الإنشاء. سيُلغى ويُعاد رصيدك ثم يُحذف نهائيًا.',
+        bodyActive:
+          'ما زال قيد الإنشاء. سيُلغى (يُردّ الرصيد لأول عمليات الإلغاء كل يوم) ثم يُحذف نهائيًا.',
         confirm: 'حذف',
         keep: 'إبقاء',
       },

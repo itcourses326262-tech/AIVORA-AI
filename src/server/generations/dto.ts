@@ -76,5 +76,8 @@ export function toPublicGenerationDTO(
 ): GenerationDTO {
   // The first-name cut lives here so no caller can put a full account name on a public surface.
   const owner = { name: firstNameOf(parts.owner.name) ?? '' };
-  return { ...toGenerationDTO(row, { ...parts, owner }), isFavorite: false };
+  // The negative prompt is private: it is never moderated like the prompt (people list what to
+  // exclude, e.g. "no nudity"), so it must not be published on feeds or share pages.
+  const { negativePrompt: _private, ...publicFields } = toGenerationDTO(row, { ...parts, owner });
+  return { ...publicFields, isFavorite: false };
 }

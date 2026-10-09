@@ -362,9 +362,7 @@ describe('creations that did not succeed', () => {
 
   it('explains a canceled one', () => {
     mountDetail(image({ status: 'canceled', outputs: [] }));
-    expect(
-      screen.getByText('You canceled this generation. Your credits were refunded.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('You canceled this generation.')).toBeInTheDocument();
   });
 
   it('shows progress for one still being made, and cancels it after a question', async () => {
@@ -378,9 +376,7 @@ describe('creations that did not succeed', () => {
     await waitFor(() =>
       expect(api.callsTo('POST', `/generations/${running.id}/cancel`)).toHaveLength(1),
     );
-    expect(
-      await screen.findByText('You canceled this generation. Your credits were refunded.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('You canceled this generation.')).toBeInTheDocument();
   });
 
   it('shows the result as soon as polling finds the creation finished', async () => {

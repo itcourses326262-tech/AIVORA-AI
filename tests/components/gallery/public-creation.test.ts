@@ -57,7 +57,6 @@ describe('toPublicCreation', () => {
     expect(creation).toMatchObject({
       id: generation.id,
       prompt: 'A lone lighthouse',
-      negativePrompt: 'blurry',
       modelId: generation.modelId,
       ownerFirstName: 'Layla',
       params: { aspectRatio: '16:9', durationSec: 5, resolution: '720p' },
@@ -84,7 +83,8 @@ describe('toPublicCreation', () => {
     expect(toPublicCreation(generationDTO()).ownerFirstName).toBeNull();
   });
 
-  it('omits the negative prompt when there is none', () => {
+  it('never carries the negative prompt, even when the DTO has one', () => {
+    expect('negativePrompt' in toPublicCreation(generation)).toBe(false);
     expect('negativePrompt' in toPublicCreation(generationDTO())).toBe(false);
   });
 });

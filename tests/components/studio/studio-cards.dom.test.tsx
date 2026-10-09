@@ -355,7 +355,9 @@ describe('Studio: viewer, deleting and running work', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Cancel this generation?' });
-    expect(within(dialog).getByText(/credits will be refunded in full/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/first few cancellations of running generations each day/),
+    ).toBeInTheDocument();
 
     api.generations = [
       { ...running, status: 'succeeded', progress: 100, outputs: [assetDTO({ id: 'ast_done' })] },

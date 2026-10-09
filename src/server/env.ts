@@ -332,6 +332,16 @@ function warnAboutRiskySettings(env: Env): void {
       { admins: env.ADMIN_EMAILS.length },
     );
   }
+  const hasPaidProviderKey = Boolean(env.FAL_KEY || env.OPENAI_API_KEY || env.REPLICATE_API_TOKEN);
+  if (
+    env.NODE_ENV === 'production' &&
+    hasPaidProviderKey &&
+    env.DAILY_UPSTREAM_BUDGET_CREDITS === 0
+  ) {
+    log.warn(
+      'DAILY_UPSTREAM_BUDGET_CREDITS=0 with a paid provider key set: nothing limits what the providers can bill you per day. Set it to the most credits you are willing to spend upstream in 24 hours (see docs/LAUNCH.md).',
+    );
+  }
   if (env.NODE_ENV === 'production' && !env.TRUST_PROXY) {
     log.warn(
       'TRUST_PROXY=false: the client address is not available to the app, so anonymous visitors share one rate-limit budget per route (signed-in users are limited per account). Run behind a reverse proxy you control and set TRUST_PROXY=true.',

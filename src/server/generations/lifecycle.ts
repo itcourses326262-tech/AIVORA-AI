@@ -2,7 +2,9 @@ import 'server-only';
 import {
   and,
   asc,
+  count,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -14,6 +16,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { refundGeneration } from '@/server/credits';
+import { creditLedger } from '@/server/db/schema';
 import { withTx, type Db, type DbOrTx, type Tx } from '@/server/db';
 import { assets, generations, type GenerationRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
@@ -389,9 +392,23 @@ export function failGeneration(
  * runner notices the new status on its next poll or heartbeat. False when the row is not the
  * user's or is already final. Joins the caller's transaction when given a `Tx`.
  */
+export const ACCEPTED_CANCEL_NOTE = 'Generation canceled after the provider accepted it';
+/** Refunded cancels of jobs the provider already holds, per account and rolling 24 hours. */
+export const MAX_REFUNDED_ACCEPTED_CANCELS_PER_DAY = 5;
+
 export function markCanceled(db: DbOrTx, userId: string, id: string): boolean {
   return withTx(db, (tx) => {
     const now = Date.now();
+    const seen = tx
+      .select({
+        providerJobId: generations.providerJobId,
+        submitStartedAt: generations.submitStartedAt,
+      })
+      .from(generations)
+      .where(eq(generations.id, id))
+      .get();
+    const reachedProvider =
+      seen !== undefined && (seen.providerJobId !== null || seen.submitStartedAt !== null);
     const row = tx
       .update(generations)
       .set({
@@ -411,8 +428,27 @@ export function markCanceled(db: DbOrTx, userId: string, id: string): boolean {
       .returning({ id: generations.id })
       .get();
     if (!row) return false;
-    refundGeneration(tx, id, { note: 'Generation canceled', idempotencyKey: `refund:${id}` });
-    releaseUpstreamSpend(tx, id, now);
+    if (!reachedProvider) {
+      refundGeneration(tx, id, { note: 'Generation canceled', idempotencyKey: `refund:${id}` });
+      releaseUpstreamSpend(tx, id, now);
+      return true;
+    }
+    // The provider holds (and may bill) this job: the booking stays, and the refund is rationed.
+    const used =
+      tx
+        .select({ n: count() })
+        .from(creditLedger)
+        .where(
+          and(
+            eq(creditLedger.userId, userId),
+            eq(creditLedger.note, ACCEPTED_CANCEL_NOTE),
+            gt(creditLedger.createdAt, now - 24 * 60 * 60 * 1000),
+          ),
+        )
+        .get()?.n ?? 0;
+    if (used < MAX_REFUNDED_ACCEPTED_CANCELS_PER_DAY) {
+      refundGeneration(tx, id, { note: ACCEPTED_CANCEL_NOTE, idempotencyKey: `refund:${id}` });
+    }
     return true;
   });
 }

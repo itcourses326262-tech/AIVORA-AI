@@ -16,7 +16,6 @@ export interface PublicCreation {
   kind: Kind;
   modelId: string;
   prompt: string;
-  negativePrompt?: string;
   /** The settings that describe the result; never the seed, the strength or the cost. */
   params: Pick<GenerationParams, 'aspectRatio' | 'durationSec' | 'resolution'>;
   createdAt: number;
@@ -34,7 +33,6 @@ export function toPublicCreation(generation: GenerationDTO): PublicCreation {
     kind: generation.kind,
     modelId: generation.modelId,
     prompt: generation.prompt,
-    ...(generation.negativePrompt ? { negativePrompt: generation.negativePrompt } : {}),
     params: {
       aspectRatio,
       ...(durationSec === undefined ? {} : { durationSec }),
