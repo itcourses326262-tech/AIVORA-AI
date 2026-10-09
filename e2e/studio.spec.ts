@@ -220,13 +220,13 @@ test.describe('studio: cancelling, failing, refusing', () => {
       await expect(running).toBeVisible({ timeout: 20_000 });
       await running.getByRole('button', { name: 'Cancel', exact: true }).click();
       const dialog = page.getByRole('alertdialog', { name: en('studio.generations.cancel.title') });
-      await expect(dialog).toContainText('Your credits will be refunded in full.');
+      await expect(dialog).toContainText(en('studio.generations.cancel.body'));
       await dialog.getByRole('button', { name: en('studio.generations.cancel.confirm') }).click();
     });
 
     await test.step('the card says canceled and the credits are back', async () => {
       await expect(page.getByRole('article', { name: /Canceled$/ })).toContainText(
-        en('studio.generations.failure.refunded'),
+        en('studio.generations.canceled.note'),
       );
       await expectCredits(page, 50);
       const ledger = await expectLedgerMatchesBalance(api, 50);
