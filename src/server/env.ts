@@ -63,7 +63,7 @@ const envSchema = z
     APP_URL: baseUrl,
     DATABASE_PATH: text(z.string().default('./data/aivore.db')),
     SESSION_SECRET: text(z.string().optional()),
-    STORAGE_DRIVER: choice(['local', 's3'], 'local'),
+    STORAGE_DRIVER: choice(['local', 's3', 'gcs'], 'local'),
     STORAGE_LOCAL_DIR: text(z.string().default('./data/media')),
     S3_ENDPOINT: text(z.url({ error: 'must be a URL such as https://s3.example.com' }).optional()),
     S3_REGION: text(z.string().default('auto')),
@@ -72,6 +72,20 @@ const envSchema = z
     S3_SECRET_ACCESS_KEY: text(z.string().optional()),
     S3_FORCE_PATH_STYLE: flag(false),
     S3_SIGNED_URL_TTL_SEC: whole(900, 60, 604_800),
+    // Firebase / Google Cloud. The first four are the web app's public identifiers (they ship to
+    // every browser by design; Firebase protects data with rules and authorized domains, not by
+    // hiding them). The service account is the one secret: it lets this server write the bucket.
+    FIREBASE_API_KEY: text(z.string().optional()),
+    FIREBASE_AUTH_DOMAIN: text(z.string().optional()),
+    FIREBASE_PROJECT_ID: text(z.string().optional()),
+    FIREBASE_APP_ID: text(z.string().optional()),
+    /** `off` hides the Google button even when the settings above are present. */
+    FIREBASE_AUTH: choice(['auto', 'off'], 'auto'),
+    /** The Cloud Storage bucket of the Firebase project (`<project>.firebasestorage.app`). */
+    FIREBASE_STORAGE_BUCKET: text(z.string().optional()),
+    /** Path of the downloaded service-account JSON (preferred), or the JSON text itself. */
+    FIREBASE_SERVICE_ACCOUNT_FILE: text(z.string().optional()),
+    FIREBASE_SERVICE_ACCOUNT_JSON: text(z.string().optional()),
     ENABLE_MOCK_PROVIDER: flag(true),
     OPENAI_API_KEY: text(z.string().optional()),
     FAL_KEY: text(z.string().optional()),
@@ -220,6 +234,27 @@ function crossFieldProblems(source: Readonly<Record<string, string | undefined>>
   if (get('STORAGE_DRIVER') === 's3') {
     for (const name of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
       need(name, 'when STORAGE_DRIVER=s3');
+    }
+  }
+  if (get('STORAGE_DRIVER') === 'gcs') {
+    need('FIREBASE_STORAGE_BUCKET', 'when STORAGE_DRIVER=gcs');
+    if (
+      get('FIREBASE_SERVICE_ACCOUNT_FILE') === undefined &&
+      get('FIREBASE_SERVICE_ACCOUNT_JSON') === undefined
+    ) {
+      problems.push(
+        'FIREBASE_SERVICE_ACCOUNT_FILE: (or FIREBASE_SERVICE_ACCOUNT_JSON) is required when STORAGE_DRIVER=gcs',
+      );
+    }
+  }
+  // The Google button needs all three public identifiers; a half-filled set would show a button
+  // that cannot work, so it is reported instead.
+  const firebaseWeb = ['FIREBASE_API_KEY', 'FIREBASE_AUTH_DOMAIN', 'FIREBASE_PROJECT_ID'].filter(
+    (name) => get(name) !== undefined,
+  );
+  if (firebaseWeb.length > 0 && firebaseWeb.length < 3) {
+    for (const name of ['FIREBASE_API_KEY', 'FIREBASE_AUTH_DOMAIN', 'FIREBASE_PROJECT_ID']) {
+      need(name, 'together with the other Firebase sign-in settings');
     }
   }
   if (get('PROMPT_ENHANCER') === 'openai') need('OPENAI_API_KEY', 'when PROMPT_ENHANCER=openai');
