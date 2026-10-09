@@ -37,7 +37,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     // `data-scroll-behavior` tells Next the smooth scrolling of globals.css is intended: it then
     // disables it for the instant of a route change instead of warning about it.
-    <html lang={locale} dir={dir} data-theme={theme} data-scroll-behavior="smooth">
+    <html
+      lang={locale}
+      dir={dir}
+      data-theme={theme}
+      data-scroll-behavior="smooth"
+      // Browser extensions (translators, dictionaries) add attributes to <html> before React runs;
+      // this silences only the attribute mismatch on this one element, not on its children.
+      suppressHydrationWarning
+    >
       <body className="min-h-dvh antialiased">
         <a
           href="#main-content"

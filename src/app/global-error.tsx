@@ -66,7 +66,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
   const theme = useSyncExternalStore(subscribe, readTheme, () => DEFAULT_THEME);
   const { t } = createTranslator(locale);
   return (
-    <html lang={locale} dir={dirOf(locale)} data-theme={theme}>
+    <html lang={locale} dir={dirOf(locale)} data-theme={theme} suppressHydrationWarning>
       <head>
         <title>{t('landing.status.globalError.title')}</title>
         <style>{STYLES}</style>
