@@ -20,6 +20,17 @@ export async function register(): Promise<void> {
       } catch (error) {
         log.error('Billing scheduler failed to start; renewals wait until it does', { err: error });
       }
+      if (getEnv().WORKER_MODE !== 'off') {
+        try {
+          // Finishes the erasure of deleted accounts whose files could not all be removed at the time.
+          const { startAccountPurgeScheduler } = await import('@/server/auth/purge-scheduler');
+          startAccountPurgeScheduler(log);
+        } catch (error) {
+          log.error('Deleted-account sweeper failed to start; run `admin purge-deleted` by hand', {
+            err: error,
+          });
+        }
+      }
       if (getEnv().WORKER_MODE !== 'inline') return;
       const { startWorkerWithRetry } = await import('@/server/jobs/start');
       const runner = startWorkerWithRetry(log);

@@ -91,6 +91,8 @@ export type EmailSpec =
       /** Where the user can start a reset if it was not them. */
       link: string;
       at: number;
+      /** API keys the reset revoked (0 or absent: the notice does not mention keys). */
+      keysRevoked?: number;
     })
   | (Common & { kind: 'welcome'; link: string; bonusCredits?: number })
   | (Common & { kind: 'account_deleted' });
@@ -154,24 +156,29 @@ export function renderEmail(spec: EmailSpec): EmailMessage {
         action: { label: c.passwordReset.action, url: spec.link },
         footer,
       });
-    case 'password_changed':
+    case 'password_changed': {
+      const lines: Paragraph[] = [
+        greeting,
+        paragraph(
+          c.passwordChanged.intro,
+          { email, time: { value: `${formatDateTime(spec.at, locale, 'UTC')} UTC`, ltr: true } },
+          locale,
+        ),
+      ];
+      if (spec.keysRevoked && spec.keysRevoked > 0) {
+        lines.push(paragraph(c.passwordChanged.keysRevoked, {}, locale));
+      }
+      lines.push(paragraph(c.passwordChanged.warning, {}, locale, 'warning'));
       return build(spec, c.passwordChanged.subject, {
         ...base,
         subject: c.passwordChanged.subject,
         preheader: c.passwordChanged.preheader,
         heading: c.passwordChanged.heading,
-        paragraphs: [
-          greeting,
-          paragraph(
-            c.passwordChanged.intro,
-            { email, time: { value: `${formatDateTime(spec.at, locale, 'UTC')} UTC`, ltr: true } },
-            locale,
-          ),
-          paragraph(c.passwordChanged.warning, {}, locale, 'warning'),
-        ],
+        paragraphs: lines,
         action: { label: c.passwordChanged.action, url: spec.link },
         footer,
       });
+    }
     case 'welcome': {
       const lines: Paragraph[] = [greeting, paragraph(c.welcome.intro, {}, locale)];
       if (spec.bonusCredits && spec.bonusCredits > 0) {

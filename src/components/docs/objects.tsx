@@ -8,7 +8,7 @@ import { objectSchemaIds, schemaAnchor } from './reference-model';
 export function Objects({ ctx }: { ctx: DocsContext }) {
   const { t } = ctx.i18n;
   return (
-    <section id="objects" className="grid scroll-mt-32 gap-6 lg:scroll-mt-24">
+    <section id="objects" className="grid scroll-mt-12 gap-6 lg:scroll-mt-0">
       <div className="grid gap-3">
         <h2 className="text-2xl font-bold text-foreground">{t('account.docs.objects.title')}</h2>
         <p className="max-w-3xl text-sm leading-7 text-muted">{t('account.docs.objects.intro')}</p>
@@ -20,7 +20,7 @@ export function Objects({ ctx }: { ctx: DocsContext }) {
           <div key={id} dir="ltr" className="grid gap-2.5">
             <h3
               id={schemaAnchor(id)}
-              className="scroll-mt-32 font-mono text-base font-semibold text-foreground lg:scroll-mt-24"
+              className="scroll-mt-12 font-mono text-base font-semibold text-foreground lg:scroll-mt-0"
             >
               <span lang="en">{id}</span>
             </h3>

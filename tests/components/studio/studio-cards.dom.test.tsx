@@ -7,6 +7,7 @@ import {
   DEMO_IMAGE,
   DEMO_VIDEO,
   FLUX_UNAVAILABLE,
+  apiError,
   assetDTO,
   generationDTO,
   installFakeUploads,
@@ -128,7 +129,7 @@ describe('Studio: use a result as the input image', () => {
     expect(
       await screen.findByText('We could not use that image. Choose another one.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Upload an input image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
   });
 });
 
@@ -338,5 +339,56 @@ describe('Studio: viewer, deleting and running work', () => {
     ).toBeInTheDocument();
     expect(cards()[0]).toHaveAttribute('data-status', 'failed');
     expect(screen.getAllByText(/declined by the content policy/).length).toBeGreaterThan(0);
+  }, 10_000);
+
+  it('closes the cancel question when the generation finishes behind it, and sends nothing', async () => {
+    const running = generationDTO({
+      status: 'processing',
+      progress: 90,
+      outputs: [],
+      prompt: 'Waves',
+    });
+    const { api } = mountStudio({ generations: [running] });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel this generation?' });
+    expect(within(dialog).getByText(/credits will be refunded in full/)).toBeInTheDocument();
+
+    api.generations = [
+      { ...running, status: 'succeeded', progress: 100, outputs: [assetDTO({ id: 'ast_done' })] },
+    ];
+    expect(
+      await screen.findByText('Your image is ready', {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    // The promise of a refund is gone with the question; nothing was canceled.
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(api.callsTo('POST', `/generations/${running.id}/cancel`)).toHaveLength(0);
+    expect(cards()[0]).toHaveAttribute('data-status', 'succeeded');
+  }, 10_000);
+
+  it('says it was too late when a cancel is confirmed just as the generation finishes', async () => {
+    const running = generationDTO({ status: 'processing', progress: 90, outputs: [] });
+    const { api } = mountStudio({
+      generations: [running],
+      prepare: (fake) =>
+        fake.intercept((call) => {
+          if (!call.path.endsWith('/cancel')) return undefined;
+          // It finished between the click and the server looking at it.
+          fake.generations = [
+            { ...running, status: 'succeeded', progress: 100, outputs: [assetDTO()] },
+          ];
+          return apiError(409, 'conflict', { status: 'succeeded' });
+        }),
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel generation' }));
+    expect(
+      await screen.findByText('It had already finished, so it could not be canceled.'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(cards()[0]).toHaveAttribute('data-status', 'succeeded'));
+    expect(api.callsTo('POST', `/generations/${running.id}/cancel`)).toHaveLength(1);
   }, 10_000);
 });

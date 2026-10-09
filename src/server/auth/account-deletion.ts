@@ -16,8 +16,10 @@ import { markCanceled } from '@/server/generations/lifecycle';
 import { getLogger } from '@/server/logger';
 import { getStorage } from '@/server/storage';
 import { runAccountDeletedHooks } from './account-hooks';
+import { runInBackground } from './background';
 import { queueAccountDeletedEmail } from './notifications';
 import { verifyPassword } from './password';
+import { signupAddressAfterDeletion } from './signup-guard';
 import { fieldError } from './validation';
 
 /**
@@ -26,7 +28,9 @@ import { fieldError } from './validation';
  * What goes: sessions, API keys, email links, every generation (prompts included), every asset row
  * and its stored files, and everything personal on the user row: the email becomes a tombstone
  * (`<id>@deleted.invalid`, which can never receive mail or sign in), the name is cleared, the
- * password hash is destroyed, the sign-up address is erased and `disabledAt`/`deletedAt` are set.
+ * password hash is destroyed, the sign-up address is erased (for the rest of its first day only a
+ * keyed digest stays, so deleting accounts does not free slots of the per-address sign-up cap)
+ * and `disabledAt`/`deletedAt` are set.
  *
  * What stays, on purpose: the user row itself (id, role reset to `user`, balance, timestamps), the
  * credit ledger and, in the billing module, payment records. Accounting needs the money trail,
@@ -38,7 +42,9 @@ import { fieldError } from './validation';
  * transaction then tombstones the row, cancels running generations and revokes credentials, so
  * the account is dead at once; only then are files and rows removed in batches. A crash or a
  * storage outage in that last phase leaves a tombstoned user with some leftovers, which
- * `purgeAccountContent` / `resumeAccountPurges` (CLI: `purge-deleted`) finish later.
+ * `purgeAccountContent` / `resumeAccountPurges` finish later: the server's purge scheduler
+ * (`purge-scheduler.ts`) runs them every hour, and the CLI has `purge-deleted` for an operator who
+ * does not want to wait.
  */
 
 const TOMBSTONE_DOMAIN = 'deleted.invalid';
@@ -168,10 +174,11 @@ export async function resumeAccountPurges(limit: number = 50): Promise<number> {
   return pending.length;
 }
 
-export interface DeletionResult {
+export interface DeletionResult<P extends PurgeResult | null = PurgeResult> {
   /** The account had been deleted before; only leftover content was cleaned up. */
   alreadyDeleted: boolean;
-  purge: PurgeResult;
+  /** What the clean-up did; null when it was handed to the background ({@link DeleteOptions.purge}). */
+  purge: P;
 }
 
 function activeAdminsOtherThan(db: Db, userId: string): number {
@@ -194,6 +201,49 @@ function activeAdminsOtherThan(db: Db, userId: string): number {
 export interface DeleteOptions {
   /** Operators (the CLI) may remove the last administrator; a user may not. */
   force?: boolean;
+  /**
+   * `'wait'` (default) removes the files and rows before returning, for the CLI and tests that
+   * want the numbers. `'background'` returns as soon as the account is closed and erases the
+   * content on a later turn of the event loop: a large library must not hold the browser's
+   * request, and whatever that run cannot finish the purge scheduler picks up.
+   */
+  purge?: 'wait' | 'background';
+}
+
+function reportPurge(userId: string, purge: PurgeResult): void {
+  const fields = {
+    component: 'auth',
+    userId,
+    assetsDeleted: purge.assetsDeleted,
+    assetsFailed: purge.assetsFailed,
+  };
+  if (purge.complete) getLogger().info('Deleted account content erased', fields);
+  else {
+    getLogger().warn(
+      'Deleted account content only partly erased; the purge scheduler retries',
+      fields,
+    );
+  }
+}
+
+function purgeInBackground(userId: string): void {
+  runInBackground('purge-deleted-account', async () => {
+    reportPurge(userId, await purgeAccountContent(userId));
+  });
+}
+
+async function finishPurge(
+  userId: string,
+  alreadyDeleted: boolean,
+  mode: DeleteOptions['purge'],
+): Promise<DeletionResult<PurgeResult | null>> {
+  if (mode === 'background') {
+    purgeInBackground(userId);
+    return { alreadyDeleted, purge: null };
+  }
+  const purge = await purgeAccountContent(userId);
+  reportPurge(userId, purge);
+  return { alreadyDeleted, purge };
 }
 
 /**
@@ -204,14 +254,20 @@ export interface DeleteOptions {
  */
 export async function deleteAccount(
   userId: string,
+  options?: DeleteOptions & { purge?: 'wait' },
+): Promise<DeletionResult>;
+export async function deleteAccount(
+  userId: string,
+  options: DeleteOptions & { purge: 'background' },
+): Promise<DeletionResult<null>>;
+export async function deleteAccount(
+  userId: string,
   options: DeleteOptions = {},
-): Promise<DeletionResult> {
+): Promise<DeletionResult<PurgeResult | null>> {
   const db = getDb();
   const row = db.select().from(users).where(eq(users.id, userId)).get();
   if (!row) throw AppError.of('not_found', 'User not found');
-  if (row.deletedAt !== null) {
-    return { alreadyDeleted: true, purge: await purgeAccountContent(userId) };
-  }
+  if (row.deletedAt !== null) return finishPurge(userId, true, options.purge);
   if (row.role === 'admin' && !options.force && activeAdminsOtherThan(db, userId) === 0) {
     throw AppError.of('conflict', 'The only administrator cannot delete the account');
   }
@@ -248,7 +304,7 @@ export async function deleteAccount(
         name: '',
         passwordHash: DESTROYED_PASSWORD_HASH,
         role: 'user',
-        signupIp: null,
+        signupIp: signupAddressAfterDeletion(current, now),
         emailVerifiedAt: null,
         disabledAt: now,
         deletedAt: now,
@@ -259,35 +315,43 @@ export async function deleteAccount(
     return current;
   });
 
-  const purge = await purgeAccountContent(userId);
   if (tombstoned) {
-    getLogger().info('Account deleted', {
-      component: 'auth',
-      userId,
-      assetsDeleted: purge.assetsDeleted,
-      purgeComplete: purge.complete,
-    });
+    getLogger().info('Account deleted', { component: 'auth', userId });
     queueAccountDeletedEmail({
       email: tombstoned.email,
       name: tombstoned.name,
       locale: tombstoned.locale,
     });
   }
-  return { alreadyDeleted: tombstoned === null, purge };
+  return finishPurge(userId, tombstoned === null, options.purge);
 }
 
 /**
  * The self-service path: the caller must re-enter the account password. A wrong password is a 422
- * at path `password` (the user is signed in, only this input is wrong).
+ * at path `password` (the user is signed in, only this input is wrong). `options.purge` is passed
+ * on to {@link deleteAccount}; the route asks for `'background'`.
  */
 export async function deleteAccountWithPassword(
   userId: string,
   password: string,
-): Promise<DeletionResult> {
+  options?: { purge?: 'wait' },
+): Promise<DeletionResult>;
+export async function deleteAccountWithPassword(
+  userId: string,
+  password: string,
+  options: { purge: 'background' },
+): Promise<DeletionResult<null>>;
+export async function deleteAccountWithPassword(
+  userId: string,
+  password: string,
+  options: Pick<DeleteOptions, 'purge'> = {},
+): Promise<DeletionResult<PurgeResult | null>> {
   const row = getDb().select().from(users).where(eq(users.id, userId)).get();
   if (!row || row.deletedAt !== null) throw AppError.of('not_found', 'User not found');
   if (!(await verifyPassword(password, row.passwordHash))) {
     throw fieldError('password', 'Password is incorrect');
   }
-  return deleteAccount(userId);
+  return options.purge === 'background'
+    ? deleteAccount(userId, { purge: 'background' })
+    : deleteAccount(userId);
 }

@@ -51,7 +51,11 @@ export function zoomAt(view: View, size: Size, scale: number, focal: Point): Vie
   const next = clampScale(scale);
   const ratio = next / view.scale;
   return clampView(
-    { scale: next, x: focal.x - (focal.x - view.x) * ratio, y: focal.y - (focal.y - view.y) * ratio },
+    {
+      scale: next,
+      x: focal.x - (focal.x - view.x) * ratio,
+      y: focal.y - (focal.y - view.y) * ratio,
+    },
     size,
   );
 }

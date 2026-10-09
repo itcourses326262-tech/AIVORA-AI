@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { RENEWAL_LEAD_MS, addMonthsUtc } from '@/lib/billing/period';
 import { grantCredits } from '@/server/credits';
 import type { Tx } from '@/server/db';
@@ -19,6 +19,28 @@ const log = () => getLogger().child({ module: 'billing' });
 
 /** States from which a confirmed payment still has to be credited (a late payment is not lost). */
 const UNPAID_STATUSES = ['pending', 'failed', 'canceled'] as const;
+
+/**
+ * An order whose credits were never granted. Besides the open and the closed ones this includes a
+ * `needs_review` order that was flagged BEFORE any credit (a payment that did not match): it was
+ * only parked, and when the gateway later reports a payment that matches in every respect (a
+ * reference the gateway failed to echo once, say) it is credited like any other, or closed when
+ * the money went back. A `needs_review` order that was credited (a refund that could not take all
+ * its credits back) is never unpaid: `paidAt` says the credits were granted.
+ */
+export function isUnpaid(order: Pick<OrderRow, 'status' | 'paidAt'>): boolean {
+  return (
+    (UNPAID_STATUSES as readonly string[]).includes(order.status) ||
+    (order.status === 'needs_review' && order.paidAt === null)
+  );
+}
+
+function unpaidCondition(): SQL | undefined {
+  return or(
+    inArray(orders.status, UNPAID_STATUSES),
+    and(eq(orders.status, 'needs_review'), isNull(orders.paidAt)),
+  );
+}
 
 function readOrder(tx: Tx, orderId: string): OrderRow {
   const order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
@@ -90,7 +112,7 @@ export function markPaid(tx: Tx, order: OrderRow, paymentId: string | null, now:
       gatewayPaymentId: paymentId ?? order.gatewayPaymentId,
       updatedAt: now,
     })
-    .where(and(eq(orders.id, order.id), inArray(orders.status, UNPAID_STATUSES)))
+    .where(and(eq(orders.id, order.id), unpaidCondition()))
     .run();
   if (claimed.changes !== 1) return false;
 
@@ -193,27 +215,48 @@ function activateSubscription(
 
 /**
  * A payment that was returned before we ever credited it (refunded or voided while the order was
- * still unpaid on our side): the books are even, nothing is granted.
+ * still unpaid on our side): the books are even, nothing is granted. `refundedHalalas` is what the
+ * gateway says went back (the order's full price when it is not given), never more than the price.
  */
 export function markRefundedWithoutCredit(
   tx: Tx,
   order: OrderRow,
   paymentId: string | null,
   now: number,
+  refundedHalalas: number = order.amountHalalas,
 ): boolean {
   const claimed = tx
     .update(orders)
     .set({
       status: 'refunded',
-      refundedHalalas: order.amountHalalas,
+      refundedHalalas: Math.min(Math.max(Math.trunc(refundedHalalas), 0), order.amountHalalas),
       gatewayPaymentId: paymentId ?? order.gatewayPaymentId,
       updatedAt: now,
     })
-    .where(and(eq(orders.id, order.id), inArray(orders.status, UNPAID_STATUSES)))
+    .where(and(eq(orders.id, order.id), unpaidCondition()))
     .run();
   if (claimed.changes !== 1) return false;
   endIncompleteSubscription(tx, order, 'expired', now);
   return true;
+}
+
+/**
+ * The gateway closed a renewal link that was still wanted (the payment page was canceled in the
+ * dashboard, say): the subscription is due at once, so the next scheduler pass issues a new link
+ * instead of waiting for the end of the grace period. A canceled subscription stays as it is.
+ */
+export function wakeSubscription(tx: Tx, subscriptionId: string | null, now: number): void {
+  if (subscriptionId === null) return;
+  tx.update(subscriptions)
+    .set({ nextChargeAt: now })
+    .where(
+      and(
+        eq(subscriptions.id, subscriptionId),
+        inArray(subscriptions.status, ['active', 'past_due']),
+        eq(subscriptions.cancelAtPeriodEnd, false),
+      ),
+    )
+    .run();
 }
 
 /**
@@ -277,6 +320,31 @@ export function applyRefund(tx: Tx, orderId: string, refundedTotal: number, now:
   }
   if (full && granted) endSubscriptionFundedBy(tx, order, now);
   return readOrder(tx, orderId);
+}
+
+/**
+ * Ends a subscription at once: no renewal link will be issued again. The credits it already
+ * granted stay (they never expire); a pending renewal link is withdrawn by the scheduler. Works on
+ * an unpaid first month too. Returns false when there was nothing left to end.
+ */
+export function endSubscriptionNow(tx: Tx, subscriptionId: string, now: number): boolean {
+  const claimed = tx
+    .update(subscriptions)
+    .set({
+      status: 'canceled',
+      cancelAtPeriodEnd: true,
+      canceledAt: now,
+      nextChargeAt: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(subscriptions.id, subscriptionId),
+        inArray(subscriptions.status, ['incomplete', 'active', 'past_due']),
+      ),
+    )
+    .run();
+  return claimed.changes === 1;
 }
 
 /** Refunding the payment that funded the CURRENT month ends the subscription now. */

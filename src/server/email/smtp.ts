@@ -77,8 +77,14 @@ async function createNodemailerTransporter(
   });
 }
 
-/** `to` must be exactly one plain address: no lists, display names or header injection. */
-const SINGLE_ADDRESS = /^[^\s,;<>"'()[\]\\:@]+@[^\s,;<>"'()[\]\\:@]+$/;
+/**
+ * `to` must be exactly one plain address: no lists, display names or header injection. The local
+ * part may hold an apostrophe (`o'brien@example.com` is a valid address that sign-up accepts, and
+ * a mailbox that can never be mailed would be an account that can never be confirmed or
+ * recovered); a host name never does. Whitespace, comma, semicolon, angle brackets, double quote,
+ * parentheses, brackets, backslash, colon and a second `@` are refused everywhere.
+ */
+const SINGLE_ADDRESS = /^[^\s,;<>"()[\]\\:@]+@[^\s,;<>"'()[\]\\:@]+$/;
 
 export function isSingleAddress(address: string): boolean {
   return SINGLE_ADDRESS.test(address) && address.length <= 254;

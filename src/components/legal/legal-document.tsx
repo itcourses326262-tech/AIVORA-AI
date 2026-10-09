@@ -14,9 +14,12 @@ import {
 } from '@/lib/legal';
 import { formatDate, formatPlainNumber } from '@/lib/utils';
 import { getEnv } from '@/server/env';
+import { reportMissingCompanyDetails } from './company-check';
 import { LegalPage, type LegalSectionData } from './legal-page';
 import { LegalText, type LegalTextContext } from './legal-text';
-import { anchorOf, sectionIdsOf, sectionKey } from './outline';
+import { fillVariables } from './markup';
+import { anchorOf, documentOf } from './outline';
+import { legalVariables } from './variables';
 
 export interface LegalDocumentProps {
   slug: LegalSlug;
@@ -27,41 +30,40 @@ export interface LegalDocumentProps {
 }
 
 /**
- * One legal document, read from the `legal` dictionaries in the active language and laid out by
- * `LegalPage`. The numbers in the text (VAT, renewal link lead time, grace period, refund window)
- * come from the same configuration the billing code uses, so the wording cannot drift from what
- * the system does.
+ * One legal document, read from `messages/legal-documents.ts` in the active language and laid out
+ * by `LegalPage`. The numbers in the text (VAT, renewal link lead time, grace period, refund
+ * window) come from the same configuration the billing code uses, so the wording cannot drift from
+ * what the system does.
  */
 export async function LegalDocument({
   slug,
   company = readCompanyInfo(),
   draft = LEGAL_DRAFT,
 }: LegalDocumentProps) {
-  const { t, locale } = await getI18n();
-  const document = LEGAL_MESSAGE_KEY[slug];
-  const vars = {
+  const i18n = await getI18n();
+  const { t, locale } = i18n;
+  const text = documentOf(locale, LEGAL_MESSAGE_KEY[slug]);
+  const variables = legalVariables(i18n, {
     vatPercent: getEnv().VAT_RATE_PERCENT,
     leadDays: RENEWAL_LEAD_MS / DAY_MS,
     graceDays: RENEWAL_GRACE_MS / DAY_MS,
     refundDays: REFUND_WINDOW_DAYS,
-  };
-  const ctx: LegalTextContext = { t, company, draft };
-
-  const sections: LegalSectionData[] = sectionIdsOf(document).map((sectionId, index) => {
-    const id = anchorOf(sectionId);
-    return {
-      id,
-      number: formatPlainNumber(index + 1, locale),
-      title: t(sectionKey(document, sectionId, 'title')),
-      children: <LegalText body={t(sectionKey(document, sectionId, 'body'), vars)} ctx={ctx} />,
-    };
   });
+  const ctx: LegalTextContext = { t, company, draft };
+  reportMissingCompanyDetails(company, draft);
+
+  const sections: LegalSectionData[] = text.sections.map((section, index) => ({
+    id: anchorOf(section.id),
+    number: formatPlainNumber(index + 1, locale),
+    title: section.title,
+    children: <LegalText body={fillVariables(section.body, variables)} ctx={ctx} />,
+  }));
 
   return (
     <LegalPage
       eyebrow={t('legal.common.eyebrow')}
-      title={t(`legal.${document}.title`)}
-      summary={t(`legal.${document}.summary`)}
+      title={text.title}
+      summary={text.summary}
       updatedLabel={t('legal.common.lastUpdated', {
         date: formatDate(lastUpdatedMs(slug), locale, 'long', 'UTC'),
       })}

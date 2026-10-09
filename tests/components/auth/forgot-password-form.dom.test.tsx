@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ForgotPasswordForm } from '@/components/auth/forgot-password-form';
 import { axeViolations } from '../axe';
 import { renderUi } from '../render';
-import { apiError, bodyOf, json, stubDesktopPointer, stubFetch } from './support';
+import { apiError, bodyOf, focusLink, json, stubDesktopPointer, stubFetch } from './support';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,6 +40,14 @@ describe('ForgotPasswordForm', () => {
     expect(await screen.findByText(/Enter a valid email address/)).toBeInTheDocument();
     expect(email()).toHaveAttribute('aria-invalid', 'true');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not flag the empty field when focus leaves it for the way back to log in', async () => {
+    stubDesktopPointer();
+    renderUi(<ForgotPasswordForm />);
+    expect(email()).toHaveFocus();
+    await focusLink('Back to log in');
+    expect(screen.queryByText('Enter your email address.')).not.toBeInTheDocument();
   });
 
   it('sends the trimmed address and then says to check the inbox, naming the address', async () => {

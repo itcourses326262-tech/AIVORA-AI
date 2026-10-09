@@ -1,8 +1,11 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProfilePanel } from '@/components/account/profile-panel';
 import { NAME_MAX_LENGTH } from '@/components/auth/schemas';
+import { I18nProvider } from '@/lib/i18n/client';
+import { dirOf, type Locale } from '@/lib/i18n/locales';
+import { UserProvider } from '@/lib/user-context';
 import { axeViolations } from '../axe';
 import {
   apiError,
@@ -180,6 +183,70 @@ describe('ProfilePanel', () => {
     expect(api.to('PATCH /account')).toHaveLength(1);
     finish(saved({ name: 'Laylax' }));
     await screen.findByText('Profile saved');
+  });
+
+  describe('when the interface changes language while the form is open', () => {
+    // The language menu of the header only writes the cookie and renders the page again: the
+    // provider gets a new locale and this form, still mounted, must follow it.
+    function mountSwitchable() {
+      const tree = (locale: Locale) => (
+        <I18nProvider locale={locale}>
+          <UserProvider initialUser={LAYLA}>
+            <ProfilePanel />
+          </UserProvider>
+        </I18nProvider>
+      );
+      const view = render(tree('en'));
+      return {
+        switchTo(locale: Locale) {
+          document.documentElement.lang = locale;
+          document.documentElement.dir = dirOf(locale);
+          view.rerender(tree(locale));
+        },
+      };
+    }
+    const radio = (label: string) =>
+      within(screen.getByRole('radiogroup')).getByRole('radio', { name: label });
+
+    it('shows the language of the interface now, and lets the reader save it', async () => {
+      const api = installFakeApi({ 'PATCH /account': () => saved({ locale: 'ar' }) });
+      const user = userEvent.setup();
+      const view = mountSwitchable();
+      expect(radio('English')).toBeChecked();
+      view.switchTo('ar');
+      expect(radio('العربية')).toBeChecked();
+      expect(radio('English')).not.toBeChecked();
+      // The account still remembers English, so there is something to save.
+      const button = screen.getByRole('button', { name: /^حفظ التغييرات/ });
+      expect(button).toBeEnabled();
+      await user.click(button);
+      await waitFor(() => expect(api.to('PATCH /account')).toHaveLength(1));
+      expect(api.to('PATCH /account')[0]?.body).toEqual({ locale: 'ar' });
+    });
+
+    it('drops a choice made in the form when the language changes, and keeps it otherwise', async () => {
+      installFakeApi();
+      const user = userEvent.setup();
+      const view = mountSwitchable();
+      await user.click(radio('العربية'));
+      expect(radio('العربية')).toBeChecked();
+      expect(save()).toBeEnabled();
+      // The menu then picks Arabic and back to English: the earlier pick must not come back.
+      view.switchTo('ar');
+      view.switchTo('en');
+      expect(radio('English')).toBeChecked();
+      expect(radio('العربية')).not.toBeChecked();
+      expect(save()).toBeDisabled();
+    });
+
+    it('keeps the name being typed', async () => {
+      installFakeApi();
+      const user = userEvent.setup();
+      const view = mountSwitchable();
+      await user.type(name(), ' K');
+      view.switchTo('ar');
+      expect(screen.getByRole('textbox', { name: /^الاسم/ })).toHaveValue('Layla K');
+    });
   });
 
   it('is in Arabic, with the email and the name field behaving in a right-to-left page', async () => {

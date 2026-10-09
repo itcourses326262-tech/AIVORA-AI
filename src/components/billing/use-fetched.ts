@@ -43,9 +43,7 @@ export function useFetched<T>(
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         // A failed reload keeps what is already shown; only a first load turns into an error.
-        setState((current) =>
-          current.status === 'ready' ? current : { status: 'error', error },
-        );
+        setState((current) => (current.status === 'ready' ? current : { status: 'error', error }));
       });
     return () => controller.abort();
   }, [enabled, version]);

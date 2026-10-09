@@ -12,7 +12,6 @@ export const PRICING_FAQ_KEYS = [
   'refunds',
   'payment',
 ] as const;
-export type PricingFaqKey = (typeof PRICING_FAQ_KEYS)[number];
 
 export interface PricingFaqFacts {
   /** The VAT rate in percent (from the price list the server sends). */
@@ -75,7 +74,7 @@ export function PricingFaq({ i18n, facts }: { i18n: Translator; facts: PricingFa
                 <p className="mt-2">
                   <Link
                     href="/refunds"
-                    className="font-medium text-brand underline-offset-4 hover:underline"
+                    className="hit-area font-medium text-brand underline-offset-4 hover:underline"
                   >
                     {t('billing.pricing.faq.refundLink')}
                   </Link>

@@ -82,13 +82,15 @@ function refusedInput(error: unknown): boolean {
  *
  * Idempotency: every click gets its own `Idempotency-Key`. When the outcome is unknown (the
  * connection broke, the server failed) the key is kept, so pressing Generate again with the same
- * request cannot charge twice; any other answer is final and the next click starts afresh.
+ * request cannot charge twice, and the balance and the history are read again in case the request
+ * did go through; any other answer is final and the next click starts afresh.
  */
 export function useGenerate({
   add,
   settle,
   drop,
-}: Pick<GenerationFeed, 'add' | 'settle' | 'drop'>) {
+  sync,
+}: Pick<GenerationFeed, 'add' | 'settle' | 'drop' | 'sync'>) {
   const { refresh } = useUser();
   const [busy, setBusy] = useState(false);
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -132,14 +134,21 @@ export function useGenerate({
               continue;
             }
           }
-          if (!outcomeIsUnknown(error)) attempt.current = null;
           drop(key);
+          if (outcomeIsUnknown(error)) {
+            // The server may have taken the request and the answer got lost: the balance and the
+            // history say what really happened, so the screen does not keep the old picture.
+            void refresh();
+            sync();
+          } else {
+            attempt.current = null;
+          }
           setBusy(false);
           return { ok: false, error };
         }
       }
     },
-    [add, settle, drop, refresh],
+    [add, settle, drop, sync, refresh],
   );
 
   return { submit, busy };

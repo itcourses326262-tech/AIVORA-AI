@@ -1,8 +1,6 @@
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
 import { DocsPage } from '@/components/docs/docs-page';
 import { pickQuickstartModel } from '@/components/docs/quickstart-model';
-import { CODE_LANGUAGE_COOKIE, isQuickstartLanguage } from '@/components/docs/snippets';
 import { SiteChrome } from '@/components/layout/site-chrome';
 import { siteOrigin } from '@/components/marketing/seo';
 import { getI18n } from '@/lib/i18n/server';
@@ -21,13 +19,12 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * The public API documentation. Anyone may read it, so it sits outside the signed-in area and
- * wears the site header and footer. It is rendered per request: the base URL, the models in the
- * quickstart and the language of the code samples all depend on the deployment and the reader.
+ * wears the site header and footer. It is rendered per request: the base URL and the model in
+ * the quickstart depend on the deployment, the language of the text on the reader.
  */
 export default async function DocsRoute() {
-  const [i18n, cookieStore] = await Promise.all([getI18n(), cookies()]);
+  const i18n = await getI18n();
   const origin = siteOrigin();
-  const saved = cookieStore.get(CODE_LANGUAGE_COOKIE)?.value;
   return (
     <SiteChrome>
       <DocsPage
@@ -35,7 +32,6 @@ export default async function DocsRoute() {
         document={buildOpenApiDocument(origin)}
         origin={origin}
         quickstart={pickQuickstartModel(listModelDTOs(getEnv()))}
-        initialLanguage={isQuickstartLanguage(saved) ? saved : 'bash'}
       />
     </SiteChrome>
   );

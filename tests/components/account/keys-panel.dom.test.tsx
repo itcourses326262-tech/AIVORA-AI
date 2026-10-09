@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KeysPanel } from '@/components/account/keys-panel';
 import type { ApiKeyDTO, CreateApiKeyResponse } from '@/lib/api-types';
+import { buildOpenApiDocument } from '@/lib/openapi/spec';
 import { axeViolations } from '../axe';
 import {
   apiError,
@@ -36,6 +37,19 @@ function key(index: number, overrides: Partial<ApiKeyDTO> = {}): ApiKeyDTO {
     createdAt: T0 + index,
     ...overrides,
   };
+}
+
+/**
+ * Whether the example calls an endpoint that looks at the key (an `optional` one such as
+ * `GET /models` answers 200 to a wrong key, so it proves nothing about the key just made).
+ */
+function tellsAWrongKeyApart(command: string | null): boolean {
+  const path = /\/api\/v1(\/[\w/-]+)/.exec(command ?? '')?.[1] ?? '';
+  const operation = buildOpenApiDocument(ORIGIN).paths[path]?.get;
+  if (!operation) return false;
+  const anonymous =
+    operation.security.length === 0 || operation.security.some((r) => !Object.keys(r).length);
+  return !anonymous && operation.security.some((requirement) => 'bearerAuth' in requirement);
 }
 
 const listOf = (keys: ApiKeyDTO[]) => () => json({ data: keys, nextCursor: null });
@@ -144,8 +158,10 @@ describe('the list', () => {
     mount([key(1)]);
     await list();
     const region = screen.getByRole('region', { name: 'Quick start · cURL' });
-    expect(region).toHaveTextContent(`curl "${ORIGIN}/api/v1/models"`);
+    expect(region).toHaveTextContent(`curl "${ORIGIN}/api/v1/account"`);
     expect(region).toHaveTextContent('Authorization: Bearer $AIVORE_API_KEY');
+    expect(tellsAWrongKeyApart(region.textContent)).toBe(true);
+    expect(region.textContent).not.toContain('/models');
     expect(screen.getByRole('link', { name: /Full guide and reference/ })).toHaveAttribute(
       'href',
       '/docs',
@@ -194,8 +210,10 @@ describe('creating a key', () => {
     const user = userEvent.setup();
     const reveal = await createKey(user, api);
     const command = within(reveal).getByRole('region', { name: 'Your new API key · cURL' });
-    expect(command).toHaveTextContent(`curl "${ORIGIN}/api/v1/models"`);
+    expect(command).toHaveTextContent(`curl "${ORIGIN}/api/v1/account"`);
     expect(command).toHaveTextContent(`Authorization: Bearer ${SECRET}`);
+    expect(tellsAWrongKeyApart(command.textContent)).toBe(true);
+    expect(command.textContent).not.toContain('/models');
   });
 
   it('shows the limit where the problem is when the server says there are too many keys', async () => {
@@ -211,6 +229,40 @@ describe('creating a key', () => {
     // What was typed is still there.
     expect(within(dialog).getByRole('textbox', { name: /^Key name/ })).toHaveValue('Another');
   });
+
+  it.each([
+    [
+      'en',
+      'Create key',
+      'Create key',
+      /^Key name/,
+      /Confirm your email address before creating API keys/,
+    ],
+    [
+      'ar',
+      'إنشاء مفتاح',
+      'إنشاء المفتاح',
+      /^اسم المفتاح/,
+      /أكّد بريدك الإلكتروني قبل إنشاء مفاتيح API/,
+    ],
+  ] as const)(
+    'explains in terms of keys, not generations, that the email must be confirmed first (%s)',
+    async (locale, openName, submitName, nameField, expected) => {
+      const { api } = mount([key(1)], locale);
+      api.on('POST /keys', () => apiError(403, 'email_not_verified'));
+      const user = userEvent.setup();
+      await screen.findByRole('list');
+      await user.click(screen.getByRole('button', { name: openName }));
+      const dialog = await screen.findByRole('dialog');
+      await user.type(within(dialog).getByRole('textbox', { name: nameField }), 'CI');
+      await user.click(within(dialog).getByRole('button', { name: submitName }));
+      const alert = await within(dialog).findByRole('alert');
+      expect(alert).toHaveTextContent(expected);
+      // Not the generic sentence about generations, and the dialog stays for another try.
+      expect(alert).not.toHaveTextContent(/generations|عمليات التوليد|المحتوى/);
+      expect(within(dialog).getByRole('textbox', { name: nameField })).toHaveValue('CI');
+    },
+  );
 
   it('pins a refused name to the name field', async () => {
     const { api } = mount([key(1)]);
@@ -354,6 +406,49 @@ describe('revoking a key', () => {
     expect(within(items[0] as HTMLElement).queryByRole('button')).toBeNull();
     expect(items[1]).toHaveTextContent('Active');
     expect(api.to('GET /keys')).toHaveLength(1);
+  });
+
+  it('puts focus on the revoked key, whose button is gone, and not on the top of the page', async () => {
+    const { api } = mount([key(1), key(2)]);
+    api.on('DELETE /keys/key_1', () => new Response(null, { status: 204 }));
+    const user = userEvent.setup();
+    await list();
+    screen.getByRole('button', { name: 'Revoke Key number 1' }).focus();
+    await user.keyboard('{Enter}');
+    const dialog = await screen.findByRole('alertdialog', { name: 'Revoke “Key number 1”?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke key' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    const [revoked, active] = within(
+      screen.getByRole('list', { name: 'Your API keys' }),
+    ).getAllByRole('listitem');
+    expect(revoked).toHaveTextContent('Revoked');
+    expect(revoked).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+    // The other key keeps its button, and nothing else moved.
+    expect(active).not.toHaveFocus();
+    expect(
+      within(active as HTMLElement).getByRole('button', { name: /Revoke Key number 2/ }),
+    ).toBeEnabled();
+  });
+
+  it('puts focus on the key row also when the key was already gone', async () => {
+    const { api } = mount([key(1)]);
+    api.on('DELETE /keys/key_1', () => apiError(404, 'not_found'));
+    const user = userEvent.setup();
+    const dialog = await ask(user);
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke key' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.getByRole('listitem')).toHaveFocus();
+  });
+
+  it('leaves focus on the button it returns to when nothing was revoked', async () => {
+    mount([key(1)]);
+    const user = userEvent.setup();
+    const dialog = await ask(user);
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Revoke Key number 1' })).toHaveFocus();
+    expect(screen.getByRole('listitem')).not.toHaveFocus();
   });
 
   it('makes room under the limit', async () => {

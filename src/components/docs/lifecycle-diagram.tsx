@@ -159,7 +159,7 @@ export function LifecycleDiagram({ title, description }: LifecycleDiagramProps) 
         <Label x={186} y={84} anchor="start">
           picked up
         </Label>
-        <Label x={82} y={200} anchor="end">
+        <Label x={8} y={190} anchor="start">
           outputs stored
         </Label>
         <Label x={186} y={214} anchor="start">

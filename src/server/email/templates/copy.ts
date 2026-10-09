@@ -41,6 +41,8 @@ export const emailCopy = defineMessages({
       heading: 'Your password was changed',
       intro:
         'The password of your account ({email}) was changed on {time}, and you were signed out of every device.',
+      keysRevoked:
+        'Your API keys were revoked as well. If you use the API, create new keys in your account.',
       warning:
         "If this wasn't you, reset your password right away: someone else may have access to your account.",
       action: 'Reset my password',
@@ -56,10 +58,10 @@ export const emailCopy = defineMessages({
     },
     accountDeleted: {
       subject: 'Your AIVORE account was deleted',
-      preheader: 'We deleted your account and everything you created.',
+      preheader: 'We deleted your account and are erasing everything you created.',
       heading: 'Your account was deleted',
       intro:
-        'As you asked, we deleted your account ({email}) together with every image and video you created.',
+        'As you asked, we deleted your account ({email}) and signed you out everywhere. The images and videos you created are being erased now; if anything cannot be removed right away, we keep trying until it is gone.',
       records:
         'We only keep the balance and payment records that accounting requires. They are no longer linked to your name or email.',
       warning: "If you didn't ask for this, please contact us as soon as possible.",
@@ -98,6 +100,8 @@ export const emailCopy = defineMessages({
       preheader: 'تم تغيير كلمة مرور حسابك للتو.',
       heading: 'تم تغيير كلمة المرور',
       intro: 'تم تغيير كلمة المرور لحسابك ({email}) في {time}، وسُجّل خروجك من جميع الأجهزة.',
+      keysRevoked:
+        'كما أُلغيت مفاتيح API الخاصة بك. إن كنت تستخدم واجهة API فأنشئ مفاتيح جديدة من حسابك.',
       warning:
         'إن لم تكن أنت من فعل ذلك، فأعد تعيين كلمة المرور فورًا؛ فقد يكون شخص آخر قد وصل إلى حسابك.',
       action: 'إعادة تعيين كلمة المرور',
@@ -112,9 +116,10 @@ export const emailCopy = defineMessages({
     },
     accountDeleted: {
       subject: 'تم حذف حسابك في AIVORE',
-      preheader: 'حذفنا حسابك وكل ما أنشأته.',
+      preheader: 'حذفنا حسابك ونمحو الآن كل ما أنشأته.',
       heading: 'تم حذف حسابك',
-      intro: 'بناءً على طلبك، حذفنا حسابك ({email}) مع كل ما أنشأته من صور وفيديوهات.',
+      intro:
+        'بناءً على طلبك، حذفنا حسابك ({email}) وسجّلنا خروجك من كل مكان. تجري الآن إزالة الصور والفيديوهات التي أنشأتها، وإن تعذّر حذف شيء منها فورًا فسنواصل المحاولة حتى يُحذف بالكامل.',
       records:
         'نحتفظ فقط بسجلات الرصيد والمدفوعات التي تتطلبها المحاسبة، ولم تعد مرتبطة باسمك أو بريدك.',
       warning: 'إن لم تطلب حذف حسابك، فتواصل معنا في أقرب وقت.',

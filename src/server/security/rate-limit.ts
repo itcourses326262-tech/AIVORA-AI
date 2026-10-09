@@ -10,6 +10,14 @@ export interface RateLimitResult {
 
 export interface RateLimiter {
   hit(key: string, limit: number, windowSec: number): RateLimitResult;
+  /**
+   * Takes back one hit that {@link hit} returned `result` for, e.g. for a request that turned out
+   * to have done nothing. It only applies to the window the hit was counted in: when that window
+   * is over, the counter belongs to a new one and is left alone. Optional, so a limiter that
+   * cannot do it (a shared store, a test fake) still satisfies the interface; callers then simply
+   * keep the hit.
+   */
+  release?(key: string, result: RateLimitResult): void;
 }
 
 interface Window {
@@ -81,6 +89,11 @@ export class InMemoryRateLimiter implements RateLimiter {
     };
   }
 
+  release(key: string, result: RateLimitResult): void {
+    const window = this.windows.get(key);
+    if (window && window.resetAt === result.resetAt && window.count > 0) window.count -= 1;
+  }
+
   private evictOverflow(): void {
     while (this.windows.size > this.maxKeys) {
       const oldest = this.windows.keys().next();
@@ -108,6 +121,7 @@ export const unlimitedRateLimiter: RateLimiter = {
     remaining: limit,
     resetAt: Date.now() + windowSec * 1000,
   }),
+  release: () => undefined,
 };
 
 // Kept on globalThis so Next.js dev HMR (which re-evaluates modules) does not reset every budget.

@@ -1,6 +1,7 @@
 import 'server-only';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
+import { LIVE_KEYS_REFUSED_PREFIX } from '@/lib/billing/gateway-config';
 import { CREDIT_PACKS, SUBSCRIPTION_PLANS } from '@/lib/billing/plans';
 import { marginOf, TARGET_MARGIN_MULTIPLE } from '@/lib/billing/margin';
 import { formatMoney } from '@/lib/billing/format';
@@ -11,8 +12,12 @@ import { UsageError, type CommandContext } from '@/server/auth/admin/commands';
 import { processIo, type CliIo } from '@/server/auth/admin/io';
 import { getDb } from '@/server/db';
 import { orders, users } from '@/server/db/schema';
-import { getEnv } from '@/server/env';
+import { EnvError, getEnv, type Env } from '@/server/env';
+import { getGateway } from './config';
+import { BillingConfigError } from './moyasar';
+import { findOrder } from './orders';
 import { refundOrder } from './refunds';
+import { resolveReviewedOrder } from './review';
 import { settleOrder } from './settle';
 
 /**
@@ -23,13 +28,21 @@ import { settleOrder } from './settle';
 export const BILLING_USAGE = `Billing commands:
   billing-orders  [--status ${ORDER_STATUSES.join('|')}] [--email <email>] [--limit <n>] [--json]
                   lists orders, newest first; "needs_review" are the ones that need a person
-  refund-order    <order id> [--amount-sar <n.nn>]       (also: --id <order id>)
+  refund-order    <order id> [--amount-sar <n.nn>] [--expect-total-sar <n.nn>]   (also: --id <order id>)
                   refunds through the payment gateway (all that is left, or the amount) and takes the
                   matching credits back; credits already spent cannot be recovered, the order then
-                  stays "needs_review" with the shortfall visible (credits - clawed back)
+                  stays "needs_review" with the shortfall visible (credits - clawed back).
+                  --expect-total-sar is the refunded total the gateway must show afterwards: use it
+                  when you repeat a refund whose answer was lost, so it can never be refunded twice
   settle-order    <order id>                            (also: --id <order id>)
                   asks the gateway what happened to an order and applies it (what a webhook would do)
-  billing-prices  prints the price list with VAT, price per credit and margin against the target`;
+  resolve-order   <order id> --note "<what was decided>"   (also: --id <order id>)
+                  closes an order in "needs_review" after a person dealt with it (moves no money and
+                  no credits): refunded if all of it went back, paid if it was credited, else canceled
+  billing-prices  prints the price list with VAT, price per credit and margin against the target
+
+refund-order and settle-order talk to the real payment gateway only in production mode. On the
+production host run them as:  NODE_ENV=production npm run admin -- <command>`;
 
 const EXIT_OK = 0;
 const EXIT_FAILED = 1;
@@ -144,13 +157,88 @@ function listOrdersCommand(context: CommandContext): void {
   }
 }
 
+const PRODUCTION_HINT =
+  'On the production host run the command as: NODE_ENV=production npm run admin -- <command>';
+
+/**
+ * The environment, except that live payment keys on a machine started WITHOUT production mode are
+ * explained by what to do (run in production mode) instead of by the env rule that tells a
+ * developer how to switch the guard off: on the production host that is never the answer.
+ */
+function environmentForGateway(): Env {
+  try {
+    return getEnv();
+  } catch (error) {
+    if (
+      error instanceof EnvError &&
+      process.env.NODE_ENV !== 'production' &&
+      error.problems.some((problem) => problem.startsWith(LIVE_KEYS_REFUSED_PREFIX))
+    ) {
+      throw AppError.of(
+        'conflict',
+        `This machine has live payment keys, which are only used in production mode (NODE_ENV=${process.env.NODE_ENV ?? 'not set'}). ${PRODUCTION_HINT}`,
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Before an order is touched: which payment gateway THIS process would talk to, and whether it is
+ * the one the order was made with. `npm run admin` runs in development mode unless told otherwise,
+ * where the real gateway is (deliberately) not available; say so instead of failing in a way that
+ * invites switching safety checks off.
+ */
+function assertGatewayFor(context: CommandContext, id: string): void {
+  const { NODE_ENV: nodeEnv } = environmentForGateway();
+  const order = findOrder(getDb(), id);
+  if (!order) throw AppError.of('not_found', `No order ${id}`);
+  let gatewayId: string;
+  try {
+    gatewayId = getGateway().id;
+  } catch (error) {
+    if (nodeEnv !== 'production') {
+      throw AppError.of(
+        'conflict',
+        `Payments are not available in this mode (NODE_ENV=${nodeEnv}). ${PRODUCTION_HINT}`,
+      );
+    }
+    throw error instanceof BillingConfigError || isAppError(error)
+      ? error
+      : new Error('Billing is not available');
+  }
+  context.io.err(`Payment gateway: ${gatewayId} (NODE_ENV=${nodeEnv})`);
+  if (order.gateway !== gatewayId) {
+    throw AppError.of(
+      'conflict',
+      `Order ${id} was made with the ${order.gateway} payment gateway, but this process uses ${gatewayId} (NODE_ENV=${nodeEnv}).${nodeEnv === 'production' ? '' : ` ${PRODUCTION_HINT}`}`,
+    );
+  }
+  if (gatewayId === 'mock') {
+    // An order OF the fake (a real order met by the fake is the "run it in production mode" case
+    // above). The fake keeps its checkouts in the memory of the server that made them. A command
+    // line is another process with an empty fake: it would call every payment "unknown" (and
+    // settling would close a buyer's open checkout), so it must not pretend to speak for it.
+    throw AppError.of(
+      'conflict',
+      'The fake payment gateway of development lives in the memory of the running server, so this command cannot refund or settle its orders. To try refunds from the command line, run the app with Moyasar test keys (BILLING_GATEWAY=moyasar, sk_test_...).',
+    );
+  }
+}
+
 async function refundOrderCommand(context: CommandContext): Promise<void> {
   const id = orderId(context);
   const amountText = text(context, 'amount-sar');
-  const result = await refundOrder(id, {
-    amountHalalas: amountText === undefined ? undefined : parseSarToHalalas(amountText),
-  });
+  const expectText = text(context, 'expect-total-sar');
+  // Usage errors first: a malformed amount is the operator's typo, not a problem of the order.
+  const amountHalalas = amountText === undefined ? undefined : parseSarToHalalas(amountText);
+  const expectTotalHalalas = expectText === undefined ? undefined : parseSarToHalalas(expectText);
+  assertGatewayFor(context, id);
+  const result = await refundOrder(id, { amountHalalas, expectTotalHalalas });
   const { order } = result;
+  context.io.out(
+    `Gateway: ${sar(result.refundedBeforeHalalas)} had been refunded before, ${sar(result.refundedNowHalalas)} refunded now.`,
+  );
   const balance = getDb()
     .select({ balance: users.creditBalance })
     .from(users)
@@ -168,9 +256,18 @@ async function refundOrderCommand(context: CommandContext): Promise<void> {
 
 async function settleOrderCommand(context: CommandContext): Promise<void> {
   const id = orderId(context);
+  assertGatewayFor(context, id);
   const result = await settleOrder(id);
   if (!result) throw AppError.of('not_found', `No order ${id}`);
   context.io.out(`Order ${id}: ${result.outcome}, status ${result.order.status}.`);
+}
+
+function resolveOrderCommand(context: CommandContext): void {
+  const id = orderId(context);
+  const note = text(context, 'note');
+  if (note === undefined) throw new UsageError('Missing --note "<what was decided>"');
+  const order = resolveReviewedOrder(id, note);
+  context.io.out(`Order ${id} is closed as ${order.status}. Nothing was refunded or credited.`);
 }
 
 function pricesCommand(context: CommandContext): void {
@@ -214,10 +311,18 @@ const COMMANDS: Record<string, CommandSpec> = {
     run: listOrdersCommand,
   },
   'refund-order': {
-    options: { id: { type: 'string' }, 'amount-sar': { type: 'string' } },
+    options: {
+      id: { type: 'string' },
+      'amount-sar': { type: 'string' },
+      'expect-total-sar': { type: 'string' },
+    },
     run: refundOrderCommand,
   },
   'settle-order': { options: { id: { type: 'string' } }, run: settleOrderCommand },
+  'resolve-order': {
+    options: { id: { type: 'string' }, note: { type: 'string' } },
+    run: resolveOrderCommand,
+  },
   'billing-prices': { options: {}, run: pricesCommand },
 };
 
@@ -247,6 +352,7 @@ export async function runBillingAdminCli(args: string[], io: CliIo = processIo):
     if (parsed.positionals.length > 0) {
       throw new UsageError(`Unexpected argument "${parsed.positionals[0]}"`);
     }
+    environmentForGateway(); // the same explanation for every command, not only the ones that pay
     await spec.run({ io, values });
     return EXIT_OK;
   } catch (error) {

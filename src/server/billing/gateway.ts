@@ -50,6 +50,13 @@ export interface GatewayPaymentState {
   /** Our order id as the gateway stored it, or null when it is missing. */
   reference: string | null;
   refundedHalalas: number;
+  /**
+   * What the payment(s) itself moved, only present when it differs from the checkout's own
+   * `amountHalalas` / `currency` (a payment of another amount, or several payments on one checkout).
+   * The services require BOTH the checkout and the money to match the order.
+   */
+  paidAmountHalalas?: number;
+  paidCurrency?: string;
 }
 
 /** What a webhook says, reduced to hints. None of it is trusted; it only says WHERE to look. */

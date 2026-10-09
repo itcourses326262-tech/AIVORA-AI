@@ -34,7 +34,7 @@ export function Section({
     <section
       id={id}
       aria-labelledby={`${id}-title`}
-      className="grid scroll-mt-32 gap-5 lg:scroll-mt-24"
+      className="grid scroll-mt-12 gap-5 lg:scroll-mt-0"
     >
       <div className="grid gap-2">
         <h2 id={`${id}-title`} className="text-2xl font-bold text-foreground">
@@ -136,7 +136,9 @@ export function Authentication({ ctx }: { ctx: DocsContext }) {
         </div>
         <div className="grid content-start gap-3 rounded-2xl border border-border bg-surface p-4">
           <SubTitle>{t('account.docs.auth.sessionOnly')}</SubTitle>
-          <p className="text-sm leading-6 text-muted">{t('account.docs.auth.sessionOnlyNote')}</p>
+          <p className="text-sm leading-6 text-muted">
+            <Inline text={t('account.docs.auth.sessionOnlyNote')} />
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {bySession.map((entry) => (
               <OperationChip key={entry.id} entry={entry} />
@@ -413,7 +415,7 @@ export function Credits({
         <Card title={t('account.docs.credits.priceTitle')}>
           <Prose text={t('account.docs.credits.price')} />
           <p className="rounded-lg bg-foreground/[0.05] px-3 py-2 text-foreground">
-            {t('account.docs.credits.example', { model: example.modelId, cost })}
+            <Inline text={t('account.docs.credits.example', { model: example.modelId, cost })} />
           </p>
         </Card>
         <Card title={t('account.docs.credits.chargeTitle')}>

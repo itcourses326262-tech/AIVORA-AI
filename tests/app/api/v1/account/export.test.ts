@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { GET as exportRoute } from '@/app/api/v1/account/export/route';
 import { createApiKey } from '@/server/auth/api-keys';
 import { debitCredits, grantCredits } from '@/server/credits';
-import { creditLedger, users } from '@/server/db/schema';
+import { newId } from '@/lib/id';
+import { creditLedger, orders, subscriptions, users } from '@/server/db/schema';
 import { freshDb } from '../../../../helpers/db';
 import {
   createAsset,
@@ -26,6 +27,8 @@ interface Export {
   sessions: Array<Record<string, unknown>>;
   apiKeys: Array<Record<string, unknown>>;
   ledger: Array<Record<string, unknown>>;
+  orders: Array<Record<string, unknown>>;
+  subscriptions: Array<Record<string, unknown>>;
   generations: Array<Record<string, unknown>>;
   assets: Array<Record<string, unknown>>;
 }
@@ -160,6 +163,125 @@ describe('GET /api/v1/account/export', () => {
     }
   });
 
+  describe('purchases', () => {
+    function purchase(userId: string, suffix: string) {
+      const subscriptionId = newId('sub');
+      harness.db
+        .insert(subscriptions)
+        .values({
+          id: subscriptionId,
+          userId,
+          planId: 'starter',
+          status: 'active',
+          anchorDay: 14,
+          currentPeriodStart: 1_700_000_000_000,
+          currentPeriodEnd: 1_702_592_000_000,
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
+        })
+        .run();
+      const base = {
+        userId,
+        currency: 'SAR' as const,
+        gateway: 'moyasar' as const,
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      };
+      const paid = newId('ord');
+      const open = newId('ord');
+      harness.db
+        .insert(orders)
+        .values([
+          {
+            ...base,
+            id: paid,
+            kind: 'pack',
+            itemId: 'pack-500',
+            amountHalalas: 2900,
+            vatHalalas: 378,
+            credits: 500,
+            status: 'paid',
+            paidAt: 1_700_000_100_000,
+            refundedHalalas: 1450,
+            gatewayInvoiceId: `inv-secret-${suffix}`,
+            gatewayPaymentId: `pay-secret-${suffix}`,
+            idempotencyKey: `order-idem-secret-${suffix}`,
+          },
+          {
+            ...base,
+            id: open,
+            kind: 'subscription_initial',
+            itemId: 'starter',
+            amountHalalas: 4900,
+            vatHalalas: 639,
+            credits: 1000,
+            status: 'pending',
+            subscriptionId,
+            expiresAt: Date.now() + 3_600_000,
+            checkoutUrl: `https://pay.example.com/secret-page-${suffix}`,
+            gatewayInvoiceId: `inv-open-${suffix}`,
+          },
+        ])
+        .run();
+      return { subscriptionId, paid, open };
+    }
+
+    it('lists what was bought and how it ended, never a payment page or a gateway id', async () => {
+      const a = await populate('layla@example.com', 'a lighthouse');
+      const mine = purchase(a.user.id, 'layla');
+      const result = await download(a.session.headers);
+
+      expect(result.json.orders).toHaveLength(2);
+      expect(result.json.orders).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: mine.paid,
+            kind: 'pack',
+            itemId: 'pack-500',
+            amountHalalas: 2900,
+            vatHalalas: 378,
+            currency: 'SAR',
+            credits: 500,
+            status: 'paid',
+            refundedHalalas: 1450,
+            paidAt: 1_700_000_100_000,
+          }),
+          expect.objectContaining({
+            id: mine.open,
+            status: 'pending',
+            subscriptionId: mine.subscriptionId,
+          }),
+        ]),
+      );
+      expect(result.json.subscriptions).toMatchObject([
+        { id: mine.subscriptionId, planId: 'starter', status: 'active', cancelAtPeriodEnd: false },
+      ]);
+      for (const secret of [
+        'inv-secret',
+        'pay-secret',
+        'inv-open',
+        'order-idem-secret',
+        'secret-page',
+        'checkoutUrl',
+        'gatewayInvoiceId',
+        'gatewayPaymentId',
+      ]) {
+        expect(result.text, secret).not.toContain(secret);
+      }
+    });
+
+    it("contains nobody else's purchases", async () => {
+      const a = await populate('layla@example.com', 'x');
+      const b = await populate('omar@example.com', 'x');
+      purchase(a.user.id, 'layla');
+      const theirs = purchase(b.user.id, 'omar');
+      const result = await download(a.session.headers);
+      expect(result.text).not.toContain(theirs.paid);
+      expect(result.text).not.toContain(theirs.open);
+      expect(result.text).not.toContain(theirs.subscriptionId);
+    });
+  });
+
   describe('isolation (IDOR)', () => {
     it("contains nothing of anybody else's, whoever asks", async () => {
       const a = await populate('layla@example.com', 'secret prompt of layla');
@@ -235,6 +357,8 @@ describe('GET /api/v1/account/export', () => {
       sessions: [{ id: session.id }],
       apiKeys: [],
       ledger: [],
+      orders: [],
+      subscriptions: [],
       generations: [],
       assets: [],
     });

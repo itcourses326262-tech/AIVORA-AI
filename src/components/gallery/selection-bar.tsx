@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
 import { SpinnerIcon } from '../ui/spinner-icon';
+import { countForms } from './plural';
 
 /** A bulk action that is running. */
 export interface BulkProgress {
@@ -47,7 +48,7 @@ export function SelectionBar({
   onExit,
   className,
 }: SelectionBarProps) {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const busy = progress !== null;
 
   return (
@@ -55,7 +56,7 @@ export function SelectionBar({
       role="region"
       aria-label={t('gallery.select.bar')}
       className={cn(
-        'surface-glass flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-border-strong p-3 shadow-lg',
+        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-border-strong surface-glass p-3 shadow-lg',
         className,
       )}
     >
@@ -75,7 +76,7 @@ export function SelectionBar({
         ) : count === 0 ? (
           t('gallery.select.none')
         ) : (
-          t('gallery.select.count', { count })
+          plural(count, countForms(t, 'gallery.select.count'))
         )}
       </p>
       <div className="flex flex-wrap items-center gap-2">

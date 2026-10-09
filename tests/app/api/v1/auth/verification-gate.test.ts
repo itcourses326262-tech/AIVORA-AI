@@ -32,8 +32,8 @@ describe('creating generations while the address is unconfirmed', () => {
     it.each([['browser session', 'browser'] as const, ['API key', 'bearer'] as const])(
       'is refused with 403 email_not_verified for a %s, and charges nothing',
       async (_label, kind) => {
-        stubEnv({ EMAIL_VERIFICATION: 'required' });
         const dev = await caller(harness.db, { emailVerifiedAt: null });
+        stubEnv({ EMAIL_VERIFICATION: 'required' });
         const result = await generate(dev[kind]);
         expect(result.status).toBe(403);
         expect(result.json.error.code).toBe('email_not_verified');
@@ -45,29 +45,29 @@ describe('creating generations while the address is unconfirmed', () => {
     );
 
     it('is refused before the body is even looked at', async () => {
-      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const dev = await caller(harness.db, { emailVerifiedAt: null });
+      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const result = await generate(dev.browser, { nonsense: true });
       expect(result.status).toBe(403);
       expect(result.json.error.code).toBe('email_not_verified');
     });
 
     it('still allows a confirmed account', async () => {
-      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const dev = await caller(harness.db, { emailVerifiedAt: Date.now() });
+      stubEnv({ EMAIL_VERIFICATION: 'required' });
       expect((await generate(dev.browser)).status).toBe(201);
     });
 
     it('still lets the person look around: listing their generations is not gated', async () => {
-      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const dev = await caller(harness.db, { emailVerifiedAt: null });
+      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const result = await invokeRoute(list, { url: '/api/v1/generations', headers: dev.browser });
       expect(result.status).toBe(200);
     });
 
     it('follows the policy live: switching it off lets the same account in', async () => {
-      stubEnv({ EMAIL_VERIFICATION: 'required' });
       const dev = await caller(harness.db, { emailVerifiedAt: null });
+      stubEnv({ EMAIL_VERIFICATION: 'required' });
       expect((await generate(dev.browser)).status).toBe(403);
       stubEnv({ EMAIL_VERIFICATION: 'off' });
       expect((await generate(dev.browser)).status).toBe(201);

@@ -68,7 +68,7 @@ export default async function PricingPage() {
             <Link
               key={slug}
               href={LEGAL_PATHS[slug]}
-              className="font-medium text-brand underline-offset-4 hover:underline"
+              className="hit-area font-medium text-brand underline-offset-4 hover:underline"
             >
               {t(`legal.nav.${LEGAL_MESSAGE_KEY[slug]}`)}
             </Link>

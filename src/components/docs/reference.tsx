@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { flattenSchema, type SchemaRow } from '@/lib/openapi/flatten';
 import type { JsonSchema, OperationObject, ParameterObject } from '@/lib/openapi/types';
 import { cn } from '@/lib/utils';
@@ -5,7 +6,7 @@ import { CodeWindow } from './code-window';
 import type { DocsContext } from './docs-context';
 import { FieldTable } from './field-table';
 import { MethodBadge } from './method-badge';
-import { Code, Prose } from './prose';
+import { Code, Inline, Prose } from './prose';
 import {
   accessKind,
   budgetText,
@@ -24,21 +25,13 @@ import {
 } from './reference-model';
 import { highlight } from './tokenize';
 
-function Heading({
-  id,
-  level,
-  children,
-}: {
-  id?: string;
-  level: 3 | 4;
-  children: React.ReactNode;
-}) {
+function Heading({ id, level, children }: { id?: string; level: 3 | 4; children: ReactNode }) {
   const Tag = `h${level}` as const;
   return (
     <Tag
       id={id}
       className={cn(
-        'scroll-mt-32 font-semibold text-foreground lg:scroll-mt-24',
+        'scroll-mt-12 font-semibold text-foreground lg:scroll-mt-0',
         level === 3 ? 'text-xl' : 'text-lg',
       )}
     >
@@ -47,8 +40,12 @@ function Heading({
   );
 }
 
-function SubHeading({ children }: { children: React.ReactNode }) {
-  return <h5 className="text-sm font-semibold text-foreground">{children}</h5>;
+function SubHeading({ children, dir }: { children: ReactNode; dir?: 'ltr' | 'rtl' }) {
+  return (
+    <h5 dir={dir} className={cn('text-sm font-semibold text-foreground', dir && 'w-fit')}>
+      {children}
+    </h5>
+  );
 }
 
 function parameterRows(parameters: readonly ParameterObject[]): SchemaRow[] {
@@ -102,43 +99,53 @@ function JsonExample({
 }
 
 function ReturnsLine({ returns, ctx }: { returns: Returns; ctx: DocsContext }) {
-  const { t } = ctx.i18n;
+  const { t, dir } = ctx.i18n;
   const link = (id: string) => (
     <a
       href={`#${schemaAnchor(id)}`}
+      dir="ltr"
+      lang="en"
       className="font-mono text-brand underline-offset-4 hover:underline"
     >
       {id}
     </a>
   );
+  // The sentence is in the reader's language inside a card that reads left to right: it gets its
+  // own direction (and shrinks to its text, so it stays at the card's start) or its words and the
+  // English name next to them would come out in the wrong order.
+  const line = (children: ReactNode) => (
+    <p dir={dir} className="w-fit text-sm text-muted">
+      {children}
+    </p>
+  );
   switch (returns.kind) {
     case 'object':
-      return (
-        <p className="text-sm text-muted">
+      return line(
+        <>
           {t('account.docs.reference.returns')} {link(returns.ref)}
           {returns.nullable ? ` ${t('account.docs.reference.orNull')}` : ''}
-        </p>
+        </>,
       );
     case 'array':
-      return (
-        <p className="text-sm text-muted">
+      return line(
+        <>
           {t('account.docs.reference.returnsArray')} {link(returns.ref)}
-        </p>
+        </>,
       );
     case 'page':
-      return (
-        <p className="text-sm text-muted">
+      return line(
+        <>
           {t('account.docs.reference.returnsPage')} {link(returns.ref)}
-        </p>
+        </>,
       );
     case 'file':
-      return (
-        <p className="text-sm text-muted">
+      return line(
+        <>
           {t('account.docs.reference.returnsFile')}{' '}
           {returns.types.map((type) => (
             <Code key={type}>{type}</Code>
           ))}
-        </p>
+        </>,
       );
     default:
       return null;
@@ -187,7 +194,9 @@ function Responses({
               <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
                 <StatusChip status={status} />
                 <span className="font-mono text-xs text-subtle">{statusPhrase(status)}</span>
-                <span lang="en">{response.description}</span>
+                <span lang="en">
+                  <Inline text={response.description} />
+                </span>
               </p>
               <ReturnsLine returns={returnsOf(response)} ctx={ctx} />
               {example === undefined ? null : (
@@ -247,7 +256,7 @@ function RequestBody({
   const rows = flattenSchema(media.schema as JsonSchema, ctx.document);
   return (
     <div className="grid gap-2.5">
-      <SubHeading>
+      <SubHeading dir={ctx.i18n.dir}>
         {t('account.docs.reference.requestBody')}{' '}
         <Code className="ms-1 align-middle">{contentType}</Code>
       </SubHeading>
@@ -280,7 +289,7 @@ function OperationCard({ entry, ctx }: { entry: ReferenceOperation; ctx: DocsCon
       dir="ltr"
       id={operationAnchor(entry.id)}
       aria-labelledby={`${operationAnchor(entry.id)}-title`}
-      className="scroll-mt-32 rounded-2xl border border-border bg-surface shadow-xs lg:scroll-mt-24"
+      className="scroll-mt-12 rounded-2xl border border-border bg-surface shadow-xs lg:scroll-mt-0"
     >
       <header className="grid gap-3 border-b border-border p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -302,12 +311,11 @@ function OperationCard({ entry, ctx }: { entry: ReferenceOperation; ctx: DocsCon
                 : 'border-border bg-foreground/[0.05] text-muted',
             )}
           >
-            {t(`account.docs.reference.access.${access}`)}
+            <span dir={ctx.i18n.dir}>{t(`account.docs.reference.access.${access}`)}</span>
           </span>
           {(operation['x-rate-limit'] ?? []).map((limit) => (
             <span
               key={limit.bucket}
-
               lang="en"
               className="rounded-full border border-border bg-foreground/[0.05] px-2.5 py-0.5 text-muted"
             >
@@ -318,7 +326,6 @@ function OperationCard({ entry, ctx }: { entry: ReferenceOperation; ctx: DocsCon
         <h4
           id={`${operationAnchor(entry.id)}-title`}
           lang="en"
-
           className="text-start text-lg font-semibold text-foreground"
         >
           {operation.summary}
@@ -360,7 +367,7 @@ function OperationCard({ entry, ctx }: { entry: ReferenceOperation; ctx: DocsCon
 export function Reference({ ctx }: { ctx: DocsContext }) {
   const { t } = ctx.i18n;
   return (
-    <section id="reference" className="grid scroll-mt-32 gap-8 lg:scroll-mt-24">
+    <section id="reference" className="grid scroll-mt-12 gap-8 lg:scroll-mt-0">
       <div className="grid gap-3">
         <h2 className="text-2xl font-bold text-foreground">{t('account.docs.reference.title')}</h2>
         <p className="max-w-3xl text-sm leading-7 text-muted">

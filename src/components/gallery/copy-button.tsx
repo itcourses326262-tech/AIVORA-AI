@@ -1,9 +1,9 @@
 'use client';
 
 import { Check, Copy } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEventHandler } from 'react';
 import { useI18n } from '@/lib/i18n/client';
-import { Button, type ButtonProps } from '../ui/button';
+import { Button } from '../ui/button';
 import { toast } from '../ui/toast';
 
 export interface CopyButtonProps {
@@ -42,7 +42,7 @@ export function CopyButton({
   }, [copied]);
 
   const done = copiedLabel ?? t('common.actions.copied');
-  const onClick: ButtonProps['onClick'] = async () => {
+  const onClick: MouseEventHandler<HTMLButtonElement> = async () => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);

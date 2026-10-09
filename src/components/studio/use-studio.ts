@@ -47,6 +47,10 @@ export interface StudioController {
   /** Why each field cannot be sent, as sentences. */
   messages: FieldMessages;
   balance: number;
+  /** The session ended while the page was open: the balance reads 0 only for want of a user. */
+  signedOut: boolean;
+  /** `/login` back to this very studio; set once the session has ended. */
+  loginHref: string | undefined;
   busy: boolean;
   /** Presses Generate. `keyboard` moves focus to the new card afterwards. */
   generate: (options?: { keyboard?: boolean }) => void;
@@ -97,7 +101,9 @@ function problemMessageKey(problem: FormProblem) {
 export function useStudio(prefill: StudioPrefill): StudioController {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { creditBalance, refresh } = useUser();
+  const { user, creditBalance, refresh } = useUser();
+  // The page is only served to a signed-in user, so a missing one means the session ended since.
+  const signedOut = user === null;
 
   const models = useModels();
   const baseForm = useStudioForm(prefill, models);
@@ -112,6 +118,8 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   const [focusRequest, setFocusRequest] = useState<StudioController['focusRequest']>(null);
   const [viewerState, setViewerState] = useState<{ id: string; index: number } | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  // `busy` is state and lags a render behind a double click; this is not.
+  const sending = useRef(false);
 
   const announce = useCallback((text: string) => {
     // A changed string is what makes a live region speak again.
@@ -170,6 +178,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
     maxChars: model?.limits.maxPromptChars,
     setPrompt,
   });
+  const { stop: stopEnhancing } = promptTools;
 
   // ---- Field messages --------------------------------------------------------------------------
   const inputProgress: InputProgress =
@@ -213,6 +222,18 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   useEffect(() => {
     if (isEmptyPrefill(prefill)) adoptedFromUrl.current = undefined;
   }, [prefill]);
+
+  // ---- The session ended -----------------------------------------------------------------------
+  // Polling found out (a 401) or another tab logged out. The page stays, so the prompt is not lost;
+  // it says so and offers the way back in to this very studio.
+  const loginHref = useMemo(
+    () =>
+      signedOut ? loginUrl(`${window.location.pathname}${window.location.search}`) : undefined,
+    [signedOut],
+  );
+  useEffect(() => {
+    if (signedOut) toast.error(t('studio.submit.sessionExpired'), { id: 'studio-session' });
+  }, [signedOut, t]);
 
   // ---- Generate --------------------------------------------------------------------------------
   const failWith = useCallback(
@@ -258,7 +279,7 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   const imageAsset = image.state.status === 'ready' ? image.state : null;
   const generate = useCallback(
     (options: { keyboard?: boolean } = {}) => {
-      if (busy || !model || cost === null) return;
+      if (busy || sending.current || !model || cost === null) return;
       setAttempted(true);
       const blocking = problems.filter((problem) => problem.field !== 'modelId');
       const first = blocking[0];
@@ -266,8 +287,11 @@ export function useStudio(prefill: StudioPrefill): StudioController {
         if (first.field === 'prompt') promptRef.current?.focus();
         return;
       }
-      if (isShort({ cost, balance: creditBalance })) return;
+      if (isShort({ cost, balance: creditBalance, signedOut })) return;
       clearMessages();
+      // The text that is being sent is final: an improvement still on its way must not rewrite it.
+      stopEnhancing();
+      sending.current = true;
       void submit({
         request: buildRequest(form, model, imageAsset?.assetId),
         model,
@@ -276,15 +300,21 @@ export function useStudio(prefill: StudioPrefill): StudioController {
           ? { url: imageAsset.previewUrl, width: imageAsset.width, height: imageAsset.height }
           : undefined,
         recoverInput: image.recover,
-      }).then((result) => {
-        if (result.ok) {
-          setAttempted(false);
-          announce(t('studio.submit.started'));
-          setFocusRequest({ key: result.key, focus: options.keyboard === true });
-        } else {
-          failWith(result.error);
-        }
-      });
+      })
+        .then((result) => {
+          if (result.ok) {
+            setAttempted(false);
+            // Sharing is a choice for one creation, not a mode the next ones inherit.
+            patch({ isPublic: false });
+            announce(t('studio.submit.started'));
+            setFocusRequest({ key: result.key, focus: options.keyboard === true });
+          } else {
+            failWith(result.error);
+          }
+        })
+        .finally(() => {
+          sending.current = false;
+        });
     },
     [
       busy,
@@ -292,10 +322,13 @@ export function useStudio(prefill: StudioPrefill): StudioController {
       cost,
       problems,
       creditBalance,
+      signedOut,
       form,
       imageAsset,
       image.recover,
+      stopEnhancing,
       submit,
+      patch,
       announce,
       t,
       clearMessages,
@@ -305,7 +338,12 @@ export function useStudio(prefill: StudioPrefill): StudioController {
 
   // ---- Cards -----------------------------------------------------------------------------------
   const { update: updateFeed, remove: removeFromFeed } = feed;
+  const generations = useMemo(
+    () => feed.state.items.filter((item) => !item.pending).map((item) => item.generation),
+    [feed.state.items],
+  );
   const actions = useGenerationActions({
+    generations,
     onChange: useCallback((generation: GenerationDTO) => updateFeed([generation]), [updateFeed]),
     onRemove: useCallback(
       (generation: GenerationDTO) => removeFromFeed([generation.id]),
@@ -367,19 +405,20 @@ export function useStudio(prefill: StudioPrefill): StudioController {
 
   const retry = useCallback(
     (generation: GenerationDTO) => {
-      if (busy) return;
+      if (busy || sending.current) return;
       const retryModel = allModels.find((candidate) => candidate.id === generation.modelId);
       if (!retryModel || !retryModel.available) {
         toast.warning(t('studio.submit.modelUnavailable'));
         return;
       }
-      if (isShort({ cost: generation.cost, balance: creditBalance })) {
+      if (isShort({ cost: generation.cost, balance: creditBalance, signedOut })) {
         toast.error(t('errors.insufficient_credits'), {
           id: 'studio-submit',
           action: { label: t('studio.cost.getCredits'), onClick: () => router.push(PRICING_HREF) },
         });
         return;
       }
+      sending.current = true;
       void submit({
         request: requestFromGeneration(generation),
         model: retryModel,
@@ -391,16 +430,20 @@ export function useStudio(prefill: StudioPrefill): StudioController {
               height: generation.input.height,
             }
           : undefined,
-      }).then((result) => {
-        if (result.ok) {
-          announce(t('studio.submit.started'));
-          setFocusRequest({ key: result.key, focus: false });
-        } else {
-          failWith(result.error);
-        }
-      });
+      })
+        .then((result) => {
+          if (result.ok) {
+            announce(t('studio.submit.started'));
+            setFocusRequest({ key: result.key, focus: false });
+          } else {
+            failWith(result.error);
+          }
+        })
+        .finally(() => {
+          sending.current = false;
+        });
     },
-    [busy, allModels, creditBalance, router, submit, announce, t, failWith],
+    [busy, allModels, creditBalance, signedOut, router, submit, announce, t, failWith],
   );
 
   const handlers = useMemo<GenerationHandlers>(
@@ -415,10 +458,6 @@ export function useStudio(prefill: StudioPrefill): StudioController {
   );
 
   // ---- Keeping running generations fresh -------------------------------------------------------
-  const generations = useMemo(
-    () => feed.state.items.filter((item) => !item.pending).map((item) => item.generation),
-    [feed.state.items],
-  );
   useGenerationPolling({
     generations,
     onUpdate: updateFeed,
@@ -446,6 +485,8 @@ export function useStudio(prefill: StudioPrefill): StudioController {
     setPrompt,
     messages,
     balance: creditBalance,
+    signedOut,
+    loginHref,
     busy,
     generate,
     feed,

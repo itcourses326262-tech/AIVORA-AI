@@ -1,5 +1,5 @@
 /**
- * The tiny markup of the legal dictionaries (see the header of `lib/i18n/messages/legal.ts`):
+ * The tiny markup of the legal dictionaries (see the header of `lib/i18n/messages/legal-documents.ts`):
  * paragraphs, bullet lists, `### ` sub-headings, `**bold**`, `[[code]]`, `[label](/path)` and
  * `{token}`. Pure and isomorphic, so tests can check every dictionary without rendering.
  */
@@ -99,12 +99,13 @@ export function parseMarkup(source: string, options: ParseOptions): Block[] {
   return blocks;
 }
 
-/** Every `{token}` name used in a body, in order of appearance (for completeness tests). */
-export function tokensOf(source: string): string[] {
-  return [...source.matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? '');
-}
-
-/** Every `[label](target)` target used in a body. */
-export function linkTargetsOf(source: string): string[] {
-  return [...source.matchAll(/\[[^\]]+\]\(([^)\s]+)\)/g)].map((match) => match[1] ?? '');
+/**
+ * Fills the `{name}` placeholders that have a value in `values` and leaves every other one (the
+ * company details, `{confirm}`) for the renderer. Values are used as they are: they arrive already
+ * formatted for the language (digits, plural words), so the text never types a unit after them.
+ */
+export function fillVariables(source: string, values: Readonly<Record<string, string>>): string {
+  return source.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+    Object.hasOwn(values, name) ? (values[name] ?? placeholder) : placeholder,
+  );
 }

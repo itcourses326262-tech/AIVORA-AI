@@ -2,7 +2,7 @@
 
 import { ArrowRight, BookOpen, KeyRound, Plus, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CodeWindow } from '@/components/docs/code-window';
 import { highlight } from '@/components/docs/tokenize';
 import { Badge } from '@/components/ui/badge';
@@ -23,8 +23,11 @@ function KeyRow({ apiKey, onRevoke }: { apiKey: ApiKeyDTO; onRevoke: (key: ApiKe
   const revoked = apiKey.revokedAt !== undefined;
   return (
     <li
+      // A row can take focus from code: the revoke button of a key is gone once it is revoked.
+      tabIndex={-1}
+      data-key-id={apiKey.id}
       className={cn(
-        'grid grid-cols-1 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-[1fr_auto] sm:items-center',
+        'grid grid-cols-1 gap-3 rounded-xl border border-border bg-surface p-4 focus-visible:-outline-offset-2 sm:grid-cols-[1fr_auto] sm:items-center',
         revoked && 'opacity-75',
       )}
     >
@@ -103,10 +106,22 @@ export function KeysPanel({ limits, origin }: KeysPanelProps) {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreateApiKeyResponse | null>(null);
   const [revoking, setRevoking] = useState<ApiKeyDTO | null>(null);
+  const rowsRef = useRef<HTMLUListElement>(null);
+  // The key just revoked: the button the reader pressed disappears with it, so the dialog has
+  // nowhere to return focus to and it would fall to the top of the page. The key's own row, which
+  // now says "Revoked", takes it instead.
+  const revokedKey = useRef<string | null>(null);
+  useEffect(() => {
+    const id = revokedKey.current;
+    if (id === null) return;
+    revokedKey.current = null;
+    const rows = rowsRef.current?.querySelectorAll<HTMLElement>('li[data-key-id]') ?? [];
+    [...rows].find((row) => row.dataset.keyId === id)?.focus();
+  }, [keys.keys]);
 
   const active = keys.keys.filter((key) => key.revokedAt === undefined).length;
   const atLimit = active >= limits.maxActive;
-  const snippet = `curl "${origin}/api/v1/models" \\\n  -H "Authorization: Bearer $AIVORE_API_KEY"`;
+  const snippet = `curl "${origin}/api/v1/account" \\\n  -H "Authorization: Bearer $AIVORE_API_KEY"`;
 
   let list;
   if (keys.status === 'loading') list = <KeysSkeleton />;
@@ -130,7 +145,7 @@ export function KeysPanel({ limits, origin }: KeysPanelProps) {
     );
   } else {
     list = (
-      <ul aria-label={t('account.keys.listLabel')} className="grid grid-cols-1 gap-3">
+      <ul ref={rowsRef} aria-label={t('account.keys.listLabel')} className="grid grid-cols-1 gap-3">
         {keys.keys.map((key) => (
           <KeyRow key={key.id} apiKey={key} onRevoke={setRevoking} />
         ))}
@@ -216,7 +231,10 @@ export function KeysPanel({ limits, origin }: KeysPanelProps) {
       <RevokeKeyDialog
         target={revoking}
         onClose={() => setRevoking(null)}
-        onRevoked={keys.markRevoked}
+        onRevoked={(id) => {
+          revokedKey.current = id;
+          keys.markRevoked(id);
+        }}
       />
     </div>
   );

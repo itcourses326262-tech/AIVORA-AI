@@ -61,7 +61,7 @@ export function ForgotPasswordForm() {
         <EmailField
           value={form.values.email}
           onValueChange={(value) => form.setValue('email', value)}
-          onBlur={() => form.onBlur('email')}
+          onBlur={(event) => form.onBlur('email', event)}
           error={form.errors.email}
           inputRef={form.inputRef('email')}
         />

@@ -22,7 +22,7 @@ import {
   validationFailed,
   type EndpointSpec,
 } from '../operation';
-import { defaultLimitParam, cursorParam, idPathParam } from './common';
+import { defaultLimitParam, cursorParam, idPathParam, JSON_BODY_BYTES } from './common';
 
 export const ACCOUNT_TAG = 'Account';
 export const KEYS_TAG = 'API keys';
@@ -57,6 +57,7 @@ export const accountEndpoints: EndpointSpec[] = [
     limits: [rateLimit(ACCOUNT_WRITE_RATE_LIMIT, 'any')],
     request: {
       description: 'The fields to change.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('UpdateAccountRequest'),
       example: { name: 'Layla', locale: 'ar' },
     },
@@ -84,6 +85,7 @@ export const accountEndpoints: EndpointSpec[] = [
     limits: [rateLimit(ACCOUNT_DELETE_RATE_LIMIT, 'session')],
     request: {
       description: 'The current password.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('DeleteAccountRequest'),
       example: { password: 'correct horse battery staple' },
     },
@@ -113,6 +115,7 @@ export const accountEndpoints: EndpointSpec[] = [
     limits: [rateLimit(PASSWORD_RATE_LIMIT, 'session')],
     request: {
       description: 'The current and the new password.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('ChangePasswordRequest'),
       example: {
         currentPassword: 'correct horse battery staple',
@@ -158,7 +161,7 @@ export const accountEndpoints: EndpointSpec[] = [
     path: '/account/export',
     summary: 'Download your data',
     description:
-      'Everything the platform holds about you as one JSON file: profile, sessions, API key metadata (never secrets), credit history, generations and the URLs of their files. Streams as an attachment. Three downloads a day.',
+      'Everything the platform holds about you as one JSON file: profile, sessions, API key metadata (never secrets), credit history, purchases (orders and plans, without payment pages or gateway ids), generations and the URLs of their files. Streams as an attachment. Three downloads a day.',
     access: 'session',
     limits: [rateLimit(ACCOUNT_EXPORT_RATE_LIMIT, 'session')],
     responses: [
@@ -210,13 +213,17 @@ export const keyEndpoints: EndpointSpec[] = [
     limits: [rateLimit(KEYS_WRITE_RATE_LIMIT, 'session')],
     request: {
       description: 'A label for the key.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('CreateApiKeyRequest'),
       example: { name: 'Production server' },
     },
     responses: [
       data(201, 'The new key.', ref('CreatedApiKey'), createdApiKeyExample),
       unauthorized(),
-      browserOnly('Creating API keys'),
+      failure(
+        'forbidden',
+        'Creating API keys needs a browser session: an API key is refused (`forbidden`), and so is a cookie-authenticated request without a matching `Origin` header. Where email confirmation is required, an account that has not confirmed its address yet is refused too (`email_not_verified`): confirm it first.',
+      ),
       failure('conflict', `You already have ${MAX_ACTIVE_API_KEYS} active keys. Revoke one first.`),
       validationFailed('The name is empty or too long.', [
         { path: 'name', message: 'Must be 1 to 60 printable characters' },

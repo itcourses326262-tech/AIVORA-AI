@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiError, json } from '../generations/support';
+import { apiError, generationDTO, json } from '../generations/support';
 import {
   cards,
   generateButton,
@@ -191,6 +191,162 @@ describe('Studio: generating', () => {
     expect(api.callsTo('POST', '/generations')).toHaveLength(1);
     await act(async () => answer?.());
     await waitFor(() => expect(generateButton()).not.toHaveAttribute('aria-busy'));
+  });
+});
+
+describe('Studio: generating, regressions', () => {
+  const share = () => screen.getByRole('switch', { name: /Share to Explore/ });
+  const sentPublic = (api: ReturnType<typeof mountStudio>['api']) =>
+    api
+      .callsTo('POST', '/generations')
+      .map((call) => (call.body as { isPublic: boolean }).isPublic);
+
+  it('shares only the creation the switch was turned on for: it is off again for the next one', async () => {
+    const { api } = mountStudio();
+    await ready();
+    const user = await typePrompt();
+    await user.click(share());
+    expect(share()).toBeChecked();
+    await user.click(generateButton());
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    await waitFor(() => expect(share()).not.toBeChecked());
+
+    await user.click(generateButton());
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    await user.click(share());
+    await user.click(generateButton());
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    expect(sentPublic(api)).toEqual([true, false, true]);
+  });
+
+  it('keeps the sharing choice when the request was refused, so the retry means the same', async () => {
+    let refuse = true;
+    mountStudio({
+      prepare: (fake) =>
+        fake.intercept((call) => {
+          if (refuse && call.method === 'POST' && call.path === '/generations') {
+            refuse = false;
+            return apiError(422, 'moderation_blocked');
+          }
+          return undefined;
+        }),
+    });
+    await ready();
+    const user = await typePrompt();
+    await user.click(share());
+    await user.click(generateButton());
+    await screen.findAllByText(/content policy/);
+    expect(share()).toBeChecked();
+  });
+
+  it('sends one request when Generate is hit several times before the screen has caught up', async () => {
+    const { api } = mountStudio();
+    await ready();
+    await typePrompt();
+    const button = generateButton();
+    // Native clicks in one tick all see the same render, where nothing is busy yet.
+    act(() => {
+      button.click();
+      button.click();
+      button.click();
+    });
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    expect(api.callsTo('POST', '/generations')).toHaveLength(1);
+  });
+
+  it('reads the balance and the history again when the answer to a request got lost', async () => {
+    let lost = true;
+    const { api } = mountStudio({
+      prepare: (fake) =>
+        fake.intercept((call) => {
+          if (lost && call.method === 'POST' && call.path === '/generations') {
+            lost = false;
+            // The server took the request and charged for it; only the answer never arrived.
+            fake.generations.unshift(
+              generationDTO({
+                status: 'processing',
+                progress: 10,
+                outputs: [],
+                prompt: 'A lone lighthouse at sunset',
+              }),
+            );
+            fake.balance -= 1;
+            throw new TypeError('Failed to fetch');
+          }
+          return undefined;
+        }),
+    });
+    await ready();
+    expect(screen.getByText('Balance: 50')).toBeInTheDocument();
+    const user = await typePrompt();
+    await user.click(generateButton());
+    expect(
+      await screen.findByText("We can't reach the server. Check your connection and try again."),
+    ).toBeInTheDocument();
+    // What the server did is on the screen: the charge, and the creation it made.
+    expect(await screen.findByText('Balance: 49')).toBeInTheDocument();
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    expect(cards()[0]).toHaveAttribute('data-status', 'processing');
+    expect(api.callsTo('GET', '/generations?limit=24').length).toBeGreaterThan(1);
+  });
+
+  it('does not touch the balance or the history after a refusal, which is final', async () => {
+    const { api } = mountStudio({
+      prepare: (fake) =>
+        fake.intercept((call) =>
+          call.method === 'POST' && call.path === '/generations'
+            ? apiError(422, 'moderation_blocked')
+            : undefined,
+        ),
+    });
+    await ready();
+    const user = await typePrompt();
+    await user.click(generateButton());
+    await screen.findAllByText(/content policy/);
+    expect(api.callsTo('GET', '/auth/me')).toHaveLength(0);
+    expect(api.callsTo('GET', '/generations?limit=24')).toHaveLength(1);
+  });
+});
+
+describe('Studio: the session ends while the page is open', () => {
+  it('says so instead of blaming the balance, and the next click goes to the login page', async () => {
+    window.history.replaceState(null, '', '/studio?tool=text-to-image');
+    let signedIn = true;
+    mountStudio({
+      generations: [generationDTO({ status: 'processing', progress: 20, outputs: [] })],
+      prepare: (fake) =>
+        fake.intercept((call) => {
+          const sessionCall =
+            call.path.startsWith('/generations?ids=') ||
+            call.path === '/auth/me' ||
+            (call.method === 'POST' && call.path === '/generations');
+          return !signedIn && sessionCall ? apiError(401, 'unauthorized') : undefined;
+        }),
+    });
+    await ready();
+    const user = await typePrompt();
+    signedIn = false;
+
+    // The running card is polled, the poll is refused, and the balance reads 0 for want of a user.
+    const login = await screen.findByRole('link', { name: 'Log in' });
+    const href = login.getAttribute('href') as string;
+    expect(href.startsWith('/login?next=')).toBe(true);
+    expect(decodeURIComponent(href)).toContain('/studio?tool=text-to-image');
+    expect(screen.getAllByText('Your session has expired. Log in to continue.')).not.toHaveLength(
+      0,
+    );
+    expect(screen.queryByText(/enough credits/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Get credits' })).not.toBeInTheDocument();
+    expect(screen.getByText('Balance: —')).toBeInTheDocument();
+
+    // Generate is not blocked by a made-up shortage: the server answers, and the login flow runs.
+    expect(generateButton()).toBeEnabled();
+    expect(promptBox()).toHaveValue('A lone lighthouse at sunset');
+    await user.click(generateButton());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledTimes(1));
+    expect(decodeURIComponent(nav.push.mock.calls[0]?.[0] as string)).toContain(
+      '/studio?tool=text-to-image',
+    );
   });
 });
 
@@ -489,6 +645,72 @@ describe('Studio: the prompt helpers', () => {
     await user.type(promptBox(), '!');
     expect(screen.queryByText('Prompt improved.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  });
+
+  /** An enhancer that answers when the test says so. */
+  function slowEnhancer() {
+    let open!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return {
+      open: () => act(async () => open()),
+      prepare: (
+        fake: Parameters<NonNullable<Parameters<typeof mountStudio>[0]>['prepare'] & object>[0],
+      ) =>
+        fake.intercept(async (call) => {
+          if (call.path === '/prompt/enhance') await answered;
+          return undefined;
+        }),
+    };
+  }
+
+  it('drops an improvement when the person kept typing, instead of overwriting their words', async () => {
+    const enhancer = slowEnhancer();
+    mountStudio({ prepare: enhancer.prepare });
+    await ready();
+    const user = await typePrompt('a red fox');
+    await user.click(screen.getByRole('button', { name: 'Enhance' }));
+    await user.type(promptBox(), ' in the snow');
+    await enhancer.open();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enhance' })).toBeEnabled());
+    expect(promptBox()).toHaveValue('a red fox in the snow');
+    // Nothing to undo, nothing claimed: the box never held an improved text.
+    expect(screen.queryByText(/Prompt improved/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  });
+
+  it('does not rewrite the box after Generate was pressed with the text as it was', async () => {
+    const enhancer = slowEnhancer();
+    const { api } = mountStudio({ prepare: enhancer.prepare });
+    await ready();
+    const user = await typePrompt('a red fox');
+    await user.click(screen.getByRole('button', { name: 'Enhance' }));
+    await user.click(generateButton());
+    await waitFor(() => expect(api.callsTo('POST', '/generations')).toHaveLength(1));
+    expect((api.callsTo('POST', '/generations')[0]?.body as { prompt: string }).prompt).toBe(
+      'a red fox',
+    );
+    await enhancer.open();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enhance' })).toBeEnabled());
+    expect(promptBox()).toHaveValue('a red fox');
+    expect(screen.queryByText(/Prompt improved/)).not.toBeInTheDocument();
+  });
+
+  it('still improves the prompt when nothing was typed meanwhile', async () => {
+    const enhancer = slowEnhancer();
+    mountStudio({ prepare: enhancer.prepare });
+    await ready();
+    const user = await typePrompt('a red fox');
+    await user.click(screen.getByRole('button', { name: 'Enhance' }));
+    expect(screen.getByRole('button', { name: 'Enhancing…' })).toBeInTheDocument();
+    await enhancer.open();
+    await waitFor(() =>
+      expect(promptBox()).toHaveValue('a red fox, highly detailed, cinematic lighting'),
+    );
+    expect(screen.getByText('Prompt improved.')).toBeInTheDocument();
   });
 
   it('asks the enhancer for a video prompt on a video tool, in the language of the page', async () => {

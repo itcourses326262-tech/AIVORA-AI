@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -7,7 +7,8 @@ import {
   LanguagePicker,
   type LanguageSample,
 } from '@/components/docs/code-language';
-import { CODE_LANGUAGE_COOKIE, type QuickstartLanguage } from '@/components/docs/snippets';
+import { CODE_LANGUAGE_STORAGE_KEY } from '@/components/docs/code-language-storage';
+import type { QuickstartLanguage } from '@/components/docs/snippets';
 import { highlight } from '@/components/docs/tokenize';
 import { Toaster } from '@/components/ui/toast';
 import { axeViolations } from '../axe';
@@ -27,9 +28,9 @@ function samples(prefix: string): Record<QuickstartLanguage, LanguageSample> {
   };
 }
 
-function Page({ initial = 'bash' as QuickstartLanguage }) {
+function Page() {
   return (
-    <CodeLanguageProvider initial={initial}>
+    <CodeLanguageProvider>
       <LanguagePicker label="Code language" />
       <LanguageCode samples={samples('one')} scope="First" labels={LABELS} />
       <LanguageCode samples={samples('two')} scope="Second" labels={LABELS} />
@@ -41,18 +42,16 @@ function Page({ initial = 'bash' as QuickstartLanguage }) {
 const picker = () => screen.getByRole('radiogroup', { name: 'Code language' });
 const regions = () => screen.getAllByRole('region');
 
-function clearCookie() {
-  document.cookie = `${CODE_LANGUAGE_COOKIE}=; Max-Age=0; Path=/`;
-}
-beforeEach(clearCookie);
+beforeEach(() => window.localStorage.clear());
 afterEach(() => {
-  clearCookie();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
 describe('the code language switcher', () => {
-  it('starts in the language it is given', () => {
-    renderUi(<Page initial="python" />);
+  it('starts in the language the reader saved', () => {
+    window.localStorage.setItem(CODE_LANGUAGE_STORAGE_KEY, 'python');
+    renderUi(<Page />);
     expect(within(picker()).getByRole('radio', { name: 'Python' })).toBeChecked();
     expect(regions().map((region) => region.getAttribute('aria-label'))).toEqual([
       'First · Python (requests)',
@@ -73,11 +72,41 @@ describe('the code language switcher', () => {
     expect(regions()[0]).toHaveAttribute('aria-label', 'First · JavaScript (fetch)');
   });
 
-  it('remembers the choice in a cookie for a year', async () => {
+  it('starts in cURL when nothing was saved or what was saved is not a language', () => {
+    window.localStorage.setItem(CODE_LANGUAGE_STORAGE_KEY, 'ruby');
+    renderUi(<Page />);
+    expect(within(picker()).getByRole('radio', { name: 'cURL' })).toBeChecked();
+  });
+
+  it('remembers the choice on the device, not in a cookie', async () => {
     const user = userEvent.setup();
     renderUi(<Page />);
     await user.click(within(picker()).getByRole('radio', { name: 'Python' }));
-    expect(document.cookie).toContain(`${CODE_LANGUAGE_COOKIE}=python`);
+    expect(window.localStorage.getItem(CODE_LANGUAGE_STORAGE_KEY)).toBe('python');
+    expect(document.cookie).not.toContain('python');
+  });
+
+  it('follows a change made in another tab', () => {
+    renderUi(<Page />);
+    expect(within(picker()).getByRole('radio', { name: 'cURL' })).toBeChecked();
+    act(() => {
+      window.localStorage.setItem(CODE_LANGUAGE_STORAGE_KEY, 'javascript');
+      window.dispatchEvent(new StorageEvent('storage', { key: CODE_LANGUAGE_STORAGE_KEY }));
+    });
+    expect(within(picker()).getByRole('radio', { name: 'JavaScript' })).toBeChecked();
+    expect(regions()[0]).toHaveTextContent('await fetch("one");');
+  });
+
+  it('still switches for the visit when the browser refuses to store anything', async () => {
+    const user = userEvent.setup();
+    const refuse = () => {
+      throw new DOMException('blocked', 'SecurityError');
+    };
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse });
+    renderUi(<Page />);
+    await user.click(within(picker()).getByRole('radio', { name: 'Python' }));
+    expect(within(picker()).getByRole('radio', { name: 'Python' })).toBeChecked();
+    expect(regions()[1]).toHaveTextContent('requests.get("two")');
   });
 
   it('works with the arrow keys, following the reading direction', async () => {
@@ -100,7 +129,8 @@ describe('the code language switcher', () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
-    renderUi(<Page initial="javascript" />);
+    window.localStorage.setItem(CODE_LANGUAGE_STORAGE_KEY, 'javascript');
+    renderUi(<Page />);
     await user.click(screen.getAllByRole('button', { name: 'Copy' })[1] as HTMLElement);
     expect(writeText).toHaveBeenCalledWith('await fetch("two");');
     await waitFor(() => expect(screen.getAllByText('Copied').length).toBeGreaterThan(0));

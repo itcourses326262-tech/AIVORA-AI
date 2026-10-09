@@ -19,8 +19,8 @@ export interface SharePanelProps {
 }
 
 /**
- * Sharing of one creation: the switch, a plain statement of what becomes public and what never
- * does, and, while it is shared, the link with a copy button. Only a finished creation can be shared.
+ * Sharing of one finished creation: the switch, a plain statement of what becomes public and what
+ * never does, and, while it is shared, the link with a copy button.
  */
 export function SharePanel({ generation, onToggle }: SharePanelProps) {
   const { t } = useI18n();
@@ -30,7 +30,6 @@ export function SharePanel({ generation, onToggle }: SharePanelProps) {
     () => '',
   );
   const noteId = useId();
-  const finished = generation.status === 'succeeded';
   const link = `${origin}${sharePath(generation.id)}`;
 
   return (
@@ -39,16 +38,14 @@ export function SharePanel({ generation, onToggle }: SharePanelProps) {
         <CardTitle as="h2">{t('gallery.share.title')}</CardTitle>
         <CardDescription>{t('gallery.share.description')}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid grid-cols-1 gap-4">
         <Switch
           label={t('gallery.share.toggle')}
-          description={finished ? undefined : t('gallery.share.unavailable')}
           checked={generation.isPublic}
-          disabled={!finished}
           aria-describedby={noteId}
           onCheckedChange={() => onToggle(generation)}
         />
-        <ul id={noteId} className="grid gap-2 text-sm">
+        <ul id={noteId} className="grid grid-cols-1 gap-2 text-sm">
           <li className="flex items-start gap-2.5">
             <Eye aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-brand" />
             <span>
@@ -65,7 +62,7 @@ export function SharePanel({ generation, onToggle }: SharePanelProps) {
           </li>
         </ul>
         {generation.isPublic ? (
-          <div className="grid gap-2 border-t border-border pt-4">
+          <div className="grid grid-cols-1 gap-2 border-t border-border pt-4">
             <label htmlFor={`${noteId}-link`} className="text-sm font-medium text-foreground">
               {t('gallery.share.link')}
             </label>

@@ -40,6 +40,31 @@ describe('assignColumns', () => {
     expect(after.flat().sort()).toEqual(['a', 'c']);
   });
 
+  it('starts over when most cards are gone, so a filter never leaves a hole', () => {
+    const keys = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const before = assignColumns(keys, heights({}), 3, []);
+    // Only the two cards that sat in the first and third columns survive the filter.
+    const survivors = [before[0]?.[0], before[2]?.[0]].filter((key): key is string => Boolean(key));
+    const after = assignColumns(survivors, heights({}), 3, before);
+    expect(after.map((column) => column.length)).toEqual([1, 1, 0]);
+  });
+
+  it('starts over when removals leave an empty column before a filled one', () => {
+    const before = assignColumns(['a', 'b', 'c'], heights({}), 3, []);
+    expect(before).toEqual([['a'], ['b'], ['c']]);
+    // The middle card is deleted: two cards must not leave the middle column empty.
+    expect(assignColumns(['a', 'c'], heights({}), 3, before)).toEqual([['a'], ['c'], []]);
+  });
+
+  it('keeps what is left in place when one card of many is deleted', () => {
+    const keys = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const before = assignColumns(keys, heights({}), 3, []);
+    const after = assignColumns(['a', 'b', 'c', 'd', 'f'], heights({}), 3, before);
+    expect(after.flat().sort()).toEqual(['a', 'b', 'c', 'd', 'f']);
+    expect(after[0]).toEqual(before[0]?.filter((key) => key !== 'e'));
+    expect(after[1]).toEqual(before[1]?.filter((key) => key !== 'e'));
+  });
+
   it('starts over when the number of columns changes, and never loses a card', () => {
     const keys = ['a', 'b', 'c', 'd', 'e'];
     const two = assignColumns(keys, heights({}), 2, []);

@@ -1,6 +1,7 @@
 // OWNER: engine — real mapping from rows to the wire contract (section 5). Extend additively only.
 import 'server-only';
 import type { AssetDTO, GenerationDTO } from '@/lib/api-types';
+import { firstNameOf } from '@/lib/public-name';
 import type { AssetRow, GenerationRow } from '@/server/db/schema';
 
 const MEDIA_PATH = '/api/v1/media';
@@ -73,5 +74,7 @@ export function toPublicGenerationDTO(
   row: GenerationRow,
   parts: { outputs: readonly AssetRow[]; owner: { name: string } },
 ): GenerationDTO {
-  return { ...toGenerationDTO(row, parts), isFavorite: false };
+  // The first-name cut lives here so no caller can put a full account name on a public surface.
+  const owner = { name: firstNameOf(parts.owner.name) ?? '' };
+  return { ...toGenerationDTO(row, { ...parts, owner }), isFavorite: false };
 }

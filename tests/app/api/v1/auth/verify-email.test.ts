@@ -233,9 +233,18 @@ describe('POST /api/v1/auth/verify-email/confirm', () => {
     expect((await confirm({ token: 'nope' }, from('198.51.100.2'))).status).toBe(400);
   });
 
-  it('uses a large shared budget when clients cannot be told apart, so nobody is locked out', async () => {
-    const result = await confirm({ token: 'nope' });
-    expect(result.headers.get('x-ratelimit-limit')).toBe('1200');
+  it('has no shared budget when clients cannot be told apart: junk from anyone never locks out a real link', async () => {
+    // The address is unknown (no trusted proxy), so every visitor looks alike.
+    const { user } = unconfirmed();
+    const { secret } = issueEmailToken(harness.db, user.id, 'verify');
+    for (let attempt = 0; attempt < 1300; attempt += 1) {
+      const junk = await confirm({ token: 'nope' });
+      expect(junk.status).toBe(400);
+      expect(junk.headers.get('x-ratelimit-limit')).toBeNull();
+    }
+    const result = await confirm({ token: secret }, browser());
+    expect(result.status).toBe(200);
+    expect(result.json.data).toMatchObject({ verified: true });
   });
 
   it('works with the browser headers the page sends', async () => {

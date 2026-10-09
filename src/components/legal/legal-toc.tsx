@@ -32,13 +32,18 @@ function TocList({ items }: { items: readonly LegalTocItem[] }) {
  * The table of contents. From `lg` it is a sticky list beside the text (the page's landmark);
  * below it is a collapsed disclosure above the text, so a phone does not scroll past a dozen
  * links before the first paragraph. Both are left out of a printout.
+ *
+ * The sticky list is never taller than the window below the site header: the Terms have 17
+ * sections, which is more than a laptop screen holds, so the list scrolls on its own instead of
+ * leaving the last sections out of reach. The padding (undone by the equal negative margin) keeps
+ * the keyboard focus ring of a link from being clipped by that scrolling box.
  */
 export function LegalToc({ label, items }: { label: string; items: readonly LegalTocItem[] }) {
   return (
     <>
       <nav
         aria-label={label}
-        className="hidden lg:sticky lg:top-24 lg:block lg:self-start print:hidden"
+        className="hidden lg:sticky lg:top-24 lg:-m-1.5 lg:block lg:max-h-[calc(100dvh-8rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:p-1.5 print:hidden"
       >
         <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
         <TocList items={items} />

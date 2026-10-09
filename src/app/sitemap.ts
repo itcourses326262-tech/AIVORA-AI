@@ -15,6 +15,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${origin}/`, changeFrequency: 'weekly', priority: 1 },
     { url: `${origin}/explore`, changeFrequency: 'daily', priority: 0.8 },
+    { url: `${origin}/pricing`, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${origin}/docs`, changeFrequency: 'monthly', priority: 0.7 },
     ...LEGAL_SLUGS.map((slug) => ({
       url: `${origin}${LEGAL_PATHS[slug]}`,

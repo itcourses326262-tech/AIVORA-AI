@@ -44,9 +44,7 @@ export function BulkDeleteDialog({
         other: t('gallery.select.deleteTitle.other'),
       })}
       description={
-        includesRunning
-          ? t('gallery.select.deleteBodyRunning')
-          : t('gallery.select.deleteBody')
+        includesRunning ? t('gallery.select.deleteBodyRunning') : t('gallery.select.deleteBody')
       }
       footer={
         <>

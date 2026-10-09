@@ -12,9 +12,10 @@ import { formatMoney } from '@/lib/billing/format';
 import { DAY_MS, RENEWAL_LEAD_MS } from '@/lib/billing/period';
 import { useI18n } from '@/lib/i18n/client';
 import { formatDate } from '@/lib/utils';
+import { currentOrigin } from './navigation';
 import { Notice } from './notice';
 import { PlanStatusBadge } from './status-badges';
-import { planFacts, planPhase } from './subscription-model';
+import { planFacts } from './subscription-model';
 import type { useSubscriptionActions } from './use-subscription-actions';
 
 const LEAD_DAYS = Math.round(RENEWAL_LEAD_MS / DAY_MS);
@@ -62,11 +63,12 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
     );
   }
 
-  const facts = planFacts(subscription, window.location.origin);
-  const { phase, plan, periodEnd, graceEnd, payable } = facts;
-  const phaseNow = planPhase(subscription);
+  const facts = planFacts(subscription, currentOrigin());
+  const { phase, plan, periodEnd, endedAt, graceEnd, payable } = facts;
   const date = (ms: number | null) => (ms === null ? '' : formatDate(ms, locale, 'long'));
-  const live = phase === 'active' || phase === 'canceling' || phase === 'past_due';
+  // The server lets a plan be canceled while it is running unpaid-for, overdue or awaiting its first payment.
+  const cancellable = phase === 'active' || phase === 'past_due' || phase === 'incomplete';
+  const dialogOpen = confirmingCancel && cancellable;
   const ended = phase === 'canceled' || phase === 'expired';
   const price = plan ? formatMoney(plan.priceHalalas, locale, { fractionDigits: 2 }) : null;
 
@@ -84,9 +86,7 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
           <CardTitle as="h2">{t('billing.account.plan.title')}</CardTitle>
           <PlanStatusBadge phase={phase} />
         </div>
-        <CardDescription>
-          {plan ? plan.description[locale] : subscription.planId}
-        </CardDescription>
+        <CardDescription>{plan ? plan.description[locale] : subscription.planId}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
         {phase === 'past_due' ? (
@@ -134,10 +134,12 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
                   ? t('billing.account.plan.endedOn')
                   : phase === 'canceling'
                     ? t('billing.account.plan.ends')
-                    : t('billing.account.plan.renews')
+                    : phase === 'past_due'
+                      ? t('billing.account.plan.periodEnded')
+                      : t('billing.account.plan.renews')
               }
             >
-              {date(periodEnd)}
+              {date(ended ? endedAt : periodEnd)}
             </Row>
           ) : null}
           {(phase === 'active' || phase === 'past_due') && price && periodEnd !== null ? (
@@ -162,7 +164,8 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
                   : null}
         </p>
 
-        {actions.problem ? (
+        {/* While the cancel dialog is open it shows the failure itself; behind it the page is inert. */}
+        {actions.problem && !dialogOpen ? (
           <Notice
             tone="danger"
             title={actions.problem.message}
@@ -190,7 +193,7 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
               {t('billing.account.plan.change')}
             </Button>
           ) : null}
-          {phase === 'active' || phase === 'past_due' || phase === 'incomplete' ? (
+          {cancellable ? (
             <Button
               variant="outline"
               onClick={() => {
@@ -201,25 +204,33 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
               {t('billing.account.plan.cancel')}
             </Button>
           ) : null}
-          {ended ? (
-            <Button href="/pricing">{t('billing.account.plan.again')}</Button>
-          ) : null}
+          {ended ? <Button href="/pricing">{t('billing.account.plan.again')}</Button> : null}
         </div>
       </CardContent>
 
       <Dialog
-        open={confirmingCancel && live || (confirmingCancel && phaseNow === 'incomplete')}
-        onOpenChange={setConfirmingCancel}
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          // Escape, the backdrop and the close button all mean "keep the plan"; not while the
+          // request is running, because its answer decides what the card shows next.
+          if (open || actions.busy === 'cancel') return;
+          actions.clearProblem();
+          setConfirmingCancel(false);
+        }}
         role="alertdialog"
-        dismissible={false}
         title={t('billing.account.plan.cancelDialog.title')}
+        description={cancelBody}
+        bodyClassName={actions.problem ? undefined : 'py-0'}
         footer={
           <>
             <Button
               variant="secondary"
               data-autofocus
               disabled={actions.busy === 'cancel'}
-              onClick={() => setConfirmingCancel(false)}
+              onClick={() => {
+                actions.clearProblem();
+                setConfirmingCancel(false);
+              }}
             >
               {t('billing.account.plan.keep')}
             </Button>
@@ -237,14 +248,11 @@ export function SubscriptionCard({ subscription, actions }: SubscriptionCardProp
           </>
         }
       >
-        <div className="grid gap-3">
-          <p className="text-sm text-muted">{cancelBody}</p>
-          {actions.problem ? (
-            <p role="alert" className="text-sm text-danger">
-              {actions.problem.message}
-            </p>
-          ) : null}
-        </div>
+        {actions.problem ? (
+          <p role="alert" className="text-sm text-danger">
+            {actions.problem.message}
+          </p>
+        ) : null}
       </Dialog>
     </Card>
   );

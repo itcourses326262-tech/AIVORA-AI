@@ -1,7 +1,7 @@
 'use client';
 
 import { CreditCard, Database, KeyRound, ShieldCheck, UserRound, Coins } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccountDataRights } from '@/components/auth/account-data-rights';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,15 @@ export function AccountView({ initialTab, limits, origin }: AccountViewProps) {
   const [tab, setTab] = useState<AccountTab>(initialTab);
   const [visited, setVisited] = useState<ReadonlySet<AccountTab>>(new Set([initialTab]));
   const [seed, setSeed] = useState(initialTab);
+  const tabList = useRef<HTMLDivElement>(null);
+
+  // Five tabs do not fit a phone: the row scrolls sideways, so bring the open one into view
+  // (a deep link such as `?tab=data` would otherwise open a tab that is off the screen).
+  useEffect(() => {
+    tabList.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  }, [tab]);
 
   // A link to another tab of this very page arrives as a new `initialTab`: follow it.
   if (seed !== initialTab) {
@@ -80,11 +89,14 @@ export function AccountView({ initialTab, limits, origin }: AccountViewProps) {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               {t('account.title')}
             </h1>
-            <p className="truncate text-sm text-muted">
+            <p className="text-sm [overflow-wrap:anywhere] text-muted">
               {user ? (
                 <>
-                  <span className="font-medium text-foreground">{user.name}</span>
-                  {' · '}
+                  {/* On a phone the name and the address each get a line instead of a dangling dot. */}
+                  <span className="block font-medium text-foreground sm:inline">{user.name}</span>
+                  <span aria-hidden="true" className="hidden sm:inline">
+                    {' · '}
+                  </span>
                   <span dir="ltr">{user.email}</span>
                 </>
               ) : (
@@ -103,7 +115,7 @@ export function AccountView({ initialTab, limits, origin }: AccountViewProps) {
       </header>
 
       <Tabs value={tab} onValueChange={select}>
-        <TabsList aria-label={t('account.tabs.label')}>
+        <TabsList ref={tabList} aria-label={t('account.tabs.label')} className="edge-fade">
           {ACCOUNT_TABS.map((value) => (
             <TabsTrigger key={value} value={value}>
               {TAB_ICONS[value]}

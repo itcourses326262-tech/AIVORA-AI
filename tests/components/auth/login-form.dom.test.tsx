@@ -3,7 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoginForm } from '@/components/auth/login-form';
 import { renderUi } from '../render';
-import { apiError, bodyOf, json, router, stubDesktopPointer, stubFetch } from './support';
+import {
+  apiError,
+  bodyOf,
+  focusLink,
+  json,
+  router,
+  stubDesktopPointer,
+  stubFetch,
+} from './support';
 
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/login' }));
 
@@ -129,6 +137,48 @@ describe('LoginForm', () => {
     await user.type(email(), 'layla@example.com');
     expect(screen.queryByText(/Enter a valid email/)).not.toBeInTheDocument();
     expect(email()).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('does not flag an empty field just because focus left it: the message would move the link being clicked', async () => {
+    // The email field has focus on load. Pressing "Forgot password?" or "Create an account" first
+    // blurs it; a message appearing there shifts the links down before the button comes up and the
+    // click is lost (seen in Chromium). Submitting still reports the empty fields.
+    stubDesktopPointer();
+    const user = userEvent.setup();
+    renderUi(<LoginForm next="/studio" />);
+    expect(email()).toHaveFocus();
+    await focusLink('Forgot password?');
+    expect(screen.queryByText('Enter your email address.')).not.toBeInTheDocument();
+    expect(email()).not.toHaveAttribute('aria-invalid');
+
+    await user.click(email());
+    await user.tab();
+    expect(screen.queryByText('Enter your email address.')).not.toBeInTheDocument();
+    await user.click(submit());
+    expect(screen.getByText('Enter your email address.')).toBeInTheDocument();
+  });
+
+  it('keeps a half-typed address quiet while focus moves to a link, and flags it when focus moves on', async () => {
+    const user = userEvent.setup();
+    renderUi(<LoginForm next="/studio" />);
+    await user.type(email(), 'not-an-email');
+    await focusLink('Forgot password?');
+    expect(screen.queryByText(/Enter a valid email/)).not.toBeInTheDocument();
+
+    await user.click(email());
+    await user.click(password());
+    expect(
+      screen.getByText('Enter a valid email address, like you@example.com.'),
+    ).toBeInTheDocument();
+  });
+
+  it('flags an address that was typed and then cleared when the field is left', async () => {
+    const user = userEvent.setup();
+    renderUi(<LoginForm next="/studio" />);
+    await user.type(email(), 'a');
+    await user.clear(email());
+    await user.tab();
+    expect(screen.getByText('Enter your email address.')).toBeInTheDocument();
   });
 
   it('shows the wrong-credentials banner and puts the cursor back in the password field', async () => {

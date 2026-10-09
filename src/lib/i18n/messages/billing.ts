@@ -112,7 +112,7 @@ export default defineMessages({
           choose: {
             question: 'Should I buy a pack or subscribe?',
             answer:
-              'A pack is a single payment: ideal when you create now and then. A plan adds credits every month at a lower price per credit, which suits regular work. You can mix both, and you can stop a plan at any time.',
+              'A pack is a single payment: ideal when you create now and then. A plan adds a fresh batch of credits every month, which suits regular work without buying again. Every card shows its price per 100 credits, so you can compare. You can mix both, and you can stop a plan at any time.',
           },
           vat: {
             question: 'Is VAT included in the price?',
@@ -122,7 +122,7 @@ export default defineMessages({
           renewal: {
             question: 'How does a plan renew? Is my card charged automatically?',
             answer:
-              'No. We do not store your card and never charge it on our own. About {days} days before your month ends, a payment link for the next month appears on your Billing page. Pay it and the next batch of credits arrives. If you do not pay within {grace} days after the month ends, the plan ends; credits you already received stay in your balance.',
+              'No. We do not store your card and never charge it on our own. About {days} days before your month ends, a payment link for the next month appears on your Billing page. We do not send payment reminders, so check that page before your month ends. Pay the link and the next batch of credits arrives. If you do not pay within {grace} days after the month ends, the plan ends; credits you already received stay in your balance.',
           },
           cancel: {
             question: 'How do I cancel a plan?',
@@ -177,7 +177,7 @@ export default defineMessages({
       signUpToBuy: 'Sign up to buy',
       opening: 'Opening payment page…',
       currentPlan: 'Your current plan',
-      changePlan: 'Change plan',
+      afterPlanEnds: 'Available after your plan ends',
       unavailable: 'Not available right now',
     },
     confirm: {
@@ -189,7 +189,7 @@ export default defineMessages({
       creditsValue: '{credits} now, and again every month',
       renewal: 'Renewal',
       renewalValue:
-        'Every month a payment link appears in Billing {days} days before your month ends. We never charge your card automatically.',
+        'Every month a payment link appears in Billing {days} days before your month ends. We never charge your card automatically and we do not send reminders, so check Billing before the month ends.',
       cancel: 'Cancellation',
       cancelValue:
         'Cancel any time in Billing. The plan then ends with the month you paid for, and your credits never expire.',
@@ -206,12 +206,21 @@ export default defineMessages({
       keyReused: 'That checkout was already used for a different item. Please try again.',
       checkoutClosed: 'The checkout was closed while it was being prepared. Please try again.',
       tooManyOpen:
-        'You have several unpaid checkouts open. Finish one or let it expire, then try again.',
+        'You have several unpaid checkouts open. Pay for one of them in Billing, or wait until they expire (within a day), then try again.',
+      gatewayDown:
+        'The payment service is not responding right now. Nothing was charged. Please try again in a few minutes.',
+      dailyLimit:
+        'You have reached the limit of checkouts per 24 hours. Please try again in {wait}.',
+      dailyLimitLater:
+        'You have reached the limit of checkouts per 24 hours. Please try again later.',
       unauthorized: 'Your session has ended. Log in again to continue.',
       noPaymentPage:
         'The payment page could not be opened. Nothing was charged, so please try again.',
       subscriptionEnded: 'This plan has already ended. Subscribe again from the pricing page.',
       noSubscription: 'There is no plan on your account.',
+      emailNotVerified:
+        'Confirm your email address before you buy: until then your credits could not be used. We sent a confirmation link when you signed up, and you can request a new one from the banner at the top of your account pages.',
+      openAccount: 'Open my account',
       logIn: 'Log in',
       openBilling: 'Open Billing',
     },
@@ -303,11 +312,10 @@ export default defineMessages({
         creditsValue: '{credits} per month',
         price: 'Price',
         priceValue: '{price} per month, VAT included',
-        period: 'Current month',
-        periodValue: '{from} to {to}',
         renews: 'Renews on',
         ends: 'Ends on',
         endedOn: 'Ended on',
+        periodEnded: 'This month ended on',
         next: 'Next payment',
         nextValue: '{price}, due by {date}',
         status: {
@@ -320,7 +328,7 @@ export default defineMessages({
         },
         notes: {
           renewal:
-            'Renewal is by payment link, not by charging your card. The link for next month appears here {days} days before this month ends.',
+            'Renewal is by payment link, not by charging your card. The link for next month appears here {days} days before this month ends. We do not send reminders, so check this page.',
           canceling:
             'Your plan ends on {date}. Until then you keep using the credits you received, and credits in your balance never expire. You can undo the cancellation until then.',
           ended: 'This plan has ended. Credits already in your balance never expire.',
@@ -366,7 +374,9 @@ export default defineMessages({
           amount: 'Amount',
           status: 'Status',
           credits: 'Credits',
+          actions: 'Actions',
         },
+        noCredits: 'No credits',
         kind: {
           pack: '{name}',
           subscription_initial: '{name} plan, first month',
@@ -445,7 +455,8 @@ export default defineMessages({
       secure: 'تتم عملية الدفع في صفحة دفع آمنة، ولا تصل بيانات بطاقتك إلى AIVORE إطلاقًا.',
       calculator: {
         title: 'ماذا يمكنك أن تصنع برصيدك؟',
-        description: 'اختر مقدارًا لترى ما يكفيه بالأسعار الحالية المأخوذة من كتالوج النماذج الفعلي.',
+        description:
+          'اختر مقدارًا لترى ما يكفيه بالأسعار الحالية المأخوذة من كتالوج النماذج الفعلي.',
         amount: 'الرصيد',
         results: 'بـ {credits} يمكنك صنع ما يصل إلى',
         each: '{credits} للعملية الواحدة',
@@ -505,7 +516,7 @@ export default defineMessages({
           choose: {
             question: 'هل أشتري حزمة أم أشترك في باقة؟',
             answer:
-              'الحزمة دفعة واحدة، وتناسب من يبدع بين حين وآخر. أما الباقة فتضيف رصيدًا كل شهر بسعر أقل للرصيد الواحد، وتناسب العمل المنتظم. يمكنك الجمع بين الاثنين، كما يمكنك إيقاف الباقة في أي وقت.',
+              'الحزمة دفعة واحدة، وتناسب من يبدع بين حين وآخر. أما الباقة فتضيف دفعة جديدة من الرصيد كل شهر، وتناسب العمل المنتظم دون الحاجة إلى الشراء من جديد. وتعرض كل بطاقة السعر لكل ١٠٠ رصيد لتتمكن من المقارنة. يمكنك الجمع بين الاثنين، كما يمكنك إيقاف الباقة في أي وقت.',
           },
           vat: {
             question: 'هل السعر شامل ضريبة القيمة المضافة؟',
@@ -515,7 +526,7 @@ export default defineMessages({
           renewal: {
             question: 'كيف تتجدد الباقة؟ وهل تُخصم من بطاقتي تلقائيًا؟',
             answer:
-              'لا. نحن لا نحفظ بطاقتك ولا نخصم منها من تلقاء أنفسنا. قبل نهاية شهرك بنحو {days} أيام يظهر في صفحة الفوترة رابط دفع للشهر التالي، وعند دفعه يصلك رصيد الشهر الجديد. وإن لم تدفع خلال {grace} أيام بعد نهاية الشهر تنتهي الباقة، ويبقى في محفظتك ما حصلت عليه من رصيد.',
+              'لا. نحن لا نحفظ بطاقتك ولا نخصم منها من تلقاء أنفسنا. قبل نهاية شهرك بنحو {days} أيام يظهر في صفحة الفوترة رابط دفع للشهر التالي. ولا نرسل تذكيرات بالدفع، لذا تفقّد هذه الصفحة قبل نهاية الشهر. وعند دفع الرابط يصلك رصيد الشهر الجديد. وإن لم تدفع خلال {grace} أيام بعد نهاية الشهر تنتهي الباقة، ويبقى في محفظتك ما حصلت عليه من رصيد.',
           },
           cancel: {
             question: 'كيف ألغي الباقة؟',
@@ -570,7 +581,7 @@ export default defineMessages({
       signUpToBuy: 'أنشئ حسابًا للشراء',
       opening: 'جارٍ فتح صفحة الدفع…',
       currentPlan: 'باقتك الحالية',
-      changePlan: 'تغيير الباقة',
+      afterPlanEnds: 'متاحة بعد انتهاء باقتك',
       unavailable: 'غير متاح حاليًا',
     },
     confirm: {
@@ -582,7 +593,7 @@ export default defineMessages({
       creditsValue: '{credits} الآن، ثم مرة أخرى كل شهر',
       renewal: 'التجديد',
       renewalValue:
-        'يظهر في صفحة الفوترة كل شهر رابط دفع قبل نهاية شهرك بـ {days} أيام. ولا نخصم من بطاقتك تلقائيًا أبدًا.',
+        'يظهر في صفحة الفوترة كل شهر رابط دفع قبل نهاية شهرك بـ {days} أيام. ولا نخصم من بطاقتك تلقائيًا أبدًا، ولا نرسل تذكيرات، لذا تحقق من صفحة الفوترة قبل نهاية الشهر.',
       cancel: 'الإلغاء',
       cancelValue:
         'يمكنك الإلغاء من صفحة الفوترة في أي وقت. تنتهي الباقة حينها بنهاية الشهر الذي دفعته، ولا ينتهي رصيدك أبدًا.',
@@ -598,11 +609,21 @@ export default defineMessages({
       checkoutInProgress: 'ما زالت صفحة الدفع قيد التجهيز. انتظر قليلًا ثم حاول مرة أخرى.',
       keyReused: 'سبق استخدام عملية الدفع هذه لعنصر آخر. حاول مرة أخرى.',
       checkoutClosed: 'أُغلقت عملية الدفع أثناء تجهيزها. حاول مرة أخرى.',
-      tooManyOpen: 'لديك عدة عمليات دفع مفتوحة لم تكتمل. أكمل إحداها أو دعها تنتهي ثم حاول مرة أخرى.',
+      tooManyOpen:
+        'لديك عدة عمليات دفع مفتوحة لم تكتمل. أكمل إحداها من صفحة الفوترة، أو انتظر حتى تنتهي صلاحيتها (خلال يوم)، ثم حاول مرة أخرى.',
+      gatewayDown:
+        'خدمة الدفع لا تستجيب في الوقت الحالي، ولم يُخصم أي مبلغ. حاول مرة أخرى بعد بضع دقائق.',
+      dailyLimit:
+        'بلغ حسابك الحد الأقصى لعمليات الدفع خلال الأربع والعشرين ساعة الماضية. حاول مرة أخرى بعد {wait}.',
+      dailyLimitLater:
+        'بلغ حسابك الحد الأقصى لعمليات الدفع خلال الأربع والعشرين ساعة الماضية. حاول مرة أخرى لاحقًا.',
       unauthorized: 'انتهت جلستك. سجّل الدخول من جديد للمتابعة.',
       noPaymentPage: 'تعذّر فتح صفحة الدفع، ولم يُخصم أي مبلغ. حاول مرة أخرى.',
       subscriptionEnded: 'انتهت هذه الباقة بالفعل. اشترك من جديد من صفحة الأسعار.',
       noSubscription: 'لا توجد باقة على حسابك.',
+      emailNotVerified:
+        'أكّد بريدك الإلكتروني قبل الشراء، فلن تتمكن من استخدام رصيدك قبل ذلك. أرسلنا رابط التأكيد عند تسجيلك، ويمكنك طلب رابط جديد من الشريط في أعلى صفحات حسابك.',
+      openAccount: 'فتح حسابي',
       logIn: 'تسجيل الدخول',
       openBilling: 'فتح صفحة الفوترة',
     },
@@ -694,11 +715,10 @@ export default defineMessages({
         creditsValue: '{credits} شهريًا',
         price: 'السعر',
         priceValue: '{price} شهريًا شامل الضريبة',
-        period: 'الشهر الحالي',
-        periodValue: 'من {from} إلى {to}',
         renews: 'تتجدد في',
         ends: 'تنتهي في',
         endedOn: 'انتهت في',
+        periodEnded: 'انتهى هذا الشهر في',
         next: 'الدفعة القادمة',
         nextValue: '{price}، تُدفع قبل {date}',
         status: {
@@ -711,7 +731,7 @@ export default defineMessages({
         },
         notes: {
           renewal:
-            'يتم التجديد برابط دفع، وليس بالخصم من بطاقتك. يظهر هنا رابط الشهر القادم قبل نهاية هذا الشهر بـ {days} أيام.',
+            'يتم التجديد برابط دفع، وليس بالخصم من بطاقتك. يظهر هنا رابط الشهر القادم قبل نهاية هذا الشهر بـ {days} أيام. ولا نرسل تذكيرات، لذا تفقّد هذه الصفحة.',
           canceling:
             'تنتهي باقتك في {date}. وحتى ذلك الحين تواصل استخدام ما وصلك من رصيد، والرصيد الموجود في محفظتك لا ينتهي أبدًا. ويمكنك التراجع عن الإلغاء قبل ذلك.',
           ended: 'انتهت هذه الباقة. والرصيد الموجود في محفظتك لا ينتهي أبدًا.',
@@ -736,7 +756,8 @@ export default defineMessages({
         cancelDialog: {
           title: 'هل تريد إلغاء باقتك؟',
           body: 'تبقى باقتك فعّالة حتى {date} ثم تنتهي. لن نطلب منك الدفع مرة أخرى، والرصيد الموجود في محفظتك لا ينتهي أبدًا. ويمكنك التراجع عن الإلغاء حتى ذلك التاريخ.',
-          bodyNow: 'دفعتك متأخرة، لذا تنتهي الباقة فورًا. والرصيد الموجود في محفظتك لا ينتهي أبدًا.',
+          bodyNow:
+            'دفعتك متأخرة، لذا تنتهي الباقة فورًا. والرصيد الموجود في محفظتك لا ينتهي أبدًا.',
           bodyUnpaid: 'لم تتم الدفعة الأولى بعد. سيؤدي الإلغاء إلى إغلاق صفحة الدفع.',
           confirm: 'إلغاء الباقة',
         },
@@ -755,7 +776,9 @@ export default defineMessages({
           amount: 'المبلغ',
           status: 'الحالة',
           credits: 'الرصيد',
+          actions: 'الإجراءات',
         },
+        noCredits: 'لا رصيد',
         kind: {
           pack: '{name}',
           subscription_initial: 'باقة {name}، الشهر الأول',

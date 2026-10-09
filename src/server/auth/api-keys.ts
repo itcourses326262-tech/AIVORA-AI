@@ -4,8 +4,9 @@ import { and, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ApiKeyDTO, CreateApiKeyResponse } from '@/lib/api-types';
 import { AppError } from '@/lib/errors';
 import { newId } from '@/lib/id';
-import { getDb, withTx, type Db } from '@/server/db';
+import { getDb, withTx, type Db, type DbOrTx } from '@/server/db';
 import { apiKeys, users, type ApiKeyRow, type UserRow } from '@/server/db/schema';
+import { isEmailVerificationRequired } from './email-policy';
 import { generateToken, hashToken } from './tokens';
 import { parseLabel } from './validation';
 
@@ -56,6 +57,11 @@ export function toApiKeyDTO(row: ApiKeyRow): ApiKeyDTO {
  * Creates `avk_<prefix>_<secret>`. The full key is in the result once and never stored: the
  * database keeps only `hashToken(key)` and the public prefix. At most {@link MAX_ACTIVE_API_KEYS}
  * unrevoked keys per user (`conflict` beyond that), counted in the same transaction as the insert.
+ *
+ * While the deployment requires confirmed email addresses, an unconfirmed account gets
+ * `email_not_verified` (403) instead: such an account was opened by whoever typed the address, not
+ * necessarily by its owner, and a credential planted now would outlive the owner taking the account
+ * over (the reset also revokes every key, but there is no reason to let one be planted at all).
  */
 export async function createApiKey(userId: string, name: string): Promise<CreateApiKeyResponse> {
   const cleaned = parseLabel(name, 'name', API_KEY_NAME_MAX);
@@ -64,6 +70,14 @@ export async function createApiKey(userId: string, name: string): Promise<Create
   const now = Date.now();
 
   const row = withTx(getDb(), (tx) => {
+    const owner = tx
+      .select({ emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
+    if (owner && owner.emailVerifiedAt === null && isEmailVerificationRequired()) {
+      throw AppError.of('email_not_verified', 'Confirm your email first');
+    }
     const active = tx
       .select({ total: count() })
       .from(apiKeys)
@@ -137,6 +151,20 @@ export async function revokeApiKey(userId: string, keyId: string): Promise<void>
     .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, userId)))
     .get();
   if (!existing) throw AppError.of('not_found', 'API key not found');
+}
+
+/**
+ * Revokes every live key of the user and returns how many there were. Keys revoked earlier keep
+ * their original date. Synchronous, so a recovery flow can do it in the transaction that changes
+ * the password.
+ */
+export function revokeAllApiKeys(db: DbOrTx, userId: string, now: number = Date.now()): number {
+  return db
+    .update(apiKeys)
+    .set({ revokedAt: now })
+    .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)))
+    .returning({ id: apiKeys.id })
+    .all().length;
 }
 
 export interface ResolvedApiKey {

@@ -1,10 +1,24 @@
 import { GENERATION_STATUSES } from '@/lib/api-types';
 import { KINDS } from '@/lib/catalog/types';
+import { AUTH_BODY_LIMIT } from '@/server/auth/schemas';
 import { MAX_BATCH_IDS } from '@/server/generations/list';
 import { MAX_IDEMPOTENCY_KEY_CHARS } from '@/server/generations/idempotency';
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@/server/http/request';
 import type { ParamSpec } from '../operation';
 import { IDS } from '../examples';
+
+/**
+ * The `maxBodyBytes` of the JSON routes, which the document quotes in the 413 answer. The
+ * generation routes keep theirs private, so they are repeated here; the conformance test sends a
+ * body of exactly this size (accepted) and one byte more (413) to every operation, so a drift fails.
+ */
+export const JSON_BODY_BYTES = {
+  /** Sign-in, account and key routes: `AUTH_BODY_LIMIT` of `server/auth/schemas`. */
+  account: AUTH_BODY_LIMIT,
+  createGeneration: 64 * 1024,
+  updateGeneration: 4 * 1024,
+  enhancePrompt: 16 * 1024,
+} as const;
 
 /** Crockford base32 body of every id: 26 lower-case characters. */
 const ID_BODY = '[0-9a-hjkmnp-tv-z]{26}';
@@ -46,7 +60,8 @@ export const defaultLimitParam = limitParam(DEFAULT_PAGE_LIMIT);
 export const cursorParam: ParamSpec = {
   name: 'cursor',
   in: 'query',
-  description: 'The `nextCursor` of the previous page. Opaque: do not build or parse it.',
+  description:
+    'The `nextCursor` of the previous page. Opaque: do not build or parse it. Anything else is a 400.',
   schema: { type: 'string', minLength: 1, maxLength: 512 },
 };
 

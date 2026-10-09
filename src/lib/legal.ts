@@ -6,7 +6,7 @@
  * owner has to do before launch:
  *  1. Set the company details in the environment (see `.env.example`): they render as clearly
  *     marked placeholders until they are set, and are never invented.
- *  2. Have a lawyer review `src/lib/i18n/messages/legal.ts` (every "to confirm" flag in the text
+ *  2. Have a lawyer review `src/lib/i18n/messages/legal-documents.ts` (every "to confirm" flag in the text
  *     marks a decision that is theirs), then set `LEGAL_DRAFT` to `false`.
  *  3. Bump the `LEGAL_LAST_UPDATED` date of every document that changed.
  */
@@ -29,7 +29,7 @@ export const LEGAL_PATHS = {
   'acceptable-use': '/acceptable-use',
 } as const satisfies Record<LegalSlug, `/${string}`>;
 
-/** Key of each document inside the `legal` message namespace (`legal.<key>.title`). */
+/** Key of each document inside `messages/legal-documents.ts` (`terms`, `privacy`, `refunds`, `acceptableUse`). */
 export const LEGAL_MESSAGE_KEY = {
   terms: 'terms',
   privacy: 'privacy',
@@ -58,10 +58,6 @@ export const REFUND_WINDOW_DAYS = 7;
  * rendered as plain text, so a typo in a dictionary can never produce a dead or foreign link.
  */
 export const LEGAL_LINK_TARGETS: readonly string[] = [...Object.values(LEGAL_PATHS), '/account'];
-
-export function isLegalSlug(value: unknown): value is LegalSlug {
-  return typeof value === 'string' && (LEGAL_SLUGS as readonly string[]).includes(value);
-}
 
 /** Midnight UTC of a document's last-updated date, in milliseconds (format it with `timeZone: 'UTC'`). */
 export function lastUpdatedMs(slug: LegalSlug): number {
@@ -129,7 +125,7 @@ export function readCompanyInfo(
   return info;
 }
 
-/** Company details that are still unset, for tests and for operators checking a deployment. */
+/** Company details that are still unset (the pages warn the operator about them once the draft flag is off). */
 export function missingCompanyFields(info: CompanyInfo): CompanyField[] {
   return COMPANY_FIELDS.filter((field) => info[field] === null);
 }

@@ -167,7 +167,10 @@ export const generationSchema = exact<GenerationDTO>()(
     createdAt: timestamp('When the request was accepted'),
     startedAt: timestamp('When a worker picked it up').optional(),
     finishedAt: timestamp('When it reached a final status').optional(),
-    owner: z.object({ name: z.string() }).optional().describe('Only on the public Explore feed.'),
+    owner: z
+      .object({ name: z.string() })
+      .optional()
+      .describe('Only on the public Explore feed. The name is the first word of the account name.'),
   }),
 );
 

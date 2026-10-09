@@ -88,12 +88,14 @@ export default defineMessages({
     },
     reset: {
       title: 'Choose a new password',
-      subtitle: 'Pick one you do not use anywhere else. All your devices will be signed out.',
+      subtitle:
+        'Pick one you do not use anywhere else. All your devices will be signed out and your API keys revoked.',
       newPassword: 'New password',
       submit: 'Save new password',
       submitting: 'Saving…',
       successTitle: 'Password updated',
-      successBody: 'You are signed out everywhere. Log in with your new password.',
+      successBody:
+        'You are signed out everywhere and your API keys were revoked. Log in with your new password.',
       logIn: 'Log in',
       requestNew: 'Request a new link',
       problem: {
@@ -153,7 +155,7 @@ export default defineMessages({
       export: {
         title: 'Download your data',
         description:
-          'A JSON file with your profile, credit history, generations and file links. You can download it up to three times a day.',
+          'A JSON file with your profile, credit history, purchases, generations and file links. You can download it up to three times a day.',
         button: 'Download my data',
         preparing: 'Preparing…',
         failed: 'We could not prepare the download.',
@@ -262,12 +264,14 @@ export default defineMessages({
     },
     reset: {
       title: 'اختر كلمة مرور جديدة',
-      subtitle: 'اختر كلمة مرور لا تستخدمها في أي مكان آخر. سيتم تسجيل خروجك من جميع الأجهزة.',
+      subtitle:
+        'اختر كلمة مرور لا تستخدمها في أي مكان آخر. سيتم تسجيل خروجك من جميع الأجهزة وإلغاء مفاتيح API الخاصة بك.',
       newPassword: 'كلمة المرور الجديدة',
       submit: 'حفظ كلمة المرور',
       submitting: 'جارٍ الحفظ…',
       successTitle: 'تم تحديث كلمة المرور',
-      successBody: 'سُجّل خروجك من جميع الأجهزة. سجّل الدخول بكلمة مرورك الجديدة.',
+      successBody:
+        'سُجّل خروجك من جميع الأجهزة وأُلغيت مفاتيح API الخاصة بك. سجّل الدخول بكلمة مرورك الجديدة.',
       logIn: 'تسجيل الدخول',
       requestNew: 'اطلب رابطًا جديدًا',
       problem: {
@@ -327,7 +331,7 @@ export default defineMessages({
       export: {
         title: 'نزّل بياناتك',
         description:
-          'ملف JSON يضم ملفك الشخصي وسجل الرصيد وعمليات التوليد وروابط ملفاتك. يمكنك تنزيله حتى ثلاث مرات يوميًا.',
+          'ملف JSON يضم ملفك الشخصي وسجل الرصيد ومشترياتك وعمليات التوليد وروابط ملفاتك. يمكنك تنزيله حتى ثلاث مرات يوميًا.',
         button: 'تنزيل بياناتي',
         preparing: 'جارٍ التجهيز…',
         failed: 'تعذّر تجهيز التنزيل.',

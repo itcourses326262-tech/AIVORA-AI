@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getGateway } from '@/server/billing/config';
 import {
   MOCK_WEBHOOK_SECRET,
@@ -23,7 +23,8 @@ describe('the fake gateway through the real services', () => {
     resetMockGatewayForTests();
     mock = getMockGateway();
     // No override: the services pick the gateway from the environment, which is the mock in tests.
-    expect(getGateway()).toBe(mock);
+    // Every caller gets its own gateway object over the one shared memory of the fake.
+    expect(getGateway().id).toBe('mock');
   });
   afterEach(() => resetMockGatewayForTests());
 
@@ -91,7 +92,10 @@ describe('the fake gateway through the real services', () => {
     const result = await refundOrder(order.id);
 
     expect(result.order).toMatchObject({ status: 'refunded', clawedBackCredits: 500 });
-    await expect(refundOrder(order.id)).rejects.toMatchObject({ code: 'bad_request' });
+    await expect(refundOrder(order.id)).rejects.toMatchObject({
+      code: 'bad_request',
+      message: 'This payment has already been refunded in full',
+    });
   });
 
   it('only accepts webhooks signed with its own secret', async () => {
@@ -164,5 +168,42 @@ describe('the real gateway never accepts what the fake signs', () => {
       code: 'unauthorized',
     });
     expect(t.balance(buyer.id)).toBe(0);
+  });
+});
+
+describe('the fake gateway across module instances', () => {
+  afterEach(() => resetMockGatewayForTests());
+
+  // Turbopack gives route handlers, server actions and instrumentation their own copy of a module
+  // while `globalThis` is shared. The fake keeps its memory there; if it kept the gateway object
+  // too, a route would run closures of ANOTHER copy, and the `AppError` they throw is not an
+  // `instanceof` the one that route's `route()` wrapper checks: a forged webhook answered 500
+  // instead of 401 in development.
+  it("shares its checkouts but throws the caller's own AppError", async () => {
+    vi.resetModules();
+    const first = await import('@/server/billing/mock');
+    const firstErrors = await import('@/lib/errors');
+    first.resetMockGatewayForTests();
+    const checkout = await first.getMockGateway().createCheckout({
+      orderId: 'ord_shared',
+      amountHalalas: 2900,
+      currency: 'SAR',
+      description: 'x',
+      successUrl: 'http://localhost:3000/r',
+      backUrl: 'http://localhost:3000/r',
+      expiresAt: Date.now() + 60_000,
+    });
+
+    vi.resetModules();
+    const second = await import('@/server/billing/mock');
+    const secondErrors = await import('@/lib/errors');
+    expect(secondErrors.AppError).not.toBe(firstErrors.AppError);
+
+    const gateway = second.getMockGateway();
+    expect(gateway.hasCheckout('ord_shared')).toBe(true);
+    expect((await gateway.fetchPayment({ invoiceId: checkout.invoiceId }))?.status).toBe('pending');
+    const forged = { rawBody: '{"type":"payment_paid"}', headers: new Headers() };
+    expect(() => gateway.verifyWebhook(forged)).toThrow(secondErrors.AppError);
+    expect(() => gateway.verifyWebhook(forged)).not.toThrow(firstErrors.AppError);
   });
 });

@@ -22,13 +22,21 @@ export const UNDOCUMENTED_ROUTES: Readonly<Record<string, string>> = {
     'Called by the payment gateway and authenticated by its shared secret, never by developers.',
 };
 
+/** The names Next.js serves a Route Handler from: `route` with a default page extension. */
+const ROUTE_FILE_NAME = /^route\.(?:js|jsx|ts|tsx)$/;
+
+export function isRouteFileName(name: string): boolean {
+  return ROUTE_FILE_NAME.test(name);
+}
+
 /**
  * The OpenAPI path of a route file, given its location below `src/app/api/v1`:
- * `generations/[id]/cancel/route.ts` is `/generations/{id}/cancel`. Undefined for any other file.
+ * `generations/[id]/cancel/route.ts` is `/generations/{id}/cancel` (`route.js`, `route.tsx` and
+ * `route.jsx` count as well). Undefined for any other file.
  */
 export function apiPathOfRouteFile(fileBelowV1: string): string | undefined {
   const segments = fileBelowV1.split('/');
-  if (segments.pop() !== 'route.ts' || segments.length === 0) return undefined;
+  if (!isRouteFileName(segments.pop() ?? '') || segments.length === 0) return undefined;
   return `/${segments.map((segment) => segment.replace(/^\[(\w+)\]$/, '{$1}')).join('/')}`;
 }
 

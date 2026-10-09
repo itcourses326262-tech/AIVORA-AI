@@ -12,16 +12,21 @@ export function returnPath(orderId: string): string {
  * page on this site or a secure (https) page of the gateway: anything else (a `javascript:` URL, a
  * plain-http foreign host) is refused rather than followed. Returns null when it is not safe.
  */
-export function checkoutTarget(raw: string | undefined, currentOrigin: string): string | null {
+export function checkoutTarget(raw: string | undefined, origin: string): string | null {
   if (!raw) return null;
   let url: URL;
   try {
-    url = new URL(raw, currentOrigin);
+    url = new URL(raw, origin);
   } catch {
     return null;
   }
-  if (url.protocol === 'https:' || url.origin === currentOrigin) return url.toString();
+  if (url.protocol === 'https:' || url.origin === origin) return url.toString();
   return null;
+}
+
+/** The page's own origin; empty outside a browser, where no address counts as safe. */
+export function currentOrigin(): string {
+  return typeof window === 'undefined' ? '' : window.location.origin;
 }
 
 /** Leaves the page for `url`. A function of its own so tests can observe the navigation. */

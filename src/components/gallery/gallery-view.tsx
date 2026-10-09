@@ -17,7 +17,9 @@ import { BulkDeleteDialog } from './bulk-delete-dialog';
 import { galleryHref, isFiltered, type GalleryFilters } from './filters';
 import { detailHref, inputHref, reuseHref } from './links';
 import { LoadMore } from './load-more';
+import { countForms } from './plural';
 import { consumeRestore, readNavSnapshot, saveNavSnapshot } from './nav-snapshot';
+import { restoreScroll } from './scroll-restore';
 import { INITIAL_SELECTION, selectionReducer } from './selection';
 import { SelectionBar } from './selection-bar';
 import { GallerySkeleton, NoCreations, NoResults } from './states';
@@ -61,15 +63,18 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
     [items, selection.ids],
   );
 
-  // Coming back from a detail page: scroll to where the person was, once.
+  // Coming back from a detail page: scroll to where the person was, once, and hold it there while
+  // the masonry finds its columns.
   const restored = useRef(false);
+  const stopRestoring = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (restored.current || state.status !== 'ready') return;
     restored.current = true;
     if (!restore) return;
     consumeRestore();
-    requestAnimationFrame(() => window.scrollTo({ top: restore.scrollY, behavior: 'instant' }));
+    stopRestoring.current = restoreScroll(restore.scrollY);
   }, [state.status, restore]);
+  useEffect(() => () => stopRestoring.current?.(), []);
 
   // The detail page offers previous / next inside this very list and scrolls back here afterwards.
   const remember = useCallback(() => {
@@ -142,6 +147,15 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
   const loading = state.status === 'loading';
   const filtered = isFiltered(applied);
 
+  // Everything loaded so far was deleted or removed, yet the server has more: fetch the next page
+  // instead of claiming the gallery is empty. A failed attempt stops here and offers a retry.
+  const { loadMore } = list;
+  const drained = state.status === 'ready' && items.length === 0 && state.cursor !== null;
+  const fetchFailed = state.moreError !== undefined;
+  useEffect(() => {
+    if (drained && !state.loadingMore && !fetchFailed) loadMore();
+  }, [drained, state.loadingMore, fetchFailed, loadMore]);
+
   return (
     <div className="mx-auto flex w-full max-w-[110rem] flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -185,21 +199,18 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
         />
       ) : null}
 
-      <section aria-label={t('gallery.list.results')} aria-busy={loading} className="grid gap-4">
+      <section
+        aria-label={t('gallery.list.results')}
+        aria-busy={loading}
+        className="grid grid-cols-1 gap-4"
+      >
         {state.status === 'ready' && items.length > 0 ? (
           <p role="status" className="text-sm text-muted tabular-nums">
-            {plural(items.length, {
-              zero: t('gallery.list.shown.zero'),
-              one: t('gallery.list.shown.one'),
-              two: t('gallery.list.shown.two'),
-              few: t('gallery.list.shown.few'),
-              many: t('gallery.list.shown.many'),
-              other: t('gallery.list.shown.other'),
-            })}
+            {plural(items.length, countForms(t, 'gallery.list.shown'))}
           </p>
         ) : null}
 
-        {loading && items.length === 0 ? <GallerySkeleton /> : null}
+        {(loading || (drained && !fetchFailed)) && items.length === 0 ? <GallerySkeleton /> : null}
 
         {state.status === 'error' ? (
           <ErrorState
@@ -210,7 +221,7 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
           />
         ) : null}
 
-        {state.status === 'ready' && items.length === 0 ? (
+        {state.status === 'ready' && items.length === 0 && state.cursor === null ? (
           filtered ? (
             <NoResults onClear={filters.clearAll} />
           ) : (
@@ -230,7 +241,7 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
               items={items}
               getKey={(item) => item.id}
               estimateHeight={estimateCardHeight}
-              minColumnWidth={260}
+              minColumnWidth={300}
               maxColumns={5}
               renderItem={(generation) => (
                 <Tile
@@ -246,7 +257,7 @@ export function GalleryView({ initialFilters }: GalleryViewProps) {
         ) : null}
 
         <LoadMore
-          hasMore={state.cursor !== null && items.length > 0}
+          hasMore={state.cursor !== null && (items.length > 0 || fetchFailed)}
           loading={state.loadingMore}
           error={state.moreError}
           onLoadMore={list.loadMore}

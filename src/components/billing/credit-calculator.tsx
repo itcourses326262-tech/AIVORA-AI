@@ -94,7 +94,10 @@ export function CreditCalculator({ samples, amounts, initial }: CreditCalculator
       className="grid gap-6 rounded-2xl border border-border bg-surface p-5 shadow-xs sm:p-8"
     >
       <div className="grid max-w-2xl gap-2">
-        <h2 id={titleId} className="text-2xl font-semibold tracking-tight text-foreground rtl:font-bold">
+        <h2
+          id={titleId}
+          className="text-2xl font-semibold tracking-tight text-foreground rtl:font-bold"
+        >
           {t('billing.pricing.calculator.title')}
         </h2>
         <p className="text-sm text-muted sm:text-base">

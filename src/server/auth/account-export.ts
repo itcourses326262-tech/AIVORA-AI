@@ -1,12 +1,15 @@
 import 'server-only';
 import { and, asc, eq, gt } from 'drizzle-orm';
+import { toOrderDTO, toSubscriptionDTO } from '@/server/billing/dto';
 import { getDb } from '@/server/db';
 import {
   apiKeys,
   assets,
   creditLedger,
   generations,
+  orders,
   sessions,
+  subscriptions,
   users,
   type AssetRow,
   type GenerationRow,
@@ -87,8 +90,10 @@ async function* jsonArray<Row extends { id: string }>(
 
 /**
  * The user's data as a JSON document, in chunks: profile, sign-in sessions (no tokens), API key
- * metadata (never a secret or its hash), the full credit ledger, generations (what was asked and
- * the outcome) and every asset with its download URL. Every query is scoped to `userId`: this is
+ * metadata (never a secret or its hash), the full credit ledger, the purchases (orders and plans:
+ * what was bought, for how much, how it ended; no payment page address, gateway ids or card data,
+ * of which we hold none), generations (what was asked and the outcome) and every asset with its
+ * download URL. Every query is scoped to `userId`: this is
  * the whole access check, so the caller passes the authenticated id and nothing else.
  */
 export async function* exportAccountChunks(
@@ -171,6 +176,34 @@ export async function* exportAccountChunks(
       note: row.note,
       createdAt: row.createdAt,
     }),
+  );
+  yield ',\n  "orders": ';
+  yield* jsonArray(
+    (after) =>
+      db
+        .select()
+        .from(orders)
+        .where(and(eq(orders.userId, userId), gt(orders.id, after)))
+        .orderBy(asc(orders.id))
+        .limit(PAGE)
+        .all(),
+    (row) => {
+      // A payment page that may still be payable does not belong in a file that gets saved and shared.
+      const { checkoutUrl: _checkoutUrl, ...order } = toOrderDTO(row, now);
+      return order;
+    },
+  );
+  yield ',\n  "subscriptions": ';
+  yield* jsonArray(
+    (after) =>
+      db
+        .select()
+        .from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), gt(subscriptions.id, after)))
+        .orderBy(asc(subscriptions.id))
+        .limit(PAGE)
+        .all(),
+    (row) => toSubscriptionDTO(row, undefined, now),
   );
   yield ',\n  "generations": ';
   yield* jsonArray(

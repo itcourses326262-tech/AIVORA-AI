@@ -325,6 +325,8 @@ export async function resendVerification(context: CommandContext): Promise<void>
 
 export function forceVerify(context: CommandContext): void {
   const user = findUser(context);
+  // Confirming never promotes: the operator vouches for the mailbox, not for whoever chose the
+  // password. An ADMIN_EMAILS address is promoted by a password reset, or with set-role.
   const outcome = withTx(getDb(), (tx) => markEmailVerified(tx, user.id));
   if (!outcome.changed) {
     context.io.out(`${user.email} had already confirmed their address.`);
@@ -333,7 +335,11 @@ export function forceVerify(context: CommandContext): void {
   const bonus = outcome.bonus?.created
     ? ` Granted ${outcome.bonus.entry.delta} sign-up credits.`
     : '';
-  context.io.out(`Confirmed ${user.email}.${bonus}`);
+  const listedAdmin = getEnv().ADMIN_EMAILS.includes(user.email) && user.role !== 'admin';
+  const role = listedAdmin
+    ? ' The address is listed in ADMIN_EMAILS but its role is unchanged: run set-role if you trust whoever holds the account.'
+    : '';
+  context.io.out(`Confirmed ${user.email}.${bonus}${role}`);
 }
 
 export async function deleteUser(context: CommandContext): Promise<void> {

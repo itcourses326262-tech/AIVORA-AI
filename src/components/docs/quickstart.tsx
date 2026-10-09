@@ -26,7 +26,6 @@ export interface QuickstartProps {
   input: QuickstartInput;
   /** Credits the example generation costs. */
   cost: number;
-  initialLanguage: QuickstartLanguage;
 }
 
 function samplesOf(
@@ -41,9 +40,9 @@ function samplesOf(
 
 /**
  * Four steps from nothing to a downloaded image, with the code in the reader's language of choice
- * (kept in a cookie). The prose is localized; the code is the same everywhere.
+ * (remembered on the reader's device). The prose is localized; the code is the same everywhere.
  */
-export function Quickstart({ ctx, input, cost, initialLanguage }: QuickstartProps) {
+export function Quickstart({ ctx, input, cost }: QuickstartProps) {
   const { t } = ctx.i18n;
   const code = quickstartCode(input);
   const vars = { model: input.modelId, cost: creditsLabel(ctx.i18n, cost) };
@@ -53,7 +52,7 @@ export function Quickstart({ ctx, input, cost, initialLanguage }: QuickstartProp
       title={t('account.docs.quickstart.title')}
       lead={t('account.docs.quickstart.lead', vars)}
     >
-      <CodeLanguageProvider initial={initialLanguage}>
+      <CodeLanguageProvider>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <LanguagePicker label={t('account.docs.quickstart.language')} />
           <p className="text-sm text-muted">{t('account.docs.quickstart.requirements')}</p>
@@ -63,7 +62,7 @@ export function Quickstart({ ctx, input, cost, initialLanguage }: QuickstartProp
             <li
               key={step}
               id={`quickstart-${step}`}
-              className="grid scroll-mt-32 gap-3 lg:scroll-mt-24"
+              className="grid scroll-mt-12 gap-3 lg:scroll-mt-0"
             >
               <div className="flex items-center gap-3">
                 <span

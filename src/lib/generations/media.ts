@@ -67,8 +67,22 @@ export function promptLabel(prompt: string, max = 140): string {
 
 /** Height of a card's text block (prompt, model, cost, time) below its media. */
 const CARD_FOOTER_PX = 92;
-/** The least height of the placeholder of a running or failed generation (`min-h-52`). */
-const CARD_MIN_MEDIA_PX = 208;
+/** The least height of the placeholder of a running generation (`min-h-60`). */
+const ACTIVE_MIN_MEDIA_PX = 240;
+/** The least height of the panel that explains a failed or canceled generation (`min-h-52`). */
+const OUTCOME_MIN_MEDIA_PX = 208;
+
+/**
+ * Height of the results of a finished generation at `width` pixels. One result fills the width;
+ * several sit in two columns; three show the first across both columns and the other two below it
+ * (see `ResultsBody`), so there is never an empty cell.
+ */
+function resultsHeight(count: number, width: number, aspect: number): number {
+  const cell = width / 2 / aspect;
+  if (count <= 1) return width / aspect;
+  if (count === 3) return 2 * cell + cell;
+  return Math.ceil(count / 2) * cell;
+}
 
 /**
  * About how tall a `GenerationCard` is at `width` pixels, from what is known before it is drawn.
@@ -76,14 +90,12 @@ const CARD_MIN_MEDIA_PX = 208;
  */
 export function estimateCardHeight(generation: GenerationDTO, width: number): number {
   const aspect = boundedAspect(generationAspect(generation));
-  const results = generation.status === 'succeeded' ? Math.max(generation.outputs.length, 1) : 1;
-  const columns = results > 1 ? 2 : 1;
+  const count = Math.max(generation.outputs.length, 1);
   const media =
     generation.status === 'failed' || generation.status === 'canceled'
-      ? CARD_MIN_MEDIA_PX
-      : Math.max(
-          generation.status === 'succeeded' ? 0 : CARD_MIN_MEDIA_PX,
-          Math.ceil(results / columns) * (width / columns / aspect),
-        );
+      ? OUTCOME_MIN_MEDIA_PX
+      : generation.status === 'succeeded'
+        ? resultsHeight(count, width, aspect)
+        : Math.max(ACTIVE_MIN_MEDIA_PX, width / aspect);
   return media + CARD_FOOTER_PX;
 }

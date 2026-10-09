@@ -23,16 +23,20 @@ import {
   validationFailed,
   type EndpointSpec,
 } from '../operation';
+import { JSON_BODY_BYTES } from './common';
 
 export const AUTH_TAG = 'Sessions and sign-in';
 
 const originNote =
   'Browsers send the `Origin` header on their own; any other client must send `Origin` equal to the site origin, or the request is a 403.';
 
+/** The 400 of a link endpoint: the link is unusable, or (the shared cause of every body) not JSON. */
 const linkProblem = (what: string) =>
-  failure('bad_request', `${what} \`details.reason\` is \`invalid\`, \`expired\` or \`used\`.`, {
-    details: { reason: 'expired' },
-  });
+  failure(
+    'bad_request',
+    `${what} \`details.reason\` is \`invalid\`, \`expired\` or \`used\`. A body that is not valid JSON is a 400 too, without a \`reason\`.`,
+    { details: { reason: 'expired' } },
+  );
 
 export const authEndpoints: EndpointSpec[] = [
   {
@@ -50,6 +54,7 @@ export const authEndpoints: EndpointSpec[] = [
     curl: { cookies: 'save', origin: true },
     request: {
       description: 'The new account.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('RegisterRequest'),
       example: {
         email: 'layla@example.com',
@@ -86,7 +91,7 @@ export const authEndpoints: EndpointSpec[] = [
     path: '/auth/login',
     summary: 'Sign in',
     description: [
-      'Signs the browser in with a new session cookie. Every failure is the same 401 with the same text, whether the address is unknown, the password is wrong or the address is malformed.',
+      'Signs the browser in with a new session cookie. Whatever is wrong with the credentials is the same 401 with the same text: the address is unknown, the password is wrong or the address is malformed. Only a body without the two fields is a 422.',
       originNote,
     ].join('\n\n'),
     access: 'public',
@@ -94,6 +99,7 @@ export const authEndpoints: EndpointSpec[] = [
     curl: { cookies: 'save', origin: true },
     request: {
       description: 'The credentials.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('LoginRequest'),
       example: { email: 'layla@example.com', password: 'correct horse battery staple' },
     },
@@ -104,6 +110,9 @@ export const authEndpoints: EndpointSpec[] = [
         'forbidden',
         'The account is disabled (only after the right password), or the request has no matching `Origin`.',
       ),
+      validationFailed('A field is missing or is not a string.', [
+        { path: 'email', message: 'Invalid input: expected string, received undefined' },
+      ]),
       rateLimited(),
     ],
   },
@@ -179,6 +188,7 @@ export const authEndpoints: EndpointSpec[] = [
     curl: { origin: true },
     request: {
       description: 'The address of the account.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('ForgotPasswordRequest'),
       example: { email: 'layla@example.com' },
     },
@@ -206,6 +216,7 @@ export const authEndpoints: EndpointSpec[] = [
     curl: { origin: true },
     request: {
       description: 'The link secret and the new password.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('ResetPasswordRequest'),
       example: {
         token: 'k3JH9sQ0v5e1fLw8XnT2mZpR7uYbCaD4gIoE6hNqVxM',
@@ -264,6 +275,7 @@ export const authEndpoints: EndpointSpec[] = [
     limits: [rateLimit(VERIFY_CONFIRM_RATE_LIMIT, 'public')],
     request: {
       description: 'The link secret.',
+      maxBytes: JSON_BODY_BYTES.account,
       schema: ref('ConfirmEmailRequest'),
       example: { token: 'k3JH9sQ0v5e1fLw8XnT2mZpR7uYbCaD4gIoE6hNqVxM' },
     },
@@ -274,6 +286,9 @@ export const authEndpoints: EndpointSpec[] = [
         bonusCredits: 50,
       }),
       linkProblem('The link cannot be used.'),
+      validationFailed('`token` is missing or is not a string.', [
+        { path: 'token', message: 'Invalid input: expected string, received undefined' },
+      ]),
       rateLimited(),
     ],
   },

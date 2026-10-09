@@ -46,6 +46,10 @@ export function moyasarKeyMode(key: string, kind: 'secret' | 'publishable'): Moy
 
 export const MIN_WEBHOOK_SECRET_CHARS = 16;
 
+/** The start of the problem reported for live keys outside production (callers recognise it by this). */
+export const LIVE_KEYS_REFUSED_PREFIX =
+  'MOYASAR_SECRET_KEY / MOYASAR_PUBLISHABLE_KEY: live keys are refused outside production';
+
 export interface BillingConfigSource {
   nodeEnv: NodeEnvironment;
   gateway: BillingGatewaySetting;
@@ -104,7 +108,7 @@ export function billingConfigProblems(source: BillingConfigSource): string[] {
   const modes = [secretMode, publishableMode];
   if (source.nodeEnv !== 'production' && modes.includes('live') && !source.allowLiveInDev) {
     problems.push(
-      'MOYASAR_SECRET_KEY / MOYASAR_PUBLISHABLE_KEY: live keys are refused outside production, because a test or development run would take real money. Use sk_test_/pk_test_ keys, or set MOYASAR_ALLOW_LIVE_IN_DEV=true if you really mean it',
+      `${LIVE_KEYS_REFUSED_PREFIX}, because a test or development run would take real money. Use sk_test_/pk_test_ keys, or set MOYASAR_ALLOW_LIVE_IN_DEV=true if you really mean it`,
     );
   }
   if (source.nodeEnv === 'production' && modes.includes('test') && !source.allowTestInProduction) {

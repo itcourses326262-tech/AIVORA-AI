@@ -79,6 +79,9 @@ export function CreateKeyDialog({ open, onOpenChange, limits, onCreated }: Creat
       if (issuePaths(error).has('name')) setNameError(t('account.keys.errors.nameInvalid'));
       else if (errorCodeOf(error) === 'conflict') {
         setFormError(t('account.keys.errors.limit', { max: limits.maxActive }));
+      } else if (errorCodeOf(error) === 'email_not_verified') {
+        // The generic text is about creating generations; here it is about keys.
+        setFormError(t('account.keys.errors.emailNotVerified'));
       } else setFormError(failureText(error, i18n));
     } finally {
       setBusy(false);
@@ -169,7 +172,7 @@ export function RevealKeyDialog({ created, origin, onDone }: RevealKeyDialogProp
   }
 
   const command = created
-    ? `curl "${origin}/api/v1/models" \\\n  -H "Authorization: Bearer ${created.key}"`
+    ? `curl "${origin}/api/v1/account" \\\n  -H "Authorization: Bearer ${created.key}"`
     : '';
   return (
     <Dialog

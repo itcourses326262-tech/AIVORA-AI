@@ -84,6 +84,8 @@ function Workspace({ prefill, desktop }: { prefill: StudioPrefill; desktop: bool
               <GenerateBar
                 cost={cost}
                 balance={studio.balance}
+                signedOut={studio.signedOut}
+                loginHref={studio.loginHref}
                 busy={studio.busy}
                 noModel={!model}
                 onGenerate={(event) => studio.generate({ keyboard: event.detail === 0 })}

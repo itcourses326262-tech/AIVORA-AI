@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  linkTargetsOf,
+  fillVariables,
   parseInline,
   parseMarkup,
-  tokensOf,
   type Block,
   type ParseOptions,
 } from '@/components/legal/markup';
+import { linkTargetsOf, tokensOf } from './support';
 
 const draft: ParseOptions = { draft: true, linkTargets: ['/privacy', '/account'] };
 const final: ParseOptions = { draft: false, linkTargets: ['/privacy', '/account'] };
@@ -131,7 +131,40 @@ describe('parseInline', () => {
   });
 });
 
-describe('tokensOf and linkTargetsOf', () => {
+describe('fillVariables', () => {
+  const values = { refundDays: '14 days', vatPercent: '15' };
+
+  it('fills the placeholders it has a value for, as they are', () => {
+    expect(fillVariables('within {refundDays}, VAT {vatPercent}%', values)).toBe(
+      'within 14 days, VAT 15%',
+    );
+    expect(fillVariables('{refundDays}{refundDays}', values)).toBe('14 days14 days');
+  });
+
+  it('leaves the company details and the confirm flag for the renderer', () => {
+    expect(fillVariables('{supportEmail} {confirm} {refundDays}', values)).toBe(
+      '{supportEmail} {confirm} 14 days',
+    );
+    expect(fillVariables('{unknown}', values)).toBe('{unknown}');
+  });
+
+  it('is not a way to read inherited properties', () => {
+    expect(fillVariables('{constructor} {toString} {__proto__}', values)).toBe(
+      '{constructor} {toString} {__proto__}',
+    );
+  });
+
+  it('does not look inside a value it inserted', () => {
+    expect(fillVariables('{a}', { a: '{b}', b: 'x' })).toBe('{b}');
+  });
+
+  it('keeps the text of a body without placeholders exactly', () => {
+    const text = 'A "quoted" line — with [a link](/terms)\nand **bold**.';
+    expect(fillVariables(text, values)).toBe(text);
+  });
+});
+
+describe('the test helpers tokensOf and linkTargetsOf', () => {
   it('list what a body uses', () => {
     const body = 'Write to {supportEmail} {confirm}. See [terms](/terms) and [me](/account).';
     expect(tokensOf(body)).toEqual(['supportEmail', 'confirm']);

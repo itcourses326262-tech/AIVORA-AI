@@ -179,6 +179,59 @@ describe('the address', () => {
   });
 });
 
+describe('the row of tabs on a phone', () => {
+  /** jsdom has no layout and no `scrollIntoView`: record the calls instead. */
+  function recordScrolling() {
+    const scrolled: Array<string | null> = [];
+    const scrollIntoView = vi.fn(function (this: Element) {
+      scrolled.push(this.textContent);
+    });
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    return { scrolled, scrollIntoView };
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  });
+
+  it('brings the tab a deep link opens into view', () => {
+    fakeApi();
+    const { scrolled, scrollIntoView } = recordScrolling();
+    mount('data');
+    expect(scrolled).toEqual(['Your data']);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'center' });
+  });
+
+  it('follows the selection afterwards, and never scrolls the page up or down', async () => {
+    fakeApi();
+    const user = userEvent.setup();
+    const { scrolled, scrollIntoView } = recordScrolling();
+    mount('profile');
+    await user.click(tab('API keys'));
+    await user.click(tab('Credits'));
+    expect(scrolled).toEqual(['Profile', 'API keys', 'Credits']);
+    for (const [options] of scrollIntoView.mock.calls as unknown as Array<
+      [ScrollIntoViewOptions]
+    >) {
+      expect(options.block).toBe('nearest');
+    }
+  });
+
+  it('fades both ends of the row so a clipped tab looks scrollable', () => {
+    fakeApi();
+    mount();
+    expect(screen.getByRole('tablist', { name: 'Account sections' })).toHaveClass('edge-fade');
+  });
+
+  it('still works where the browser has no scrollIntoView', () => {
+    fakeApi();
+    mount('keys');
+    expect(selected()).toEqual(['API keys']);
+  });
+});
+
 describe('the keyboard', () => {
   it('moves between tabs with the arrow keys in the direction of reading', async () => {
     fakeApi();

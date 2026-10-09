@@ -163,6 +163,9 @@ export class JobRun {
       this.markSubmitStarted();
       try {
         const result = await provider.submit(input, this.context());
+        // The run may have been abandoned while the request was in flight (a frozen worker, a cancel,
+        // the deadline): the answer arrives for a job nobody waits for any more.
+        if (this.reason) await this.cancelLateSubmit(provider, result);
         this.throwIfInterrupted();
         return result;
       } catch (error) {
@@ -332,13 +335,52 @@ export class JobRun {
    * answers. A hung cancel must not hold the worker slot (and with it `stop()`).
    */
   private async cancelUpstream(): Promise<void> {
-    const { provider, providerJobId, rt } = this;
-    if (!provider?.cancel || providerJobId === null) return;
+    const { provider, providerJobId } = this;
+    if (!provider || providerJobId === null) return;
+    await this.requestUpstreamCancel(provider, providerJobId, this.meta, true);
+  }
+
+  /**
+   * The provider answered `submit` after this run had already been given up on. The answer carries
+   * the id of a paid upstream job that nobody will poll, fetch or pay attention to again: the user
+   * was refunded (or the job was handed back) when the run was abandoned, so unless it is canceled
+   * here it renders and bills unseen. Nothing waits for this any more (`run()` has returned), so
+   * unlike {@link cancelUpstream} it does not stop at shutdown, only at the time limit.
+   *
+   * The state of the row is not touched: whoever interrupted the run already decided its outcome.
+   */
+  private async cancelLateSubmit(
+    provider: GenerationProvider,
+    result: SubmitResult,
+  ): Promise<void> {
+    if (result.mode !== 'async' || result.providerJobId === '') return;
+    const cancellable = provider.cancel !== undefined;
+    this.log.warn(
+      cancellable
+        ? 'The provider accepted a job after the run was given up; canceling it upstream'
+        : 'The provider accepted a job after the run was given up and cannot cancel it: it will run unseen',
+      { reason: this.reason },
+    );
+    if (cancellable) {
+      await this.requestUpstreamCancel(provider, result.providerJobId, result.meta, false);
+    }
+  }
+
+  private async requestUpstreamCancel(
+    provider: GenerationProvider,
+    providerJobId: string,
+    meta: Record<string, unknown> | undefined,
+    giveUpOnShutdown: boolean,
+  ): Promise<void> {
+    const { rt } = this;
+    if (!provider.cancel) return;
 
     const attempt = new AbortController();
     const stopWaiting = () => attempt.abort(new Error('Gave up waiting for the upstream cancel'));
-    if (rt.shutdown.aborted) stopWaiting();
-    else rt.shutdown.addEventListener('abort', stopWaiting, { once: true });
+    if (giveUpOnShutdown) {
+      if (rt.shutdown.aborted) stopWaiting();
+      else rt.shutdown.addEventListener('abort', stopWaiting, { once: true });
+    }
     const gaveUp = new Promise<never>((_resolve, reject) => {
       attempt.signal.addEventListener('abort', () => reject(attempt.signal.reason), { once: true });
     });
@@ -349,18 +391,14 @@ export class JobRun {
       // The executor runs synchronously, so a cancel() that throws is a rejection like any other.
       const cancelled = new Promise<void>((resolve) => {
         resolve(
-          provider.cancel?.(
-            providerJobId,
-            { ...this.context(), signal: attempt.signal },
-            this.meta,
-          ),
+          provider.cancel?.(providerJobId, { ...this.context(), signal: attempt.signal }, meta),
         );
       });
       await Promise.race([cancelled, gaveUp]);
     } catch (error) {
       this.log.warn('Could not cancel the upstream job', { err: error });
     } finally {
-      rt.shutdown.removeEventListener('abort', stopWaiting);
+      if (giveUpOnShutdown) rt.shutdown.removeEventListener('abort', stopWaiting);
       attempt.abort(); // also stops the timer
     }
   }

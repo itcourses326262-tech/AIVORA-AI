@@ -1,7 +1,7 @@
 'use client';
 
 import { Eye, EyeOff } from 'lucide-react';
-import { useId, useState, type ReactNode, type Ref } from 'react';
+import { useId, useState, type FocusEvent, type ReactNode, type Ref } from 'react';
 import { Field } from '@/components/ui/field';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ export interface PasswordFieldProps {
   label: string;
   value: string;
   onValueChange: (value: string) => void;
-  onBlur?: () => void;
+  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
   error?: string;
   /** Under the control and part of its accessible description (a hint, a strength meter). */
   hint?: ReactNode;

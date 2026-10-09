@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import type { Translator } from '@/lib/i18n';
 import { cn, formatSeconds } from '@/lib/utils';
 import { creditsLabel } from './credits-label';
+import { CreditsPlans } from './credits-plans';
 import type { CreditSample, CreditSamples } from './credit-samples';
 import { Section, SectionHeader } from './section';
 import styles from './marketing.module.css';
@@ -125,6 +126,7 @@ export function CreditsExplainer({ i18n, bonus, samples }: CreditsExplainerProps
         </div>
       </div>
       <p className="mt-6 text-center text-sm text-subtle">{t('landing.pricing.note')}</p>
+      <CreditsPlans i18n={i18n} />
     </Section>
   );
 }

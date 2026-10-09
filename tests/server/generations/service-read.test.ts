@@ -421,6 +421,31 @@ describe('the public feed', () => {
     expect(feed.data[0]?.outputs).toHaveLength(1);
   });
 
+  it('shows the first name only, never the full account name or an address typed as a name', async () => {
+    const [full, arabic, address] = [
+      createUser(harness.db, { name: 'Ann Marie Smith' }),
+      createUser(harness.db, { name: '  ليلى   حسن العلي ' }),
+      createUser(harness.db, { name: 'secret.person@example.com' }),
+    ];
+    const rows = [full, arabic, address].map((user, index) =>
+      publish(user.id, { createdAt: BASE_TIME + index }),
+    );
+    const feed = await listPublicGenerations({});
+    expect(
+      Object.fromEntries(feed.data.map((generation) => [generation.id, generation.owner])),
+    ).toEqual({
+      [rows[0]?.id ?? '']: { name: 'Ann' },
+      [rows[1]?.id ?? '']: { name: 'ليلى' },
+      [rows[2]?.id ?? '']: { name: '' },
+    });
+    const json = JSON.stringify(feed);
+    for (const secret of ['Marie', 'Smith', 'حسن', 'secret.person']) {
+      expect(json).not.toContain(secret);
+    }
+    const single = await getPublicGeneration(rows[0]?.id ?? '');
+    expect(single?.owner).toEqual({ name: 'Ann' });
+  });
+
   it('never leaks private fields', async () => {
     const owner = createUser(harness.db, { name: 'Ann', email: 'ann.secret@example.com' });
     const input = createAsset(harness.db, { userId: owner.id });

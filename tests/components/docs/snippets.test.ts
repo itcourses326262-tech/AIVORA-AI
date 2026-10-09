@@ -5,13 +5,12 @@ import { join } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import {
-  CODE_LANGUAGE_COOKIE,
+  DEFAULT_QUICKSTART_LANGUAGE,
   HIGHLIGHT_AS,
   QUICKSTART_LANGUAGES,
   QUICKSTART_STEPS,
   isQuickstartLanguage,
   quickstartCode,
-  serializeCodeLanguageCookie,
 } from '@/components/docs/snippets';
 
 const INPUT = {
@@ -91,16 +90,14 @@ describe('quickstartCode', () => {
   });
 });
 
-describe('the language cookie', () => {
+describe('the quickstart languages', () => {
   it('accepts exactly the quickstart languages', () => {
     for (const language of QUICKSTART_LANGUAGES) expect(isQuickstartLanguage(language)).toBe(true);
     expect(isQuickstartLanguage('ruby')).toBe(false);
     expect(isQuickstartLanguage(undefined)).toBe(false);
   });
 
-  it('lasts a year, site wide, and is secure on https', () => {
-    const cookie = serializeCodeLanguageCookie('python');
-    expect(cookie).toBe(`${CODE_LANGUAGE_COOKIE}=python; Path=/; Max-Age=31536000; SameSite=Lax`);
-    expect(serializeCodeLanguageCookie('bash', { secure: true })).toMatch(/; Secure$/);
+  it('starts with cURL', () => {
+    expect(DEFAULT_QUICKSTART_LANGUAGE).toBe('bash');
   });
 });

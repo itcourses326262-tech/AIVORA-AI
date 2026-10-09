@@ -12,7 +12,6 @@ import {
   Undo2,
   type LucideIcon,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { creditsLabel } from '@/components/marketing/credits-label';
 import { Button } from '@/components/ui/button';
@@ -29,7 +28,7 @@ import { useUser } from '@/lib/user-context';
 import { cn, formatDate } from '@/lib/utils';
 import { formatTimeOfDay } from './format-time';
 import { orderItemName, planDisplayName } from './items';
-import { checkoutTarget, RETURN_PATH } from './navigation';
+import { checkoutTarget, currentOrigin, RETURN_PATH } from './navigation';
 import { useOrderStatus } from './use-order-status';
 
 type Tone = 'neutral' | 'success' | 'warning' | 'danger';
@@ -46,12 +45,16 @@ function Outcome({
   tone,
   title,
   children,
+  after,
   actions,
 }: {
   icon: LucideIcon;
   tone: Tone;
   title: string;
+  /** Announced by screen readers when it changes: the state and what it means. */
   children?: ReactNode;
+  /** Shown below, but never announced (a clock that ticks on every check would be read out each time). */
+  after?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -63,11 +66,14 @@ function Outcome({
         >
           <Icon className="size-7" />
         </span>
-        <div aria-live="polite" className="grid justify-items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground rtl:font-bold">
-            {title}
-          </h1>
-          {children}
+        <div className="grid justify-items-center gap-3">
+          <div aria-live="polite" className="grid justify-items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground rtl:font-bold">
+              {title}
+            </h1>
+            {children}
+          </div>
+          {after}
         </div>
         {actions ? <div className="flex flex-wrap justify-center gap-2">{actions}</div> : null}
       </div>
@@ -111,6 +117,24 @@ function BillingLink({ label }: { label: string }) {
   );
 }
 
+/**
+ * What to offer after a checkout that did not complete. A first purchase starts over from the
+ * price list; a plan's renewal is paid from Billing instead (the plan is still running or overdue,
+ * so the price list cannot sell it again, and Billing shows the replacement payment link).
+ */
+function RetryActions({ order }: { order: OrderDTO }) {
+  const { t } = useI18n();
+  if (order.kind === 'subscription_renewal') {
+    return <Button href="/account/billing">{t('billing.return.failed.billing')}</Button>;
+  }
+  return (
+    <>
+      <Button href="/pricing">{t('billing.return.failed.retry')}</Button>
+      <BillingLink label={t('billing.return.failed.billing')} />
+    </>
+  );
+}
+
 function PaidBody({ order, balanceReady }: { order: OrderDTO; balanceReady: boolean }) {
   const i18n = useI18n();
   const { t, locale } = i18n;
@@ -127,13 +151,15 @@ function PaidBody({ order, balanceReady }: { order: OrderDTO; balanceReady: bool
     <>
       <Body>{message}</Body>
       {order.kind !== 'pack' && order.periodEnd !== undefined ? (
-        <Body>{t('billing.return.paid.until', { date: formatDate(order.periodEnd, locale) })}</Body>
+        <Body>
+          {t('billing.return.paid.until', { date: formatDate(order.periodEnd, locale, 'long') })}
+        </Body>
       ) : null}
       <Summary order={order} />
       <div className="grid gap-1" data-testid="new-balance">
         <p className="text-sm text-muted">{t('billing.return.paid.balance')}</p>
         {balanceReady ? (
-          <p className="text-3xl font-semibold text-gradient-brand tabular-nums rtl:font-bold">
+          <p className="text-gradient-brand text-3xl font-semibold tabular-nums rtl:font-bold">
             {creditsLabel(i18n, creditBalance)}
           </p>
         ) : (
@@ -187,14 +213,34 @@ export function ReturnView({ orderId }: ReturnViewProps) {
 
   if (orderId === null) {
     return (
-      <Outcome icon={Search} tone="neutral" title={t('billing.return.missing.title')} actions={<>{billing}{pricing}</>}>
+      <Outcome
+        icon={Search}
+        tone="neutral"
+        title={t('billing.return.missing.title')}
+        actions={
+          <>
+            {billing}
+            {pricing}
+          </>
+        }
+      >
         <Body>{t('billing.return.missing.body')}</Body>
       </Outcome>
     );
   }
   if (!valid || state.kind === 'not_found') {
     return (
-      <Outcome icon={Search} tone="neutral" title={t('billing.return.notFound.title')} actions={<>{billing}{pricing}</>}>
+      <Outcome
+        icon={Search}
+        tone="neutral"
+        title={t('billing.return.notFound.title')}
+        actions={
+          <>
+            {billing}
+            {pricing}
+          </>
+        }
+      >
         <Body>{t('billing.return.notFound.body')}</Body>
       </Outcome>
     );
@@ -267,12 +313,7 @@ export function ReturnView({ orderId }: ReturnViewProps) {
           icon={CircleX}
           tone="danger"
           title={t('billing.return.failed.title')}
-          actions={
-            <>
-              <Button href="/pricing">{t('billing.return.failed.retry')}</Button>
-              <BillingLink label={t('billing.return.failed.billing')} />
-            </>
-          }
+          actions={<RetryActions order={order} />}
         >
           <Body>{t('billing.return.failed.body')}</Body>
           <Summary order={order} />
@@ -284,12 +325,7 @@ export function ReturnView({ orderId }: ReturnViewProps) {
           icon={Ban}
           tone="neutral"
           title={t('billing.return.canceled.title')}
-          actions={
-            <>
-              <Button href="/pricing">{t('billing.return.failed.retry')}</Button>
-              <BillingLink label={t('billing.return.failed.billing')} />
-            </>
-          }
+          actions={<RetryActions order={order} />}
         >
           <Body>{t('billing.return.canceled.body')}</Body>
           <Summary order={order} />
@@ -316,12 +352,9 @@ export function ReturnView({ orderId }: ReturnViewProps) {
           actions={
             <>
               {billing}
-              <Link
-                href="/refunds"
-                className="inline-flex h-10 items-center px-2 text-sm font-medium text-brand underline-offset-4 hover:underline"
-              >
+              <Button href="/refunds" variant="ghost">
                 {t('billing.return.review.contact')}
-              </Link>
+              </Button>
             </>
           }
         >
@@ -337,27 +370,26 @@ export function ReturnView({ orderId }: ReturnViewProps) {
             icon={Hourglass}
             tone="warning"
             title={t('billing.return.expired.title')}
-            actions={
-              <>
-                <Button href="/pricing">{t('billing.return.failed.retry')}</Button>
-                {billing}
-              </>
-            }
+            actions={<RetryActions order={order} />}
           >
             <Body>{t('billing.return.expired.body')}</Body>
             <Summary order={order} />
           </Outcome>
         );
       }
-      const payPage = checkoutTarget(
-        order.checkoutUrl,
-        typeof window === 'undefined' ? '' : window.location.origin,
-      );
+      const payPage = checkoutTarget(order.checkoutUrl, currentOrigin());
       return (
         <Outcome
           icon={Hourglass}
           tone="neutral"
           title={t('billing.return.pending.title')}
+          after={
+            <p className="text-xs text-subtle">
+              {t('billing.return.pending.checkedAt', {
+                time: formatTimeOfDay(state.checkedAt, locale),
+              })}
+            </p>
+          }
           actions={
             <>
               <Button variant="secondary" onClick={checkNow}>
@@ -379,11 +411,6 @@ export function ReturnView({ orderId }: ReturnViewProps) {
             <p className="text-sm text-warning">{t('billing.return.pending.retrying')}</p>
           ) : null}
           <Summary order={order} />
-          <p className="text-xs text-subtle">
-            {t('billing.return.pending.checkedAt', {
-              time: formatTimeOfDay(state.checkedAt, locale),
-            })}
-          </p>
         </Outcome>
       );
     }

@@ -3,7 +3,9 @@ import { isEmailVerificationRequired } from '@/server/auth/email-policy';
 import { resetEnvForTests } from '@/server/env';
 import { freshDb } from '../../helpers/db';
 import { createUser } from '../../helpers/factories';
-import { authContextFor, createApiKeyFor } from './trust-fixtures';
+import { authenticate } from '@/server/auth';
+import { createApiKey } from '@/server/auth/api-keys';
+import { authContextFor } from './trust-fixtures';
 import { trustTestState } from './trust-support';
 
 const harness = freshDb();
@@ -56,12 +58,19 @@ describe('AuthContext.mustVerifyEmail follows the policy and the account', () =>
   });
 
   it('is true for an unconfirmed account once confirmation is required, for a session and for an API key', async () => {
-    vi.stubEnv('EMAIL_VERIFICATION', 'required');
-    resetEnvForTests();
     const { db } = harness;
     const user = createUser(db, { emailVerifiedAt: null });
+    // A key the account already holds when the policy turns on (new keys are refused meanwhile).
+    const { key } = await createApiKey(user.id, 'ci');
+    vi.stubEnv('EMAIL_VERIFICATION', 'required');
+    resetEnvForTests();
     expect((await authContextFor(db, user.id))?.mustVerifyEmail).toBe(true);
-    expect((await createApiKeyFor(user.id))?.mustVerifyEmail).toBe(true);
+    const viaKey = await authenticate(
+      new Request('http://localhost:3000/api/v1/auth/me', {
+        headers: { authorization: `Bearer ${key}` },
+      }),
+    );
+    expect(viaKey).toMatchObject({ via: 'api_key', mustVerifyEmail: true });
   });
 
   it('is false for a confirmed account', async () => {

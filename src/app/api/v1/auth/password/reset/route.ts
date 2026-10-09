@@ -2,7 +2,7 @@ import { addressRoute } from '@/server/auth/address-route';
 import { resetPassword } from '@/server/auth/password-reset';
 import { AUTH_BODY_LIMIT, resetPasswordSchema } from '@/server/auth/schemas';
 import { noContent } from '@/server/http/respond';
-import { RESET_RATE_LIMIT, RESET_SHARED_RATE_LIMIT } from '../../email-rate-limits';
+import { RESET_RATE_LIMIT } from '../../email-rate-limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 export const POST = addressRoute(
   { auth: 'none', csrf: true, maxBodyBytes: AUTH_BODY_LIMIT },
-  { perAddress: RESET_RATE_LIMIT, sharedAddress: RESET_SHARED_RATE_LIMIT },
+  { perAddress: RESET_RATE_LIMIT, sharedAddress: false },
   async (ctx) => {
     const body = await ctx.body(resetPasswordSchema);
     await resetPassword(body.token, body.password);

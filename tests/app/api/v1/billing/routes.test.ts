@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { GET as getPlans } from '@/app/api/v1/billing/plans/route';
 import { POST as postCheckout } from '@/app/api/v1/billing/checkout/route';
@@ -196,8 +196,12 @@ describe('POST /billing/checkout', () => {
     for (let i = 0; i < 12; i += 1) {
       statuses.push((await checkout(alice.browser, PACK, `burst-${i}`)).status);
     }
-    expect(statuses.filter((status) => status === 429).length).toBeGreaterThan(0);
-    expect(statuses.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
+    // The first click makes the order; the next nine return that same open checkout (they still
+    // count, they are requests); from the eleventh the per-minute limit answers.
+    expect(statuses[0]).toBe(201);
+    expect(statuses.slice(1, 10).every((status) => status === 200)).toBe(true);
+    expect(statuses.slice(10)).toEqual([429, 429]);
+    expect(t.db.select().from(orders).all()).toHaveLength(1);
   });
 
   it('is a 503 with a reason while billing is switched off', async () => {
@@ -215,13 +219,56 @@ describe('POST /billing/checkout', () => {
   });
 });
 
+describe('POST /billing/checkout while the email address is unconfirmed', () => {
+  it('is refused with 403 email_not_verified where confirmation is required, creating nothing', async () => {
+    const dev = await caller(t.db, { emailVerifiedAt: null });
+    vi.stubEnv('EMAIL_VERIFICATION', 'required');
+    resetEnvForTests();
+
+    const result = await checkout(dev.browser, PACK);
+
+    expect(result.status).toBe(403);
+    expect(result.json.error.code).toBe('email_not_verified');
+    expect(t.db.select().from(orders).all()).toEqual([]);
+    expect(t.moyasar.calls).toEqual([]);
+  });
+
+  it('lets a confirmed account buy, and an unconfirmed one when confirmation is not required', async () => {
+    // (An API key cannot be made for an unconfirmed account once confirmation is required.)
+    const confirmed = await caller(t.db, { emailVerifiedAt: Date.now() });
+    const unconfirmed = await caller(t.db, { emailVerifiedAt: null });
+    vi.stubEnv('EMAIL_VERIFICATION', 'required');
+    resetEnvForTests();
+    expect((await checkout(confirmed.browser, PACK, 'k-confirmed')).status).toBe(201);
+
+    vi.stubEnv('EMAIL_VERIFICATION', 'off');
+    resetEnvForTests();
+    expect((await checkout(unconfirmed.browser, PACK, 'k-off')).status).toBe(201);
+  });
+
+  it('keeps the other billing routes open to it: it can still look at its plan and payments', async () => {
+    const dev = await caller(t.db, { emailVerifiedAt: null });
+    vi.stubEnv('EMAIL_VERIFICATION', 'required');
+    resetEnvForTests();
+    const list = await invokeRoute(listOrders, {
+      url: '/api/v1/billing/orders',
+      headers: dev.browser,
+    });
+    const subscription = await invokeRoute(getSubscription, {
+      url: '/api/v1/billing/subscription',
+      headers: dev.browser,
+    });
+    expect([list.status, subscription.status]).toEqual([200, 200]);
+  });
+});
+
 describe('orders', () => {
   it('lists only the caller’s orders, newest first, with a cursor', async () => {
     const alice = await caller(t.db);
     const bob = await caller(t.db);
     const created: string[] = [];
-    for (let i = 0; i < 3; i += 1) {
-      created.push((await checkout(alice.browser, PACK, `a-${i}`)).json.data.id);
+    for (const [i, id] of ['pack-500', 'pack-1500', 'pack-5000'].entries()) {
+      created.push((await checkout(alice.browser, { type: 'pack', id }, `a-${i}`)).json.data.id);
     }
     await checkout(bob.browser, PACK, 'b-0');
 

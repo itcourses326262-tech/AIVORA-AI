@@ -6,6 +6,7 @@ import {
   apiPathOfRouteFile,
   coverageProblems,
   exportedMethods,
+  isRouteFileName,
   type RouteFileInfo,
 } from '@/lib/openapi/routes';
 import { buildOpenApiDocument } from '@/lib/openapi/spec';
@@ -17,7 +18,7 @@ function* routeFiles(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) yield* routeFiles(full);
-    else if (name === 'route.ts') yield full;
+    else if (isRouteFileName(name)) yield full;
   }
 }
 
@@ -40,6 +41,20 @@ describe('apiPathOfRouteFile', () => {
   it('ignores files that are not route handlers', () => {
     expect(apiPathOfRouteFile('generations/limits.ts')).toBeUndefined();
     expect(apiPathOfRouteFile('route.ts')).toBeUndefined();
+    expect(apiPathOfRouteFile('generations/route.d.ts')).toBeUndefined();
+    expect(apiPathOfRouteFile('generations/route.test.ts')).toBeUndefined();
+    expect(apiPathOfRouteFile('generations/routes.ts')).toBeUndefined();
+  });
+
+  it('knows every file name Next.js serves a route handler from', () => {
+    // A route.js would otherwise escape the sync check and stay undocumented.
+    for (const name of ['route.ts', 'route.tsx', 'route.js', 'route.jsx']) {
+      expect(isRouteFileName(name), name).toBe(true);
+      expect(apiPathOfRouteFile(`generations/[id]/${name}`), name).toBe('/generations/{id}');
+    }
+    for (const name of ['route.mdx', 'route', 'my-route.ts', 'route.ts.map']) {
+      expect(isRouteFileName(name), name).toBe(false);
+    }
   });
 });
 

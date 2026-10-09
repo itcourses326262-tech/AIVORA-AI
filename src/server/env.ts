@@ -102,7 +102,8 @@ const envSchema = z
     /**
      * Cost protection: the most credits that may be committed to generations on paid (non-Demo)
      * providers per rolling 24 hours, across all users. 0 disables the guard. See
-     * `assertWithinUpstreamBudget`.
+     * `assertWithinUpstreamBudget`; the ledger is the `upstream_spend` table, which deleting a
+     * generation or an account does not touch.
      */
     DAILY_UPSTREAM_BUDGET_CREDITS: whole(0, 0, 1_000_000_000),
     /** Outgoing email. `SMTP_URL` (`smtp://user:pass@host:587`, `smtps://` for implicit TLS) or the parts. */

@@ -8,6 +8,7 @@ import type {
   Page,
   UpdateGenerationRequest,
 } from '@/lib/api-types';
+import type { ProviderId } from '@/lib/catalog/types';
 import { AppError } from '@/lib/errors';
 import { isValidId, newId } from '@/lib/id';
 import { debitCredits } from '@/server/credits';
@@ -28,7 +29,7 @@ import {
   isValidIdempotencyKey,
   type RequestFingerprint,
 } from './idempotency';
-import { assertWithinUpstreamBudget } from './budget';
+import { assertWithinUpstreamBudget, recordUpstreamSpend } from './budget';
 import { findPublicRow, selectOwnedRows, selectPublicRows } from './list';
 import { isPaidProvider } from './paid';
 import { markCanceled } from './lifecycle';
@@ -132,8 +133,11 @@ function insertQueued(
     idempotencyKey?: string;
     cost: number;
     maxActive: number;
-    /** DAILY_UPSTREAM_BUDGET_CREDITS for a request on a paid provider; 0 for none. */
-    upstreamBudget: number;
+    /**
+     * Set for a request on a paid provider: it is booked in the upstream ledger and checked against
+     * DAILY_UPSTREAM_BUDGET_CREDITS (0 = no limit, but still booked). The Demo provider has none.
+     */
+    upstream?: { provider: ProviderId; budget: number };
     values: typeof generations.$inferInsert;
     fingerprint: RequestFingerprint;
   },
@@ -164,9 +168,19 @@ function insertQueued(
       }
       // The platform's own money, checked in the transaction that spends the user's: concurrent
       // requests cannot overshoot the budget together.
-      assertWithinUpstreamBudget(tx, { cost: input.cost, budget: input.upstreamBudget });
+      const { upstream } = input;
+      if (upstream) assertWithinUpstreamBudget(tx, { cost: input.cost, budget: upstream.budget });
       debitCredits(tx, { userId, amount: input.cost, generationId: input.id });
-      return { row: tx.insert(generations).values(input.values).returning().get(), created: true };
+      const row = tx.insert(generations).values(input.values).returning().get();
+      if (upstream) {
+        recordUpstreamSpend(tx, {
+          generationId: row.id,
+          provider: upstream.provider,
+          cost: row.cost,
+          now: row.createdAt,
+        });
+      }
+      return { row, created: true };
     });
   } catch (error) {
     // The unique (userId, idempotencyKey) index is the backstop if the lookup above ever missed.
@@ -255,7 +269,9 @@ export async function createGeneration(
     idempotencyKey,
     cost,
     maxActive: env.MAX_ACTIVE_PER_USER,
-    upstreamBudget: isPaidProvider(model.provider) ? env.DAILY_UPSTREAM_BUDGET_CREDITS : 0,
+    ...(isPaidProvider(model.provider)
+      ? { upstream: { provider: model.provider, budget: env.DAILY_UPSTREAM_BUDGET_CREDITS } }
+      : {}),
     fingerprint,
     values: {
       id,

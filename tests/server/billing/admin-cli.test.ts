@@ -5,6 +5,8 @@ import {
   parseSarToHalalas,
   runBillingAdminCli,
 } from '@/server/billing/admin-cli';
+import { setGatewayOverride } from '@/server/billing/config';
+import { resetMockGatewayForTests } from '@/server/billing/mock';
 import { createCheckout } from '@/server/billing/orders';
 import { settleOrder } from '@/server/billing/settle';
 import type { CliIo } from '@/server/auth/admin/io';
@@ -165,6 +167,28 @@ describe('billing admin commands', () => {
         settle.io,
       ),
     ).toBe(1);
+  });
+
+  it('refuses to refund or settle orders of the fake gateway: its checkouts live in the server, not here', async () => {
+    // Development: the fake is selected and a command line process has an empty one.
+    setGatewayOverride(null);
+    resetMockGatewayForTests();
+    const user = t.newUser();
+    const { order } = await createCheckout(
+      user.id,
+      { type: 'pack', id: 'pack-500' },
+      { idempotencyKey: 'k-mock' },
+    );
+    expect(order.gateway).toBe('mock');
+
+    for (const command of ['refund-order', 'settle-order']) {
+      const cli = fakeIo();
+      expect(await runBillingAdminCli([command, order.id], cli.io), command).toBe(1);
+      expect(cli.err.join('\n')).toContain('memory of the running server');
+    }
+    // Nothing was touched: the checkout is still open.
+    expect(t.order(order.id).status).toBe('pending');
+    resetMockGatewayForTests();
   });
 
   it('settle-order applies what the gateway says', async () => {

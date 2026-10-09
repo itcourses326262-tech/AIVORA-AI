@@ -4,6 +4,7 @@ import { POST as forgotRoute } from '@/app/api/v1/auth/password/forgot/route';
 import { POST as resetRoute } from '@/app/api/v1/auth/password/reset/route';
 import { GET as me } from '@/app/api/v1/auth/me/route';
 import { flushBackground } from '@/server/auth/background';
+import { RESET_MAIL_BUDGET } from '@/server/auth/password-reset';
 import { issueEmailToken } from '@/server/auth/email-tokens';
 import { verifyPassword } from '@/server/auth/password';
 import { creditLedger, emailTokens, sessions, users } from '@/server/db/schema';
@@ -143,11 +144,11 @@ describe('POST /api/v1/auth/password/forgot', () => {
       expect(harness.db.select().from(emailTokens).all()).toHaveLength(1);
     });
 
-    it('keeps answering 202 once the per-mailbox budget is spent, and sends nothing', async () => {
+    it('keeps answering 202 once the per-account mail budget is spent, and sends nothing', async () => {
       account();
       const denied: RateLimiter = {
         hit: (key, limit, windowSec) => ({
-          allowed: !key.startsWith('auth-forgot-email:'),
+          allowed: !key.startsWith(`${RESET_MAIL_BUDGET.name}:`),
           remaining: 0,
           resetAt: Date.now() + windowSec * 1000 + limit,
         }),
@@ -163,7 +164,7 @@ describe('POST /api/v1/auth/password/forgot', () => {
   });
 
   describe('limits', () => {
-    it('counts mailboxes in canonical form, 3 an hour: dots and +tags do not buy more', async () => {
+    it('spends the mail budget per ACCOUNT and only when a mail goes out: made-up addresses cost nothing', async () => {
       const keys: Array<{ key: string; limit: number; windowSec: number }> = [];
       setRateLimiter({
         hit: (key, limit, windowSec) => {
@@ -171,14 +172,23 @@ describe('POST /api/v1/auth/password/forgot', () => {
           return { allowed: true, remaining: limit, resetAt: Date.now() + windowSec * 1000 };
         },
       });
+      const mailBudget = () => keys.filter((entry) => entry.key.startsWith(RESET_MAIL_BUDGET.name));
+
+      // Nobody owns this mailbox: nothing is spent, however many aliases are tried.
       await forgot({ email: 'A.B+one@Gmail.com' });
       await forgot({ email: 'ab+two@gmail.com' });
-      const perEmail = keys.filter((entry) => entry.key.startsWith('auth-forgot-email:'));
-      expect(perEmail.map((entry) => entry.key)).toEqual([
-        'auth-forgot-email:ab@gmail.com',
-        'auth-forgot-email:ab@gmail.com',
+      await flushBackground();
+      expect(mailBudget()).toEqual([]);
+
+      // Once it has an owner, an alias request reaches that account and spends ITS budget (3 an hour).
+      const owner = account({ email: 'ab@gmail.com', emailCanonical: 'ab@gmail.com' });
+      await forgot({ email: 'A.B+one@Gmail.com' });
+      await flushBackground();
+      expect(mailBudget()).toMatchObject([
+        { key: `auth-reset-mail:${owner.id}`, limit: 3, windowSec: 3600 },
       ]);
-      expect(perEmail[0]).toMatchObject({ limit: 3, windowSec: 3600 });
+      await mailTo('ab@gmail.com');
+      expect(getOutbox().map((entry) => entry.to)).toEqual(['ab@gmail.com']);
     });
 
     it('limits each client address to 10 an hour behind a proxy', async () => {
@@ -308,6 +318,16 @@ describe('POST /api/v1/auth/password/reset', () => {
     const result = await reset({ token: secret, password: NEW_PASSWORD }, headers);
     expect(result.status).toBe(403);
     expect(result.headers.get('x-ratelimit-limit')).toBeNull();
+    expect((await reset({ token: secret, password: NEW_PASSWORD })).status).toBe(204);
+  });
+
+  it('has no shared budget when clients cannot be told apart: junk from anyone never locks out a real link', async () => {
+    const { secret } = withLink();
+    for (let attempt = 0; attempt < 700; attempt += 1) {
+      const junk = await reset({ token: 'nope', password: NEW_PASSWORD });
+      expect(junk.status).toBe(400);
+      expect(junk.headers.get('x-ratelimit-limit')).toBeNull();
+    }
     expect((await reset({ token: secret, password: NEW_PASSWORD })).status).toBe(204);
   });
 

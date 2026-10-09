@@ -9,6 +9,7 @@ import { isActive } from '@/lib/generations/media';
 import { useI18n } from '@/lib/i18n/client';
 import { useUser } from '@/lib/user-context';
 import { runBulk } from './bulk';
+import { countForms } from './plural';
 import type { BulkProgress } from './selection-bar';
 
 export interface UseBulkActionsOptions {
@@ -50,7 +51,7 @@ export function useBulkActions({
   onRemove,
   onKeepSelected,
 }: UseBulkActionsOptions): BulkActions {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const { refresh } = useUser();
   const [progress, setProgress] = useState<BulkProgress | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -85,7 +86,7 @@ export function useBulkActions({
         void refresh();
       }
       if (result.failed.length === 0) {
-        toast.success(t('gallery.select.deleted', { count: result.succeeded.length }));
+        toast.success(plural(result.succeeded.length, countForms(t, 'gallery.select.deleted')));
       } else {
         toast.error(
           t('gallery.select.deletedSome', {
@@ -98,7 +99,7 @@ export function useBulkActions({
       running.current = false;
       setProgress(null);
     }
-  }, [selected, onRemove, onKeepSelected, refresh, t, track]);
+  }, [selected, onRemove, onKeepSelected, refresh, t, plural, track]);
 
   const toggleFavorites = useCallback(async () => {
     if (running.current) return;
@@ -122,9 +123,10 @@ export function useBulkActions({
       onKeepSelected(result.failed.map((failure) => failure.id));
       if (result.failed.length === 0) {
         toast.success(
-          t(favorite ? 'gallery.select.favorited' : 'gallery.select.unfavorited', {
-            count: result.succeeded.length,
-          }),
+          plural(
+            result.succeeded.length,
+            countForms(t, favorite ? 'gallery.select.favorited' : 'gallery.select.unfavorited'),
+          ),
         );
       } else {
         toast.error(
@@ -138,7 +140,7 @@ export function useBulkActions({
       running.current = false;
       setProgress(null);
     }
-  }, [selected, onUpdate, onKeepSelected, t, track]);
+  }, [selected, onUpdate, onKeepSelected, t, plural, track]);
 
   return {
     progress,

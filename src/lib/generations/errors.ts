@@ -16,6 +16,7 @@ const FAILURE_CODES = [
   'unavailable',
   'timeout',
   'internal',
+  'interrupted',
 ] as const;
 type FailureCode = (typeof FAILURE_CODES)[number];
 
@@ -30,6 +31,9 @@ const FAILURE_KEYS: Record<FailureCode, MessageKey> = {
   unavailable: 'studio.generations.failure.unavailable',
   timeout: 'studio.generations.failure.timeout',
   internal: 'studio.generations.failure.internal',
+  // Written by the job engine when it cannot tell whether a paid provider accepted the request:
+  // the shared sentence already says the credits came back and that trying again is safe.
+  interrupted: 'errors.interrupted',
 };
 
 /** Why a generation failed, in the user's language. */

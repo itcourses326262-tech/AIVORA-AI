@@ -1,6 +1,6 @@
 'use client';
 
-import type { Ref } from 'react';
+import type { FocusEvent, Ref } from 'react';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n/client';
@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/client';
 interface TextFieldProps {
   value: string;
   onValueChange: (value: string) => void;
-  onBlur?: () => void;
+  onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
   error?: string;
   inputRef?: Ref<HTMLInputElement>;
 }

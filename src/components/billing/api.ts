@@ -1,19 +1,9 @@
 import { api } from '@/lib/api-client';
-import type {
-  BillingCatalogDTO,
-  CheckoutRequest,
-  OrderDTO,
-  Page,
-  SubscriptionDTO,
-} from '@/lib/api-types';
+import type { CheckoutRequest, OrderDTO, Page, SubscriptionDTO } from '@/lib/api-types';
 
-/** Typed calls to `/api/v1/billing/*`. Prices and VAT always come from these answers, never from the page. */
+/** Typed calls to `/api/v1/billing/*`. A checkout names an item and never an amount: every figure shown comes from the server. */
 
-export const ORDERS_PAGE_SIZE = 20;
-
-export function fetchCatalog(signal?: AbortSignal): Promise<BillingCatalogDTO> {
-  return api.get<BillingCatalogDTO>('/billing/plans', { signal });
-}
+const ORDERS_PAGE_SIZE = 20;
 
 /**
  * Starts a purchase. The body names an item and nothing else; `idempotencyKey` makes a double

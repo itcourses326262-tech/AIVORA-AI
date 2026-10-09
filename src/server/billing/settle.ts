@@ -1,7 +1,7 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { getDb, withTx, type DbOrTx } from '@/server/db';
-import { orders, type OrderRow } from '@/server/db/schema';
+import { orders, users, type OrderRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { getGateway } from './config';
 import type { GatewayPaymentState } from './gateway';
@@ -9,8 +9,10 @@ import {
   applyRefund,
   closeOrder,
   flagForReview,
+  isUnpaid,
   markPaid,
   markRefundedWithoutCredit,
+  wakeSubscription,
 } from './transitions';
 
 /**
@@ -64,33 +66,43 @@ export function applyGatewayState(
     if (state.status === 'pending') return unchanged('pending');
     if (state.status === 'closed') {
       if (order.status !== 'pending') return unchanged('unchanged');
-      closeOrder(tx, order, closeAs, now);
+      if (closeOrder(tx, order, closeAs, now) && closeAs === 'failed') {
+        // The gateway ended a payment page we still wanted: a renewal is offered again at once.
+        if (order.kind === 'subscription_renewal') wakeSubscription(tx, order.subscriptionId, now);
+      }
       return { order: readBack(tx, orderId), outcome: 'closed' };
     }
 
-    // From here the gateway says money moved. It must be exactly the money this order asked for.
-    const unpaid =
-      order.status === 'pending' || order.status === 'failed' || order.status === 'canceled';
+    // From here the gateway says money moved. It must be exactly the money this order asked for:
+    // the checkout AND the payment(s) behind it, in amount and currency, under our reference.
+    const unpaid = isUnpaid(order);
     const matches =
       state.amountHalalas === order.amountHalalas &&
       state.currency === order.currency &&
+      (state.paidAmountHalalas ?? state.amountHalalas) === order.amountHalalas &&
+      (state.paidCurrency ?? state.currency) === order.currency &&
       state.reference === order.id;
     if (!matches) {
+      if (state.status === 'refunded' && unpaid) {
+        // Whatever it was, all of it went back: the books are even and nobody has to look.
+        markRefundedWithoutCredit(tx, order, state.paymentId, now, state.refundedHalalas);
+        return { order: readBack(tx, orderId), outcome: 'refunded' };
+      }
       log().error('A payment does not match its order; nothing was credited', {
         orderId: order.id,
         expectedAmount: order.amountHalalas,
-        gotAmount: state.amountHalalas,
+        gotAmount: state.paidAmountHalalas ?? state.amountHalalas,
         expectedCurrency: order.currency,
-        gotCurrency: state.currency,
+        gotCurrency: state.paidCurrency ?? state.currency,
         referenceMatches: state.reference === order.id,
       });
-      if (unpaid) flagForReview(tx, order, now);
-      return { order: readBack(tx, orderId), outcome: unpaid ? 'needs_review' : 'unchanged' };
+      const flagged = unpaid && flagForReview(tx, order, now);
+      return { order: readBack(tx, orderId), outcome: flagged ? 'needs_review' : 'unchanged' };
     }
 
     if (state.status === 'refunded') {
       if (unpaid) {
-        markRefundedWithoutCredit(tx, order, state.paymentId, now);
+        markRefundedWithoutCredit(tx, order, state.paymentId, now, state.refundedHalalas);
         return { order: readBack(tx, orderId), outcome: 'refunded' };
       }
       const refunded = applyRefund(tx, orderId, state.refundedHalalas, now);
@@ -101,6 +113,16 @@ export function applyGatewayState(
     }
 
     // state.status === 'paid'
+    if (unpaid && accountIsDeleted(tx, order.userId)) {
+      // Someone paid for an account that no longer exists (its checkout could not be withdrawn in
+      // time). The credits would be unreachable; a person refunds the payment.
+      log().error('A payment arrived for a deleted account; nothing was credited', {
+        orderId: order.id,
+        userId: order.userId,
+      });
+      const flagged = flagForReview(tx, order, now);
+      return { order: readBack(tx, orderId), outcome: flagged ? 'needs_review' : 'unchanged' };
+    }
     let outcome: SettleOutcome = 'already_paid';
     if (unpaid && markPaid(tx, order, state.paymentId, now)) outcome = 'paid';
     if (state.refundedHalalas > 0) applyRefund(tx, orderId, state.refundedHalalas, now);
@@ -117,6 +139,15 @@ export function applyGatewayState(
     });
   }
   return result;
+}
+
+function accountIsDeleted(db: DbOrTx, userId: string): boolean {
+  const owner = db
+    .select({ deletedAt: users.deletedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+  return owner?.deletedAt !== null && owner?.deletedAt !== undefined;
 }
 
 function readBack(db: DbOrTx, orderId: string): OrderRow {

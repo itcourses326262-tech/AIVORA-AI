@@ -99,7 +99,7 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
           label={t('auth.reset.newPassword')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}
-          onBlur={() => form.onBlur('password')}
+          onBlur={(event) => form.onBlur('password', event)}
           error={form.errors.password}
           autoComplete="new-password"
           inputRef={form.inputRef('password')}

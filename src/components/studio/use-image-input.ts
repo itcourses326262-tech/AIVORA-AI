@@ -47,6 +47,11 @@ function revoke(url: string | null | undefined): void {
 
 export interface ImageInput {
   state: ImageInputState;
+  /**
+   * The last file that was turned down before anything was sent (wrong type, too big). It does not
+   * touch `state`: the picture already attached, or the upload in progress, stays as it is.
+   */
+  rejected: ImageInputError | null;
   /** Validates and uploads a picked, dropped or pasted file. */
   accept: (file: File) => void;
   /** Uses an existing result (or uploaded input) without picking a file. */
@@ -63,6 +68,7 @@ export interface ImageInput {
  */
 export function useImageInput(): ImageInput {
   const [state, setState] = useState<ImageInputState>(EMPTY);
+  const [rejected, setRejected] = useState<ImageInputError | null>(null);
   const controller = useRef<AbortController | null>(null);
   const preview = useRef<string | null>(null);
 
@@ -84,9 +90,10 @@ export function useImageInput(): ImageInput {
     (file: File) => {
       const problem = imageFileProblem(file);
       if (problem) {
-        setState({ status: 'empty', error: { kind: problem } });
+        setRejected({ kind: problem });
         return;
       }
+      setRejected(null);
       release();
       const previewUrl = objectUrl(file);
       preview.current = previewUrl;
@@ -125,6 +132,7 @@ export function useImageInput(): ImageInput {
 
   const adopt = useCallback(
     ({ id, asset }: AdoptSource) => {
+      setRejected(null);
       release();
       if (!asset || usableAsInputDirectly(asset)) {
         setState({
@@ -185,8 +193,9 @@ export function useImageInput(): ImageInput {
 
   const clear = useCallback(() => {
     release();
+    setRejected(null);
     setState(EMPTY);
   }, [release]);
 
-  return { state, accept, adopt, recover, clear };
+  return { state, rejected, accept, adopt, recover, clear };
 }

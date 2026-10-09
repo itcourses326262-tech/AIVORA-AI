@@ -1,10 +1,10 @@
 import 'server-only';
-import { and, asc, gt, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
+import type { ProviderId } from '@/lib/catalog/types';
 import { AppError } from '@/lib/errors';
 import type { DbOrTx } from '@/server/db';
-import { generations } from '@/server/db/schema';
+import { upstreamSpend } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
-import { FREE_PROVIDER } from './paid';
 
 /*
  * Cost protection: DAILY_UPSTREAM_BUDGET_CREDITS caps what the platform can owe its paid providers
@@ -12,12 +12,18 @@ import { FREE_PROVIDER } from './paid';
  * many accounts). It is checked inside the same transaction that debits the user and inserts the
  * generation, so concurrent requests cannot overshoot it together.
  *
- * What counts as committed: the `cost` of every generation on a PAID provider (anything but the
- * Demo provider) created in the last 24 hours whose status is not `failed` or `canceled`, i.e.
- * queued, processing and succeeded. Failed and canceled generations are refunded in full, so they
- * free their share the moment they end, and a refund never opens more room than the generation
- * took. A partial refund (fewer pictures than paid for) keeps the full cost committed: it is the
- * conservative reading, and the provider usually bills the request, not the pictures that arrived.
+ * The ledger is the `upstream_spend` table, not the `generations` table: a user can delete a
+ * generation (and, with it, an account), but the provider has billed it all the same, so the
+ * spend must outlive the row it came from. A row is written with every PAID generation (anything
+ * but the Demo provider), in the transaction that creates it, and released when that generation is
+ * refunded in full.
+ *
+ * What counts as committed: the cost of every paid generation created in the last 24 hours that
+ * has not been released, i.e. queued, processing, succeeded, and deleted after it was billed. Failed
+ * and canceled generations are refunded in full, so they free their share the moment they end, and
+ * a refund never opens more room than the generation took. A partial refund (fewer pictures than
+ * paid for) keeps the full cost committed: it is the conservative reading, and the provider usually
+ * bills the request, not the pictures that arrived.
  */
 
 export const BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -28,21 +34,53 @@ export const MAX_RETRY_AFTER_SEC = 60 * 60;
 const ESTIMATE_SCAN_LIMIT = 5000;
 const LOG_EVERY_MS = 60_000;
 
-const COMMITTED_STATUSES = ['queued', 'processing', 'succeeded'] as const;
-
 function committedSince(now: number) {
-  return and(
-    ne(generations.provider, FREE_PROVIDER),
-    inArray(generations.status, COMMITTED_STATUSES),
-    gt(generations.createdAt, now - BUDGET_WINDOW_MS),
-  );
+  return and(isNull(upstreamSpend.releasedAt), gt(upstreamSpend.createdAt, now - BUDGET_WINDOW_MS));
 }
 
-/** Credits committed to paid generations created in the last 24 hours before `now`. */
+export interface UpstreamSpendEntry {
+  generationId: string;
+  provider: ProviderId;
+  /** The price the user paid, in credits. */
+  cost: number;
+  now: number;
+}
+
+/**
+ * Books a paid generation against the budget. Call it in the transaction that inserts the
+ * generation. Rows that have left the window cannot matter any more and are removed here, so the
+ * table stays as small as a day of paid traffic.
+ */
+export function recordUpstreamSpend(db: DbOrTx, entry: UpstreamSpendEntry): void {
+  db.delete(upstreamSpend)
+    .where(lt(upstreamSpend.createdAt, entry.now - BUDGET_WINDOW_MS))
+    .run();
+  db.insert(upstreamSpend)
+    .values({
+      generationId: entry.generationId,
+      provider: entry.provider,
+      cost: entry.cost,
+      createdAt: entry.now,
+    })
+    .run();
+}
+
+/**
+ * Frees the share of a generation that was refunded in full. Idempotent; a no-op for the Demo
+ * provider, which is never booked. Call it in the transaction that refunds.
+ */
+export function releaseUpstreamSpend(db: DbOrTx, generationId: string, now: number): void {
+  db.update(upstreamSpend)
+    .set({ releasedAt: now })
+    .where(and(eq(upstreamSpend.generationId, generationId), isNull(upstreamSpend.releasedAt)))
+    .run();
+}
+
+/** Credits committed to paid generations in the 24 hours before `now`. */
 export function committedUpstreamCredits(db: DbOrTx, now: number = Date.now()): number {
   const row = db
-    .select({ total: sql<number>`coalesce(sum(${generations.cost}), 0)` })
-    .from(generations)
+    .select({ total: sql<number>`coalesce(sum(${upstreamSpend.cost}), 0)` })
+    .from(upstreamSpend)
     .where(committedSince(now))
     .get();
   return row?.total ?? 0;
@@ -51,10 +89,10 @@ export function committedUpstreamCredits(db: DbOrTx, now: number = Date.now()): 
 /** Seconds until enough of the oldest committed generations leave the window for `excess` to fit. */
 function estimateRetryAfterSec(db: DbOrTx, now: number, excess: number): number {
   const oldest = db
-    .select({ createdAt: generations.createdAt, cost: generations.cost })
-    .from(generations)
+    .select({ createdAt: upstreamSpend.createdAt, cost: upstreamSpend.cost })
+    .from(upstreamSpend)
     .where(committedSince(now))
-    .orderBy(asc(generations.createdAt))
+    .orderBy(asc(upstreamSpend.createdAt))
     .limit(ESTIMATE_SCAN_LIMIT)
     .all();
   let freed = 0;

@@ -42,6 +42,44 @@ describe('InMemoryRateLimiter', () => {
     expect(limiter.hit('k', 2, 60).allowed).toBe(false);
   });
 
+  describe('release', () => {
+    it('takes one hit back, so a request that did nothing does not use up the budget', () => {
+      const limiter = new InMemoryRateLimiter(clock().read);
+      const first = limiter.hit('k', 2, 60);
+      limiter.release('k', first);
+      expect(limiter.hit('k', 2, 60).remaining).toBe(1);
+      const second = limiter.hit('k', 2, 60);
+      expect(second.allowed).toBe(true);
+      expect(limiter.hit('k', 2, 60).allowed).toBe(false);
+      limiter.release('k', second);
+      expect(limiter.hit('k', 2, 60).allowed).toBe(false); // the blocked hit above still counts
+    });
+
+    it('leaves a newer window alone: a hit from a finished window is not worth anything now', () => {
+      const time = clock();
+      const limiter = new InMemoryRateLimiter(time.read);
+      const old = limiter.hit('k', 2, 10);
+      time.state.now += 10_000;
+      limiter.hit('k', 2, 10); // the first hit of the new window
+      limiter.release('k', old);
+      expect(limiter.hit('k', 2, 10).remaining).toBe(0); // both hits of the new window still count
+    });
+
+    it('never counts below zero, and ignores keys it does not know', () => {
+      const limiter = new InMemoryRateLimiter(clock().read);
+      const result = limiter.hit('k', 5, 60);
+      limiter.release('k', result);
+      limiter.release('k', result);
+      limiter.release('unknown', result);
+      expect(limiter.hit('k', 5, 60).remaining).toBe(4);
+    });
+
+    it('is a no-op for the pass-through limiter', () => {
+      const result = unlimitedRateLimiter.hit('k', 3, 60);
+      expect(() => unlimitedRateLimiter.release?.('k', result)).not.toThrow();
+    });
+  });
+
   it('starts a fresh window when the previous one has ended', () => {
     const time = clock();
     const limiter = new InMemoryRateLimiter(time.read);

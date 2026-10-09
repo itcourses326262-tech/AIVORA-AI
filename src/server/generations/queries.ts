@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { GenerationDTO } from '@/lib/api-types';
+import { firstNameOf } from '@/lib/public-name';
 import type { DbOrTx } from '@/server/db';
 import { assets, generations, users, type AssetRow, type GenerationRow } from '@/server/db/schema';
 import { toGenerationDTO, toPublicGenerationDTO } from './dto';
@@ -94,7 +95,8 @@ export function hydrateGenerations(
     return rows.map((row) =>
       toPublicGenerationDTO(row, {
         outputs: outputs.get(row.id) ?? [],
-        owner: { name: names.get(row.userId) ?? '' },
+        // Public feeds show the first name only, whatever the account is called in full.
+        owner: { name: firstNameOf(names.get(row.userId)) ?? '' },
       }),
     );
   }

@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { useUser } from '@/lib/user-context';
 import { fetchSubscription } from './api';
 import { halalasPer100Credits, netHalalas } from './money';
+import { CheckoutFailure } from './checkout-failure';
 import { Notice } from './notice';
 import { PriceCard } from './price-card';
 import { SubscribeDialog } from './subscribe-dialog';
@@ -57,6 +58,11 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
   const busy = phase.kind === 'starting' || phase.kind === 'redirecting';
   const inProgress = (type: 'pack' | 'subscription', id: string) =>
     busy && phase.item.type === type && phase.item.id === id;
+  // A failed attempt is explained inside the card of the item that was pressed.
+  const failureOf = (type: 'pack' | 'subscription', id: string): ReactNode =>
+    phase.kind === 'failed' && phase.item.type === type && phase.item.id === id ? (
+      <CheckoutFailure problem={phase.problem} onDismiss={checkout.dismiss} />
+    ) : null;
 
   function cta(
     kind: 'plan' | 'pack',
@@ -79,13 +85,13 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
       );
     }
     if (kind === 'plan' && running) {
-      return running.planId === item.id ? (
+      // The server allows one running plan per account, so another one can only be bought once
+      // this one has ended; the notice above says so and links to Billing.
+      return (
         <Button variant="secondary" fullWidth disabled>
-          {t('billing.cta.currentPlan')}
-        </Button>
-      ) : (
-        <Button href="/account/billing" variant="secondary" fullWidth>
-          {t('billing.cta.changePlan')}
+          {running.planId === item.id
+            ? t('billing.cta.currentPlan')
+            : t('billing.cta.afterPlanEnds')}
         </Button>
       );
     }
@@ -164,19 +170,6 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
           {t('billing.pricing.hasPlan.body')}
         </Notice>
       ) : null}
-      {phase.kind === 'failed' ? (
-        <Notice
-          tone="danger"
-          title={phase.problem.message}
-          action={
-            phase.problem.link ? (
-              <Button href={phase.problem.link.href} variant="secondary" size="sm">
-                {phase.problem.link.label}
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : null}
       {phase.kind === 'redirecting' ? (
         <p role="status" className="sr-only">
           {t('billing.cta.opening')}
@@ -191,7 +184,10 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
             { value: 'packs', label: t('billing.pricing.mode.packs') },
           ]}
           value={mode}
-          onValueChange={(value) => setMode(value === 'packs' ? 'packs' : 'plans')}
+          onValueChange={(value) => {
+            checkout.dismiss();
+            setMode(value === 'packs' ? 'packs' : 'plans');
+          }}
         />
       </div>
 
@@ -233,6 +229,7 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
                   vatLine={facts.vatLine}
                   per100={facts.per100}
                   perks={planPerks}
+                  notice={failureOf('subscription', plan.id)}
                   cta={cta('plan', plan, plan.popular)}
                 />
               );
@@ -269,6 +266,7 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
                   vatLine={facts.vatLine}
                   per100={facts.per100}
                   perks={packPerks}
+                  notice={failureOf('pack', pack.id)}
                   cta={cta('pack', pack, pack.popular)}
                 />
               );
@@ -284,7 +282,7 @@ export function PricingView({ catalog, checkoutOptions }: PricingViewProps) {
             {t('billing.pricing.loginHint')}{' '}
             <Link
               href={LOGIN_HREF}
-              className="font-medium text-brand underline-offset-4 hover:underline"
+              className="hit-area font-medium text-brand underline-offset-4 hover:underline"
             >
               {t('billing.pricing.loginLink')}
             </Link>

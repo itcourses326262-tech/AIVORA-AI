@@ -34,6 +34,18 @@ describe('failureReason', () => {
     );
   });
 
+  it('tells a user whose job was interrupted that the credits are back and trying again is safe', () => {
+    const failed = { error: { code: 'interrupted', message: 'English for logs' } };
+    const english = failureReason(en.t, failed);
+    expect(english).toBe(en.t('errors.interrupted'));
+    expect(english).toMatch(/refunded/i);
+    expect(english).not.toBe(en.t('studio.generations.failure.unknown'));
+    const arabic = failureReason(ar.t, failed);
+    expect(arabic).toBe(ar.t('errors.interrupted'));
+    expect(arabic).toMatch(/[؀-ۿ]/);
+    expect(arabic).not.toBe(ar.t('studio.generations.failure.unknown'));
+  });
+
   it('falls back to a generic sentence for a code it does not know, or none', () => {
     const generic = en.t('studio.generations.failure.unknown');
     expect(failureReason(en.t, { error: { code: 'something_new', message: '' } })).toBe(generic);

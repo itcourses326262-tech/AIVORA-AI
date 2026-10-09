@@ -1,5 +1,6 @@
 import { runAdminCli } from '@/server/auth/admin/cli';
 import { processIo } from '@/server/auth/admin/io';
+import { registerBillingAccountHook } from '@/server/billing/account';
 import { BILLING_USAGE, isBillingCommand, runBillingAdminCli } from '@/server/billing/admin-cli';
 import { closeDb } from '@/server/db';
 import { getLogger } from '@/server/logger';
@@ -9,6 +10,8 @@ import { getLogger } from '@/server/logger';
 // refund, settle, price list). `npm run admin -- --help` lists them.
 try {
   const args = process.argv.slice(2);
+  // Deleting an account from here must end its subscription and withdraw its payment pages too.
+  registerBillingAccountHook();
   if (isBillingCommand(args[0])) {
     process.exitCode = await runBillingAdminCli(args);
   } else {

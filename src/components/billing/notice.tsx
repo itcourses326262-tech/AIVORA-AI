@@ -1,5 +1,6 @@
-import { CircleAlert, CircleCheck, Info, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { IconButton } from '@/components/ui/icon-button';
 import { cn } from '@/lib/utils';
 
 export type NoticeTone = 'info' | 'success' | 'warning' | 'danger';
@@ -26,6 +27,8 @@ export interface NoticeProps {
   action?: ReactNode;
   /** `alert` for something that just went wrong, `status` for news, `note` for fixed information. */
   role?: 'alert' | 'status' | 'note';
+  /** A close button in the corner: the accessible `label` and what closing does. */
+  dismiss?: { label: string; onDismiss: () => void };
   className?: string;
 }
 
@@ -36,6 +39,7 @@ export function Notice({
   children,
   action,
   role = tone === 'danger' ? 'alert' : 'status',
+  dismiss,
   className,
 }: NoticeProps) {
   const { Icon, className: iconClass } = ICON[tone];
@@ -43,7 +47,8 @@ export function Notice({
     <div
       role={role}
       className={cn(
-        'flex flex-wrap items-start gap-x-3 gap-y-3 rounded-xl border p-4 text-sm sm:flex-nowrap',
+        'relative flex flex-wrap items-start gap-x-3 gap-y-3 rounded-xl border p-4 text-sm sm:flex-nowrap',
+        dismiss && 'pe-14',
         SURFACE[tone],
         className,
       )}
@@ -54,6 +59,17 @@ export function Notice({
         {children ? <div className="text-muted">{children}</div> : null}
       </div>
       {action ? <div className="shrink-0 sm:self-center">{action}</div> : null}
+      {dismiss ? (
+        <IconButton
+          label={dismiss.label}
+          size="sm"
+          tooltip={false}
+          className="absolute end-2 top-2"
+          onClick={dismiss.onDismiss}
+        >
+          <X />
+        </IconButton>
+      ) : null}
     </div>
   );
 }

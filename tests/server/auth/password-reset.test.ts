@@ -262,10 +262,10 @@ describe('resetPassword', () => {
     expect(await reasonOf(resetPassword(secret, NEW_PASSWORD))).toBe('invalid');
   });
 
-  it('leaves API keys alone (they are separate credentials the owner can revoke)', async () => {
+  it('revokes API keys as well (the details are in credential-eviction.test.ts)', async () => {
     const { key } = await createApiKey(user.id, 'ci');
     const { secret } = issue();
     await resetPassword(secret, NEW_PASSWORD);
-    expect(resolveApiKey(key, harness.db)?.user.id).toBe(user.id);
+    expect(resolveApiKey(key, harness.db)).toBeNull();
   });
 });

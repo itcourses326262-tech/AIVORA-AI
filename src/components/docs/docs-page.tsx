@@ -27,7 +27,6 @@ import {
   schemaAnchor,
   tagAnchor,
 } from './reference-model';
-import type { QuickstartLanguage } from './snippets';
 
 export const QUICKSTART_PROMPT = 'A lighthouse at dawn, soft fog, cinematic';
 
@@ -77,7 +76,6 @@ export interface DocsPageProps {
   /** `https://host` of this deployment. */
   origin: string;
   quickstart: QuickstartModel | undefined;
-  initialLanguage: QuickstartLanguage;
 }
 
 /** Fallback when the catalog offers no image model at all (a deployment with nothing configured). */
@@ -93,7 +91,7 @@ const FALLBACK_MODEL: QuickstartModel = {
  * conventions every endpoint shares, and the endpoint reference generated from the OpenAPI
  * document. Renders the page's one `<main>`.
  */
-export function DocsPage({ i18n, document, origin, quickstart, initialLanguage }: DocsPageProps) {
+export function DocsPage({ i18n, document, origin, quickstart }: DocsPageProps) {
   const { t } = i18n;
   const ctx: DocsContext = {
     i18n,
@@ -170,7 +168,6 @@ export function DocsPage({ i18n, document, origin, quickstart, initialLanguage }
               aspectRatio: model.aspectRatio,
             }}
             cost={model.cost}
-            initialLanguage={initialLanguage}
           />
           <Authentication ctx={ctx} />
           <Lifecycle ctx={ctx} />

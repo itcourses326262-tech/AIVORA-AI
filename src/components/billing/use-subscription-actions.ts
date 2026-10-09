@@ -39,7 +39,7 @@ export function useSubscriptionActions({ onChanged }: UseSubscriptionActionsOpti
         } else if (planPhase(next) === 'canceling' && next.currentPeriodEnd !== undefined) {
           toast.success(
             t('billing.account.plan.toast.canceled', {
-              date: formatDate(next.currentPeriodEnd, locale),
+              date: formatDate(next.currentPeriodEnd, locale, 'long'),
             }),
           );
         } else {
@@ -48,7 +48,11 @@ export function useSubscriptionActions({ onChanged }: UseSubscriptionActionsOpti
         return true;
       } catch (error) {
         setProblem(
-          describeBillingError(t, error, { returnTo: '/account/billing', subscription: true }),
+          describeBillingError(t, error, {
+            returnTo: '/account/billing',
+            locale,
+            subscription: true,
+          }),
         );
         return false;
       } finally {

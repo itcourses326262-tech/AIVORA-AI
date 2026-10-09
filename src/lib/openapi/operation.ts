@@ -49,12 +49,24 @@ export interface ResponseSpec {
   headers?: HeaderName[];
 }
 
-export interface RequestSpec {
+interface RequestSpecBase {
   description: string;
-  contentType?: string;
   schema: JsonSchema;
   example: unknown;
 }
+
+/** A JSON body. `maxBytes` is the `maxBodyBytes` of the route: the 413 answer is derived from it. */
+export interface JsonRequestSpec extends RequestSpecBase {
+  contentType?: 'application/json';
+  maxBytes: number;
+}
+
+/** A file upload; its size limit comes from the deployment, so the description states it. */
+export interface FormRequestSpec extends RequestSpecBase {
+  contentType: 'multipart/form-data';
+}
+
+export type RequestSpec = JsonRequestSpec | FormRequestSpec;
 
 /** How the cURL example of an endpoint differs from the plain call. */
 export interface CurlOptions {
@@ -159,6 +171,45 @@ export function rateLimit(source: RateLimitSource, access: Access): RateLimitDoc
 
 // ---- Operation --------------------------------------------------------------------------------
 
+const isJsonRequest = (request: RequestSpec): request is JsonRequestSpec =>
+  request.contentType !== 'multipart/form-data';
+
+/** `8192` as `8 KiB`; a size that is not a whole number of KiB is spelled out in bytes. */
+function sizeText(bytes: number): string {
+  return bytes % 1024 === 0 ? `${bytes / 1024} KiB` : `${bytes} bytes`;
+}
+
+/**
+ * The answers that come with the shape of a request, whatever the endpoint does, so no endpoint
+ * has to remember them: a JSON body can be malformed (400), too large (413) or sent with another
+ * `Content-Type` (415), and a `cursor` that this API did not hand out is a 400. A status the
+ * endpoint describes itself is left to its own text (it must then mention the shared cause).
+ */
+function impliedResponses(spec: EndpointSpec): ResponseSpec[] {
+  const implied: ResponseSpec[] = [];
+  if (spec.request && isJsonRequest(spec.request)) {
+    implied.push(
+      failure('bad_request', 'The body is not valid JSON.'),
+      failure('payload_too_large', `The body is larger than ${sizeText(spec.request.maxBytes)}.`),
+      failure(
+        'unsupported_media_type',
+        'The request has no `Content-Type: application/json` header.',
+      ),
+    );
+  }
+  if (spec.params?.some((param) => param.in === 'query' && param.name === 'cursor')) {
+    implied.push(
+      failure(
+        'bad_request',
+        'The `cursor` is not one this API returned. Use a `nextCursor` as is.',
+      ),
+    );
+  }
+  return implied.filter(
+    (response) => !spec.responses.some((own) => own.status === response.status),
+  );
+}
+
 const SECURITY: Record<Access, SecurityRequirement[]> = {
   public: [],
   optional: [{}, { bearerAuth: [] }, { cookieAuth: [] }],
@@ -243,7 +294,8 @@ function toResponse(spec: ResponseSpec, limited: boolean): ResponseObject {
 export function buildOperation(spec: EndpointSpec, origin: string, order: number): OperationObject {
   const limited = (spec.limits?.length ?? 0) > 0;
   const responses: OperationObject['responses'] = {};
-  for (const response of [...spec.responses].sort((a, b) => a.status - b.status)) {
+  const described = [...spec.responses, ...impliedResponses(spec)];
+  for (const response of described.sort((a, b) => a.status - b.status)) {
     const key = String(response.status);
     if (key in responses) throw new Error(`${spec.operationId}: status ${key} is described twice`);
     responses[key] = toResponse(response, limited);
@@ -278,6 +330,7 @@ export function buildOperation(spec: EndpointSpec, origin: string, order: number
           example: spec.request.example,
         },
       },
+      ...(isJsonRequest(spec.request) ? { 'x-max-bytes': spec.request.maxBytes } : {}),
     };
   }
   operation['x-codeSamples'] = [{ lang: 'Shell', label: 'cURL', source: curlFor(spec, origin) }];

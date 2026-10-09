@@ -1,12 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FocusEvent, type FormEvent } from 'react';
 import type { z } from 'zod';
 import { api } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n/client';
 import { safeNextPath } from '@/lib/next-path';
 import { describeAuthFailure, type AuthFailure } from './auth-error';
+import { shouldValidateOnBlur } from './blur-policy';
 import { validate, validateField, validationMessage, type FieldName } from './schemas';
 
 export interface UseAuthFormOptions<F extends FieldName> {
@@ -29,7 +30,7 @@ export interface AuthForm<F extends FieldName> {
   emailTaken: boolean;
   submitting: boolean;
   setValue: (field: F, value: string) => void;
-  onBlur: (field: F) => void;
+  onBlur: (field: F, event?: FocusEvent<HTMLElement>) => void;
   inputRef: (field: F) => (element: HTMLInputElement | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -57,6 +58,7 @@ export function useAuthForm<F extends FieldName>({
   const [emailTaken, setEmailTaken] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const elements = useRef<Partial<Record<F, HTMLInputElement | null>>>({});
+  const edited = useRef(new Set<F>());
 
   const firstField = fields[0];
   useEffect(() => {
@@ -73,6 +75,7 @@ export function useAuthForm<F extends FieldName>({
   }
 
   function setValue(field: F, value: string) {
+    edited.current.add(field);
     setValues((current) => ({ ...current, [field]: value }));
     // Editing a field answers whatever the server said about it.
     setServerErrors((current) => {
@@ -83,7 +86,8 @@ export function useAuthForm<F extends FieldName>({
     if (field === 'email') setEmailTaken(false);
   }
 
-  function onBlur(field: F) {
+  function onBlur(field: F, event?: FocusEvent<HTMLElement>) {
+    if (!shouldValidateOnBlur(edited.current.has(field), event)) return;
     setTouched((current) => (current.has(field) ? current : new Set(current).add(field)));
   }
 

@@ -9,13 +9,14 @@
  * Cancel (while running) and delete ask first: the hook exposes `confirmation`, which
  * `<GenerationConfirm>` renders as a dialog.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { isApiError } from '@/lib/api-client';
 import type { GenerationDTO } from '@/lib/api-types';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/components/ui/error-message';
 import { useI18n } from '@/lib/i18n/client';
 import { useUser } from '@/lib/user-context';
-import { cancelGeneration, deleteGeneration, updateGeneration } from './api';
+import { cancelGeneration, deleteGeneration, fetchGenerationsByIds, updateGeneration } from './api';
 import type { GenerationHandlers } from './handlers';
 import { isActive, shareHref } from './media';
 
@@ -31,6 +32,13 @@ export interface UseGenerationActionsOptions {
   onChange: (generation: GenerationDTO) => void;
   /** Take a generation out of the list. */
   onRemove: (generation: GenerationDTO) => void;
+  /**
+   * The list on screen, kept up to date by the caller (polling). While a dialog is open it follows
+   * the live copy of its generation: a cancel question closes by itself once the generation has
+   * finished, and the delete text matches how it stands. Without it the dialog keeps the copy it
+   * was opened with, and a cancel that comes too late is handled when it is confirmed.
+   */
+  generations?: readonly GenerationDTO[];
 }
 
 export interface UseGenerationActionsResult {
@@ -47,6 +55,21 @@ export interface UseGenerationActionsResult {
   dismiss: () => void;
 }
 
+/**
+ * The question as it stands now: about the live copy of its generation when the caller has one, and
+ * gone when canceling no longer means anything (it finished) or the generation left the list.
+ */
+function followLiveCopy(
+  asked: GenerationConfirmation | null,
+  generations: readonly GenerationDTO[] | undefined,
+): GenerationConfirmation | null {
+  if (!asked || !generations) return asked;
+  const live = generations.find((generation) => generation.id === asked.generation.id);
+  if (!live) return null;
+  if (asked.kind === 'cancel' && !isActive(live)) return null;
+  return live === asked.generation ? asked : { ...asked, generation: live };
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -59,10 +82,14 @@ async function copyText(text: string): Promise<boolean> {
 export function useGenerationActions({
   onChange,
   onRemove,
+  generations,
 }: UseGenerationActionsOptions): UseGenerationActionsResult {
   const { t } = useI18n();
   const { refresh } = useUser();
-  const [confirmation, setConfirmation] = useState<GenerationConfirmation | null>(null);
+  const [asked, setConfirmation] = useState<GenerationConfirmation | null>(null);
+  const confirmation = useMemo(() => followLiveCopy(asked, generations), [asked, generations]);
+  // A question that lost its meaning is forgotten for good, not hidden until the list changes again.
+  if (asked && !confirmation) setConfirmation(null);
   // Ids with a request in flight: a double click must not send two toggles.
   const pending = useRef(new Set<string>());
 
@@ -122,6 +149,19 @@ export function useGenerationActions({
         toast.info(t('studio.generations.cancel.done'));
         void refresh();
       } catch (error) {
+        if (isApiError(error) && error.status === 409) {
+          // It finished while the question was open: show how it ended rather than an error.
+          try {
+            const [current] = await fetchGenerationsByIds([generation.id]);
+            if (current && !isActive(current)) {
+              onChange(current);
+              toast.info(t('studio.generations.cancel.tooLate'));
+              return;
+            }
+          } catch {
+            // The general message below is as true as it gets without the current state.
+          }
+        }
         fail(error);
       }
     },

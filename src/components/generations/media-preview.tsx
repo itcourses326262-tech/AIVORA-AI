@@ -9,8 +9,9 @@
  * Props
  * - `asset`: the `AssetDTO` to show.
  * - `alt`: the description for assistive technology (required; use the prompt).
- * - `variant`: `thumb` (default) uses the small still and does not download a video; `full` uses
- *   the file itself. With `prefers-reduced-motion`, an animated GIF in a thumbnail stays a still.
+ * - `variant`: `thumb` (default) uses the small still and does not download a video that has a
+ *   poster (a video without one loads its first frame); `full` uses the file itself. With
+ *   `prefers-reduced-motion`, an animated GIF in a thumbnail stays a still.
  * - `fit`: `cover` fills the box (grids), `contain` shows everything (viewer).
  * - `aspect`: width / height of the box. Omit it to size the box to the file.
  * - `natural`: show a picture at its own pixel size (zoomed in the viewer); the parent scrolls.
@@ -63,7 +64,10 @@ function MediaFile({
   thumbnail: boolean;
 }) {
   const { t } = useI18n();
-  const [state, setState] = useState<LoadState>('loading');
+  // A thumbnail video is not downloaded (`preload="none"`): the poster is its picture and no data
+  // event will ever come, so there is nothing to wait for.
+  const posterOnly = video && thumbnail && Boolean(asset.thumbUrl);
+  const [state, setState] = useState<LoadState>(posterOnly ? 'loaded' : 'loading');
   const sizing = boxed
     ? cn('absolute inset-0 size-full', fit === 'cover' ? 'object-cover' : 'object-contain')
     : natural
@@ -91,8 +95,10 @@ function MediaFile({
           aria-label={alt}
           controls={controls}
           playsInline
-          preload={thumbnail ? 'none' : 'metadata'}
-          className={cn(sizing, state === 'loading' && 'opacity-0')}
+          preload={posterOnly ? 'none' : 'metadata'}
+          // Never hidden while it loads: its poster (or first frame) is the preview, and the
+          // shimmer behind it only shows through where there is nothing to draw yet.
+          className={sizing}
           onLoadedData={() => setState('loaded')}
           onError={() => setState('error')}
         />

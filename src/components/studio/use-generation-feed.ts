@@ -31,6 +31,7 @@ export type FeedAction =
   | { type: 'more-failed'; error: unknown }
   | { type: 'add'; item: FeedItem }
   | { type: 'settle'; key: string; generation: GenerationDTO }
+  | { type: 'sync'; items: GenerationDTO[] }
   | { type: 'drop'; key: string }
   | { type: 'update'; generations: readonly GenerationDTO[] }
   | { type: 'remove'; ids: readonly string[] };
@@ -84,14 +85,27 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case 'add':
       return { ...state, items: [action.item, ...state.items] };
     case 'settle':
+      // The same generation may already be on the list (the history answered first, or a retry of
+      // the same request was answered with the generation it had created): one card, in this slot.
       return {
         ...state,
-        items: state.items.map((item) =>
-          item.key === action.key
-            ? { key: item.key, generation: action.generation, pending: false }
-            : item,
-        ),
+        items: state.items.flatMap((item) => {
+          if (item.key === action.key) {
+            return [{ key: item.key, generation: action.generation, pending: false }];
+          }
+          return item.generation.id === action.generation.id ? [] : [item];
+        }),
       };
+    case 'sync': {
+      // What the server has that the list lacks is newer than the rest: it goes under the cards
+      // still being created and above everything else.
+      const known = new Set(state.items.map((item) => item.generation.id));
+      const fresh = action.items.filter((generation) => !known.has(generation.id)).map(asItem);
+      if (fresh.length === 0) return state;
+      const waiting = state.items.filter((item) => item.pending);
+      const rest = state.items.filter((item) => !item.pending);
+      return { ...state, items: [...waiting, ...fresh, ...rest] };
+    }
     case 'drop':
       return { ...state, items: state.items.filter((item) => item.key !== action.key) };
     case 'update': {
@@ -121,6 +135,8 @@ export interface GenerationFeed {
   settle: (key: string, generation: GenerationDTO) => void;
   /** Removes a card by key (the request behind an optimistic card failed). */
   drop: (key: string) => void;
+  /** Fetches the newest page quietly and adds the generations the list does not have yet. */
+  sync: () => void;
   /** Replaces generations by id with newer copies. */
   update: (generations: readonly GenerationDTO[]) => void;
   /** Removes generations by id. */
@@ -168,6 +184,14 @@ export function useGenerationFeed(pageSize = DEFAULT_PAGE_SIZE): GenerationFeed 
       [],
     ),
     drop: useCallback((key: string) => dispatch({ type: 'drop', key }), []),
+    sync: useCallback(() => {
+      fetchGenerationPage({ limit: pageSize }).then(
+        (page) => dispatch({ type: 'sync', items: page.data }),
+        () => {
+          // Best effort: the history loads again on the next visit, and a running card is polled.
+        },
+      );
+    }, [pageSize]),
     update: useCallback(
       (generations: readonly GenerationDTO[]) => dispatch({ type: 'update', generations }),
       [],

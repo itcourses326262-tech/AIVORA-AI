@@ -77,7 +77,7 @@ function warnWebhooksDisabledOnce(): void {
   if (warned) return;
   warned = true;
   getLogger().warn(
-    'MOYASAR_WEBHOOK_SECRET is not set: every webhook is rejected. Payments are still confirmed when the buyer returns and by the background reconciliation, but only within a minute or so of the payment.',
+    'MOYASAR_WEBHOOK_SECRET is not set: every webhook is rejected. Payments are still confirmed when the buyer returns and by the background reconciliation within a minute or so, and refunds and chargebacks are found by the periodic re-check of paid orders (every few hours), so credits stay with the buyer longer than they should.',
   );
 }
 

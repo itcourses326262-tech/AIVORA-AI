@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth-guard';
 import { isValidId } from '@/lib/id';
 import { getMockGateway } from '@/server/billing/mock';
 import { findOwnedOrder } from '@/server/billing/orders';
+import { resolveReturn } from '@/server/billing/return';
 import { getDb } from '@/server/db';
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
@@ -13,8 +14,11 @@ import { getLogger } from '@/server/logger';
 /**
  * The "Pay" and "Fail" buttons of the fake payment page. They do what the real gateway does:
  * change the payment on ITS side, tell us through the webhook route (the real handler, with its
- * authentication, rate limit and idempotency), and then send the browser to the success URL
- * (`/api/v1/billing/return`). Nothing here touches an order or a balance directly.
+ * authentication, rate limit and idempotency), and then send the browser where the success URL
+ * (`/api/v1/billing/return`) would: `resolveReturn` is the very function that route runs, and its
+ * answer is the page to open. Redirecting a server action to the route itself would leave the
+ * address bar on `/api/v1/billing/return` while the router shows the page behind its redirect.
+ * Nothing here touches an order or a balance directly.
  */
 export async function completeMockCheckout(formData: FormData): Promise<void> {
   // Hard-disabled in production, whatever else is configured.
@@ -50,5 +54,5 @@ export async function completeMockCheckout(formData: FormData): Promise<void> {
       });
     }
   }
-  redirect(`/api/v1/billing/return?order=${orderId}`);
+  redirect(await resolveReturn(orderId));
 }

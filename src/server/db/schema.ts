@@ -179,7 +179,8 @@ export const generations = sqliteTable(
     index('generations_user_created_idx').on(t.userId, sql`${t.createdAt} desc`),
     index('generations_status_lease_idx').on(t.status, t.leaseUntil),
     index('generations_public_created_idx').on(t.isPublic, sql`${t.createdAt} desc`),
-    // The rolling-24h sum of the daily upstream budget scans only the recent rows.
+    // From the first version of the daily upstream budget, which summed this table; the budget now
+    // reads `upstream_spend`. Kept (a drop is not an additive change); any scan by age can use it.
     index('generations_created_idx').on(t.createdAt),
     uniqueIndex('generations_user_idempotency_uq').on(t.userId, t.idempotencyKey),
     check('generations_status_valid', oneOf(t.status, GENERATION_STATUSES)),
@@ -189,6 +190,32 @@ export const generations = sqliteTable(
     check('generations_progress_range', sql`${t.progress} between 0 and 100`),
     check('generations_cost_nonnegative', sql`${t.cost} >= 0`),
     check('generations_attempts_nonnegative', sql`${t.attempts} >= 0`),
+  ],
+);
+
+/**
+ * What the platform owes its PAID providers, one row per paid generation, written in the same
+ * transaction that debits the user and inserts the generation. It is the ledger of the daily
+ * upstream budget (`DAILY_UPSTREAM_BUDGET_CREDITS`) and deliberately has no foreign key: deleting
+ * a generation or the whole account must not return the money the provider already billed, so the
+ * row outlives both. `releasedAt` is set when the generation is refunded in full (failed or
+ * canceled: the provider is not paid for it, or at least not by the user). It holds no user id and
+ * no content, so nothing personal outlives an account; rows older than the budget window are
+ * deleted as new ones are written.
+ */
+export const upstreamSpend = sqliteTable(
+  'upstream_spend',
+  {
+    generationId: text('generation_id').primaryKey(),
+    provider: text('provider', { enum: PROVIDER_IDS }).notNull(),
+    cost: integer('cost').notNull(),
+    createdAt: integer('created_at').notNull(),
+    releasedAt: integer('released_at'),
+  },
+  (t) => [
+    index('upstream_spend_created_idx').on(t.createdAt),
+    check('upstream_spend_provider_valid', oneOf(t.provider, PROVIDER_IDS)),
+    check('upstream_spend_cost_nonnegative', sql`${t.cost} >= 0`),
   ],
 );
 
@@ -425,6 +452,7 @@ export type LedgerEntry = typeof creditLedger.$inferSelect;
 export type NewLedgerEntry = typeof creditLedger.$inferInsert;
 export type GenerationRow = typeof generations.$inferSelect;
 export type NewGenerationRow = typeof generations.$inferInsert;
+export type UpstreamSpendRow = typeof upstreamSpend.$inferSelect;
 export type EmailTokenRow = typeof emailTokens.$inferSelect;
 export type NewEmailTokenRow = typeof emailTokens.$inferInsert;
 export type AssetRow = typeof assets.$inferSelect;

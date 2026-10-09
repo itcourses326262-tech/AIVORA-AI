@@ -17,7 +17,7 @@ import {
   validationFailed,
   type EndpointSpec,
 } from '../operation';
-import { cursorParam, limitParam, kindParam } from './common';
+import { cursorParam, JSON_BODY_BYTES, limitParam, kindParam } from './common';
 
 export const CATALOG_TAG = 'Models and tools';
 export const EXPLORE_TAG = 'Explore';
@@ -66,7 +66,7 @@ export const catalogEndpoints: EndpointSpec[] = [
     path: '/explore',
     summary: 'Browse the public feed',
     description:
-      'Succeeded generations their owners chose to share, newest first, with the owner’s display name. No account is needed and credentials are not read. The answer may be cached for a few seconds.',
+      'Succeeded generations their owners chose to share, newest first, with the owner’s first name. No account is needed and credentials are not read. The answer may be cached for a few seconds.',
     access: 'public',
     limits: [rateLimit(EXPLORE_LIMIT, 'public')],
     params: [kindParam, limitParam(24), cursorParam],
@@ -91,7 +91,8 @@ export const catalogEndpoints: EndpointSpec[] = [
     access: 'any',
     limits: [rateLimit({ name: 'prompt-enhance', limit: 20, windowSec: 60, by: 'user' }, 'any')],
     request: {
-      description: 'The draft. The body is at most 16 KiB.',
+      description: 'The draft.',
+      maxBytes: JSON_BODY_BYTES.enhancePrompt,
       schema: ref('EnhancePromptRequest'),
       example: { prompt: 'a lighthouse at dawn', kind: 'image' },
     },

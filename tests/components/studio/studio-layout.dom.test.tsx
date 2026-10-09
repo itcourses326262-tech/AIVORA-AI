@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeCost, getModel } from '@/lib/catalog';
@@ -184,7 +184,7 @@ describe('Studio: the four tools', () => {
 
     await user.click(tab('Image to image'));
     expect(has('Input image')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Upload an input image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
     expect(promptBox()).toHaveAttribute('placeholder', 'Describe how your image should change…');
 
     await user.click(tab('Text to video'));
@@ -556,6 +556,40 @@ describe('Studio: phone layout', () => {
       '/pricing',
     );
     expect(generateButton()).toBeDisabled();
+  });
+});
+
+describe('Studio: phone prompt strip', () => {
+  const counterText = (used: string) => screen.queryByText(`${used} / 2,000`);
+
+  it('counts characters against the limit once the end is in sight, as the roomy field does', async () => {
+    mountStudio({ desktop: false });
+    await screen.findByRole('button', { name: 'Settings' });
+    fireEvent.change(promptBox(), { target: { value: 'x'.repeat(100) } });
+    expect(counterText('100')).not.toBeInTheDocument();
+    fireEvent.change(promptBox(), { target: { value: 'x'.repeat(1700) } });
+    expect(counterText('1,700')).toBeInTheDocument();
+    expect(promptBox().getAttribute('aria-describedby')).toMatch(/-count/);
+
+    fireEvent.change(promptBox(), { target: { value: 'x'.repeat(2100) } });
+    expect(counterText('2,100')).toBeInTheDocument();
+    expect(
+      screen.getByText('This prompt is too long for this model (up to 2000 characters).'),
+    ).toBeInTheDocument();
+  });
+
+  it('wastes no line above the prompt: the box follows the attachment right away', async () => {
+    mountStudio({ desktop: false, prefill: { tool: 'image-to-image' } });
+    await screen.findByRole('button', { name: 'Add image' });
+    // The roomy field has a label row; the strip has none, so the box is the first thing in it.
+    const field = promptBox().closest('div[class*="border"]') as HTMLElement;
+    expect(field.parentElement?.firstElementChild).toBe(field);
+  });
+
+  it('keeps the counter at all times in the roomy field of a wide screen', async () => {
+    mountStudio();
+    await ready();
+    expect(screen.getByText('0 / 2,000')).toBeInTheDocument();
   });
 });
 

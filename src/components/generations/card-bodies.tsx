@@ -53,22 +53,22 @@ export function ActiveBody({
   return (
     <div
       style={{ aspectRatio: String(boundedAspect(generationAspect(generation))) }}
-      className="relative isolate flex min-h-52 w-full flex-col items-center justify-center gap-2.5 overflow-hidden bg-surface-raised p-4 text-center"
+      className="relative isolate flex min-h-60 w-full flex-col items-center justify-center gap-2 overflow-hidden bg-surface-raised p-4 text-center"
     >
       <span aria-hidden="true" className={cn('absolute inset-0 -z-10 animate-pulse-soft', GLOW)} />
       <span
         aria-hidden="true"
         className="absolute inset-0 -z-10 animate-shimmer bg-shimmer opacity-50"
       />
-      <span className="flex size-14 items-center justify-center rounded-2xl border border-border bg-surface/80 text-brand shadow-sm backdrop-blur">
+      <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface/80 text-brand shadow-sm backdrop-blur">
         {queued ? (
           <Clock aria-hidden="true" className="size-7" />
         ) : (
-          <SpinnerIcon className="size-8" />
+          <SpinnerIcon className="size-7" />
         )}
       </span>
       {queued ? null : (
-        <p aria-hidden="true" className="text-2xl font-semibold text-foreground tabular-nums">
+        <p aria-hidden="true" className="text-xl leading-7 font-semibold text-foreground tabular-nums">
           {formatNumber(percent / 100, locale, { style: 'percent' })}
         </p>
       )}
@@ -155,7 +155,10 @@ function Pill({ children, className }: { children: ReactNode; className?: string
   );
 }
 
-/** The results of a finished generation: one tile, or a two-column mosaic for several. */
+/**
+ * The results of a finished generation: one tile, or a two-column mosaic for several. Three
+ * results show the first across both columns, so the mosaic has no empty cell.
+ */
 export function ResultsBody({
   generation,
   onOpen,
@@ -169,11 +172,13 @@ export function ResultsBody({
   const label = promptLabel(generation.prompt);
   const first = outputs[0];
   const seconds = first?.durationMs ? Math.round(first.durationMs / 1000) : undefined;
+  const hero = outputs.length === 3;
 
   return (
     <div className="relative">
       <div className={cn('grid gap-px bg-border', outputs.length > 1 && 'grid-cols-2')}>
         {outputs.map((asset, index) => {
+          const span = hero && index === 0 ? 'col-span-2' : undefined;
           const presentation = presentationOf(asset);
           const aspect = boundedAspect(assetAspect(asset) ?? shared);
           const alt =
@@ -198,7 +203,7 @@ export function ResultsBody({
           // A real video keeps its own controls; every other result opens the viewer.
           if (presentation === 'video' || !onOpen) {
             return (
-              <div key={asset.id} className="relative bg-surface-raised">
+              <div key={asset.id} className={cn('relative bg-surface-raised', span)}>
                 {media}
               </div>
             );
@@ -209,7 +214,10 @@ export function ResultsBody({
               type="button"
               onClick={() => onOpen(generation, index)}
               aria-label={`${t('studio.generations.actions.open')}: ${alt}`}
-              className="group/tile relative block w-full cursor-zoom-in bg-surface-raised outline-none focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-inset"
+              className={cn(
+                'group/tile relative block w-full cursor-zoom-in bg-surface-raised outline-none focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-inset',
+                span,
+              )}
             >
               <span className="pointer-events-none block">{media}</span>
               <span

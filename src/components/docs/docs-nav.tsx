@@ -19,16 +19,31 @@ export interface DocsNavProps {
   title: string;
 }
 
-/** How far below the top of the viewport a heading counts as "the one being read". */
-const READING_OFFSET_PX = 120;
+/**
+ * How far below the top of the viewport a heading counts as "the one being read". A link scrolls
+ * its target to `scroll-padding-top` (the header plus 1rem, 80px, set in globals.css) plus the
+ * heading's own `scroll-mt` (3rem on a phone, to clear the "On this page" bar, none from `lg`):
+ * 128px at most. The line has to be below that, or the section a link has just scrolled to would
+ * not count as reached yet.
+ */
+const READING_OFFSET_PX = 144;
 
 function flatten(nodes: readonly DocsNavNode[]): DocsNavNode[] {
   return nodes.flatMap((node) => [node, ...flatten(node.children ?? [])]);
 }
 
+/** Scrolled all the way down, on a page that has somewhere to scroll to. */
+function atEndOfPage(): boolean {
+  const { scrollHeight } = document.documentElement;
+  return (
+    scrollHeight > window.innerHeight + 1 && window.innerHeight + window.scrollY >= scrollHeight - 2
+  );
+}
+
 /**
  * The section being read: the last anchor whose top has passed the reading line. Anchors are in
- * document order, so the scan stops at the first one still below it.
+ * document order, so the scan stops at the first one still below it. At the very end of the page
+ * the last section counts even though it is too short to ever reach the line.
  */
 export function currentSection(
   ids: readonly string[],
@@ -40,6 +55,10 @@ export function currentSection(
     if (!element) continue;
     if (element.getBoundingClientRect().top <= offset) current = id;
     else break;
+  }
+  if (atEndOfPage()) {
+    const last = ids.findLast((id) => document.getElementById(id) !== null);
+    if (last !== undefined) return last;
   }
   return current;
 }

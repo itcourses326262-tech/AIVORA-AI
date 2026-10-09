@@ -285,6 +285,76 @@ describe('reading a payment', () => {
     });
   });
 
+  it('a payment that took money wins over the invoice status, and reports what it really charged', async () => {
+    for (const status of ['canceled', 'expired', 'voided']) {
+      expect(await stateOf({ status, payments: [PAID] }), status).toMatchObject({
+        status: 'paid',
+        paymentId: 'pay-1',
+        refundedHalalas: 0,
+      });
+    }
+    expect(await stateOf({ status: 'paid', payments: [{ ...PAID, amount: 100 }] })).toMatchObject({
+      status: 'paid',
+      amountHalalas: 2900,
+      paidAmountHalalas: 100,
+    });
+    expect(
+      await stateOf({ status: 'paid', payments: [{ ...PAID, currency: 'USD' }] }),
+    ).toMatchObject({ currency: 'SAR', paidCurrency: 'USD' });
+    // A double charge reports the sum, so it can never equal the price of one order.
+    expect(
+      await stateOf({
+        status: 'paid',
+        payments: [PAID, { ...PAID, id: 'pay-2' }],
+      }),
+    ).toMatchObject({ paymentId: 'pay-1', paidAmountHalalas: 5800 });
+    // The fields are only there when they differ: an ordinary payment adds nothing.
+    expect(await stateOf({ status: 'paid', payments: [PAID] })).not.toHaveProperty(
+      'paidAmountHalalas',
+    );
+  });
+
+  it('a voided payment counts as money returned only when nothing else moved money and the invoice says so', async () => {
+    const voided = { ...PAID, id: 'pay-v', status: 'voided' };
+    // Next to a payment that went through: ignored.
+    expect(await stateOf({ status: 'paid', payments: [voided, PAID] })).toMatchObject({
+      status: 'paid',
+      paymentId: 'pay-1',
+      refundedHalalas: 0,
+    });
+    // On an invoice that can still be paid, or one that simply ended: not a refund.
+    expect(await stateOf({ status: 'initiated', payments: [voided] })).toMatchObject({
+      status: 'pending',
+    });
+    expect(await stateOf({ status: 'canceled', payments: [voided] })).toMatchObject({
+      status: 'closed',
+    });
+    // When the invoice itself was voided or refunded: the money went back.
+    for (const status of ['voided', 'refunded']) {
+      expect(await stateOf({ status, payments: [voided] }), status).toMatchObject({
+        status: 'refunded',
+        paymentId: 'pay-v',
+        refundedHalalas: 2900,
+      });
+    }
+  });
+
+  it('declined or merely authorized attempts are not payments', async () => {
+    const failed = { ...PAID, id: 'pay-f', status: 'failed' };
+    const authorized = { ...PAID, id: 'pay-a', status: 'authorized' };
+    expect(await stateOf({ status: 'failed', payments: [failed] })).toMatchObject({
+      status: 'pending',
+      paymentId: null,
+    });
+    expect(await stateOf({ status: 'initiated', payments: [authorized] })).toMatchObject({
+      status: 'pending',
+    });
+    expect(await stateOf({ status: 'paid', payments: [failed, PAID] })).toMatchObject({
+      status: 'paid',
+      paymentId: 'pay-1',
+    });
+  });
+
   it('a missing order reference is reported as missing, not guessed', async () => {
     expect((await stateOf({ status: 'paid', metadata: null }))?.reference).toBeNull();
     expect((await stateOf({ status: 'paid', metadata: { order_id: 42 } }))?.reference).toBeNull();

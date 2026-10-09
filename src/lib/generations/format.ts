@@ -28,6 +28,14 @@ export function isolateLtr(text: string): string {
   return `\u2066${text}\u2069`;
 }
 
+/**
+ * Whether a model needs the "Demo" tag next to its name. The Demo models already say so in their
+ * name ("AIVORE Demo Image"): a second "Demo" would only squeeze the name out of a narrow card.
+ */
+export function needsDemoBadge(label: string | undefined, demo: boolean): boolean {
+  return demo && !/demo/i.test(label ?? '');
+}
+
 /** "1 credit" / "رصيدان" / "50 credits": the grammar of the active language. */
 export function creditsText({ plural, t }: Pick<Translator, 't' | 'plural'>, amount: number) {
   return plural(amount, {

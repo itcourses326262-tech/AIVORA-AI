@@ -243,6 +243,104 @@ describe('errors', () => {
   });
 });
 
+describe('the answers a request earns by its shape', () => {
+  const all = operations();
+  const jsonBodies = all.filter(({ operation }) =>
+    Object.keys(operation.requestBody?.content ?? {}).includes('application/json'),
+  );
+  const paged = all.filter(({ operation }) =>
+    (operation.parameters ?? []).some(
+      (parameter) => !isReference(parameter) && parameter.name === 'cursor',
+    ),
+  );
+  const descriptionOf = (operation: OperationObject, status: string): string => {
+    const response = operation.responses[status];
+    return response && !isReference(response) ? response.description : '';
+  };
+  const codeOf = (operation: OperationObject, status: string): unknown => {
+    const response = operation.responses[status];
+    if (!response || isReference(response)) return undefined;
+    return (
+      response.content?.['application/json']?.example as { error: { code: string } } | undefined
+    )?.error.code;
+  };
+
+  it('are found where the document has JSON bodies and cursors', () => {
+    expect(jsonBodies.length).toBeGreaterThanOrEqual(12);
+    expect(paged.map(({ path }) => path).toSorted()).toEqual([
+      '/account/ledger',
+      '/explore',
+      '/generations',
+    ]);
+  });
+
+  it('give every JSON body a 400 for malformed JSON, a 413 with its limit and a 415', () => {
+    for (const { method, path, operation } of jsonBodies) {
+      const where = `${method.toUpperCase()} ${path}`;
+      expect(descriptionOf(operation, '400'), `${where} 400`).toMatch(/not valid JSON/);
+      expect(codeOf(operation, '400'), `${where} 400`).toBe('bad_request');
+      expect(codeOf(operation, '413'), `${where} 413`).toBe('payload_too_large');
+      expect(codeOf(operation, '415'), `${where} 415`).toBe('unsupported_media_type');
+      const limit = operation.requestBody?.['x-max-bytes'];
+      expect(Number.isInteger(limit) && (limit ?? 0) >= 1024, `${where} x-max-bytes`).toBe(true);
+      expect(descriptionOf(operation, '413'), where).toMatch(/\d+ KiB/);
+    }
+  });
+
+  it('state the size of the 413 from the limit of the route, not from a second copy', () => {
+    const limitOf = (path: string, method: 'post' | 'patch') =>
+      doc.paths[path]?.[method]?.requestBody?.['x-max-bytes'];
+    expect(limitOf('/generations', 'post')).toBe(64 * 1024);
+    expect(limitOf('/generations/{id}', 'patch')).toBe(4 * 1024);
+    expect(limitOf('/prompt/enhance', 'post')).toBe(16 * 1024);
+    expect(limitOf('/auth/login', 'post')).toBe(8 * 1024);
+    expect(descriptionOf(doc.paths['/generations']?.post as OperationObject, '413')).toBe(
+      'The body is larger than 64 KiB.',
+    );
+  });
+
+  it('keep the uploads out of it: a file has no JSON limit and keeps its own answers', () => {
+    const upload = doc.paths['/uploads']?.post as OperationObject;
+    expect(upload.requestBody?.['x-max-bytes']).toBeUndefined();
+    expect(codeOf(upload, '400')).toBe('bad_request');
+    expect(descriptionOf(upload, '400')).toMatch(/multipart/);
+  });
+
+  it('let a link endpoint own its 400 and still name the malformed body', () => {
+    for (const path of ['/auth/password/reset', '/auth/verify-email/confirm']) {
+      const description = descriptionOf(doc.paths[path]?.post as OperationObject, '400');
+      expect(description, path).toMatch(/invalid.*expired.*used/);
+      expect(description, path).toMatch(/not valid JSON/);
+    }
+  });
+
+  it('give every paged operation a 400 for a cursor this API did not return', () => {
+    for (const { method, path, operation } of paged) {
+      const where = `${method.toUpperCase()} ${path}`;
+      expect(codeOf(operation, '400'), where).toBe('bad_request');
+      expect(descriptionOf(operation, '400'), where).toMatch(/`cursor`/);
+    }
+  });
+
+  it('keep the 422 of a paged operation next to its 400', () => {
+    for (const { operation } of paged) expect(operation.responses['422']).toBeDefined();
+  });
+
+  it('name the email check next to the browser check when a key is created', () => {
+    const create = doc.paths['/keys']?.post as OperationObject;
+    expect(codeOf(create, '403')).toBe('forbidden');
+    expect(descriptionOf(create, '403')).toMatch(/email_not_verified/);
+    expect(descriptionOf(create, '403')).toMatch(/browser session/);
+  });
+
+  it('give the sign-in and the confirmation a 422 for a missing field', () => {
+    for (const path of ['/auth/login', '/auth/verify-email/confirm']) {
+      const operation = doc.paths[path]?.post as OperationObject;
+      expect(codeOf(operation, '422'), path).toBe('validation_failed');
+    }
+  });
+});
+
 describe('examples', () => {
   it('all match the schema they illustrate', () => {
     let checked = 0;

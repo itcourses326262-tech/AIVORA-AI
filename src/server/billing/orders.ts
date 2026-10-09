@@ -1,13 +1,13 @@
 import 'server-only';
-import { and, count, desc, eq, gt, inArray, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { CheckoutRequest, OrderDTO, Page } from '@/lib/api-types';
-import { CHECKOUT_TTL_MS } from '@/lib/billing/period';
+import { CHECKOUT_TTL_MS, DAY_MS } from '@/lib/billing/period';
 import { findPurchasable, splitVat, type Purchasable } from '@/lib/billing/plans';
 import { LIVE_SUBSCRIPTION_STATUSES, type OrderKind } from '@/lib/billing/types';
 import { AppError } from '@/lib/errors';
 import { newId } from '@/lib/id';
 import { clamp, decodeCursor, encodeCursor } from '@/lib/utils';
-import { getDb, withTx, type Db } from '@/server/db';
+import { getDb, withTx, type Db, type DbOrTx } from '@/server/db';
 import {
   orders,
   subscriptions,
@@ -19,15 +19,29 @@ import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getGateway } from './config';
 import { toOrderDTO } from './dto';
-import { closeCheckout } from './settle';
+import { closeCheckout, refreshOrder } from './settle';
 import { closeOrder } from './transitions';
 
 const log = () => getLogger().child({ module: 'billing' });
 
 /** Open checkouts one account may hold at a time: each one is a hosted page at the gateway. */
 export const MAX_PENDING_CHECKOUTS = 5;
+/**
+ * Checkouts one account may START in 24 hours (packs and first months, however they ended). The
+ * limit on open checkouts cannot see a buyer who keeps switching plans, because every switch
+ * closes the previous page; each of those still costs two gateway calls and two rows.
+ */
+export const MAX_CHECKOUTS_PER_DAY = 20;
 /** A checkout row without a gateway page this old is the leftover of a crash, not a request in flight. */
 export const ORPHAN_AFTER_MS = 2 * 60 * 1000;
+/**
+ * An open pack checkout is handed out again (see {@link findReusablePackCheckout}) only while its
+ * payment page stays open at least this long: a buyer must not be sent to a page that closes
+ * while they type their card.
+ */
+export const REUSE_MIN_REMAINING_MS = 30 * 60 * 1000;
+/** Handing out an open checkout re-asks the gateway about it, but at most this often per order. */
+const REUSE_CHECK_INTERVAL_MS = 3_000;
 
 export const DEFAULT_ORDERS_PAGE = 20;
 export const MAX_ORDERS_PAGE = 100;
@@ -147,6 +161,24 @@ export async function createCheckout(
   const replay = await replayExisting(db, userId, options.idempotencyKey, kind, item.id, now);
   if (replay) return { order: replay, created: false };
 
+  // A buyer who comes back to the same pack (a declined card, a closed tab) gets the payment page
+  // they already have, not a sixth unpaid order that would lock them out of buying for a day.
+  if (request.type === 'pack') {
+    const open = findReusablePackCheckout(db, userId, item, gateway.id, now);
+    if (open) {
+      // The buyer may have paid on that page a moment ago: say what is true, not what we heard last.
+      const latest = await refreshOrder(open.id, { minIntervalMs: REUSE_CHECK_INTERVAL_MS, now })
+        .then((result) => result?.order ?? open)
+        .catch(() => open);
+      if (latest.status === 'pending' || latest.status === 'paid') {
+        return { order: latest, created: false };
+      }
+      // Closed meanwhile (failed, canceled): this click starts a new checkout.
+    }
+  }
+
+  // Before anything is closed on the buyer's behalf (a plan switch abandons the open checkout).
+  assertCheckoutsPerDay(db, userId, now);
   if (request.type === 'subscription') {
     const reusable = await prepareSubscriptionCheckout(db, userId, item, now);
     if (reusable) return { order: reusable, created: false };
@@ -173,6 +205,7 @@ export async function createCheckout(
           limit: MAX_PENDING_CHECKOUTS,
         });
       }
+      assertCheckoutsPerDay(tx, userId, now);
       if (subscriptionId !== null) {
         tx.insert(subscriptions)
           .values({
@@ -218,6 +251,64 @@ export async function createCheckout(
   }
 
   return { order: await attachCheckout(db, orderId, item, user.locale, now), created: true };
+}
+
+/**
+ * The account's own open checkout of this very pack, if it can still be paid: same item at the
+ * same price and credits as the price list says NOW (a changed price starts a new order), made
+ * with the gateway that is running, with a payment page that stays open for a while yet.
+ */
+function findReusablePackCheckout(
+  db: Db,
+  userId: string,
+  item: Purchasable,
+  gatewayId: string,
+  now: number,
+): OrderRow | undefined {
+  return db
+    .select()
+    .from(orders)
+    .where(
+      and(
+        eq(orders.userId, userId),
+        eq(orders.kind, 'pack'),
+        eq(orders.itemId, item.id),
+        eq(orders.status, 'pending'),
+        eq(orders.gateway, gatewayId as 'mock' | 'moyasar'),
+        eq(orders.amountHalalas, item.priceHalalas),
+        eq(orders.credits, item.credits),
+        isNotNull(orders.gatewayInvoiceId),
+        isNotNull(orders.checkoutUrl),
+        gt(orders.expiresAt, now + REUSE_MIN_REMAINING_MS),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(1)
+    .get();
+}
+
+/** 429 when the account already started {@link MAX_CHECKOUTS_PER_DAY} checkouts in the last 24 hours. */
+function assertCheckoutsPerDay(db: DbOrTx, userId: string, now: number): void {
+  const recent = db
+    .select({ createdAt: orders.createdAt })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.userId, userId),
+        inArray(orders.kind, ['pack', 'subscription_initial']),
+        gt(orders.createdAt, now - DAY_MS),
+      ),
+    )
+    .orderBy(asc(orders.createdAt))
+    .limit(MAX_CHECKOUTS_PER_DAY)
+    .all();
+  const oldest = recent[0];
+  if (recent.length < MAX_CHECKOUTS_PER_DAY || !oldest) return;
+  throw new AppError('rate_limited', 429, 'Too many checkouts today', {
+    reason: 'daily_checkout_limit',
+    limit: MAX_CHECKOUTS_PER_DAY,
+    retryAfterSec: Math.max(1, Math.ceil((oldest.createdAt + DAY_MS - now) / 1000)),
+  });
 }
 
 /**
@@ -283,6 +374,10 @@ export async function attachCheckout(
  * Looks for an earlier request with the same `Idempotency-Key`. The same key for another item is a
  * client bug (409). An order without a checkout page yet is a request still in flight (409
  * `checkout_in_progress`, retry shortly) or, after {@link ORPHAN_AFTER_MS}, a crash leftover that is closed here.
+ * A request that FAILED before the buyer was ever offered a payment page (the gateway was down) is
+ * not replayed: handing back that dead order would answer a retry with an empty "success". The
+ * failed order gives the key up and the retry starts a fresh checkout, so the key means "this
+ * purchase" until a payment page exists for it.
  */
 async function replayExisting(
   db: Db,
@@ -292,7 +387,7 @@ async function replayExisting(
   itemId: string,
   now: number,
 ): Promise<OrderRow | null> {
-  const existing = db
+  let existing = db
     .select()
     .from(orders)
     .where(and(eq(orders.userId, userId), eq(orders.idempotencyKey, key)))
@@ -312,7 +407,23 @@ async function replayExisting(
       );
     }
     await closeCheckout(existing.id, 'failed', now);
-    return findOrder(db, existing.id) ?? null;
+    existing = findOrder(db, existing.id) ?? existing;
+  }
+  if (existing.status === 'failed' && existing.gatewayInvoiceId === null) {
+    withTx(db, (tx) =>
+      tx
+        .update(orders)
+        .set({ idempotencyKey: null, updatedAt: now })
+        .where(
+          and(
+            eq(orders.id, existing.id),
+            eq(orders.status, 'failed'),
+            isNull(orders.gatewayInvoiceId),
+          ),
+        )
+        .run(),
+    );
+    return null;
   }
   return existing;
 }

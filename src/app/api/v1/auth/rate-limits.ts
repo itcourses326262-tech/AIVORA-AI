@@ -23,12 +23,19 @@ export const REGISTER_RATE_LIMIT: RateLimitOptions = {
  * (each bonus costs real money once a paid provider is configured). 60 an hour caps the free
  * credits that can be issued per hour at 60 times SIGNUP_BONUS_CREDITS, and a busy launch stays
  * below it. The only real fix is to run behind a proxy and set TRUST_PROXY=true.
+ *
+ * Only sign-ups that succeed count (`count: 'successes'`): a refused attempt creates nothing and
+ * costs next to nothing (invalid bodies are rejected before the password is hashed, and the hash
+ * gate caps the rest), so counting it would let a script close registration for everybody with 60
+ * garbage requests. What it can still do is create 60 real accounts an hour, which is exactly the
+ * ceiling this budget exists for (and `SIGNUPS_PER_IP_PER_DAY` bounds the day).
  */
 export const REGISTER_SHARED_RATE_LIMIT: RateLimitOptions = {
   name: 'auth-register-shared',
   limit: 60,
   windowSec: 3600,
   by: 'ip',
+  count: 'successes',
 };
 
 /**

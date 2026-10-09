@@ -66,7 +66,10 @@ export async function runBulk(
           result.failed.push({ id, error });
           return;
         }
-        const delay = Math.min((retryAfterSeconds(error) ?? 0) * 1000 || DEFAULT_WAIT_MS, MAX_WAIT_MS);
+        const delay = Math.min(
+          (retryAfterSeconds(error) ?? 0) * 1000 || DEFAULT_WAIT_MS,
+          MAX_WAIT_MS,
+        );
         waiting += 1;
         onWaiting?.(true);
         await wait(delay);

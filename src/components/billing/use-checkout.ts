@@ -5,12 +5,8 @@ import type { CheckoutRequest, OrderDTO } from '@/lib/api-types';
 import { newIdempotencyKey } from '@/lib/generations/request';
 import { useI18n } from '@/lib/i18n/client';
 import { startCheckout } from './api';
-import {
-  describeBillingError,
-  keepsIdempotencyKey,
-  type BillingProblem,
-} from './checkout-errors';
-import { checkoutTarget, navigateTo, returnPath } from './navigation';
+import { describeBillingError, keepsIdempotencyKey, type BillingProblem } from './checkout-errors';
+import { checkoutTarget, currentOrigin, navigateTo, returnPath } from './navigation';
 
 export type CheckoutPhase =
   | { kind: 'idle' }
@@ -29,7 +25,7 @@ export interface UseCheckoutOptions {
 
 /** Where to send the buyer for this order, or null when there is nowhere safe to send them. */
 function destinationOf(order: OrderDTO): string | null {
-  const payable = checkoutTarget(order.checkoutUrl, window.location.origin);
+  const payable = checkoutTarget(order.checkoutUrl, currentOrigin());
   if (payable) return payable;
   // A replayed request for an order that was paid in the meantime has nothing left to pay.
   return order.status === 'paid' ? returnPath(order.id) : null;
@@ -48,7 +44,7 @@ export function useCheckout({
   newKey = newIdempotencyKey,
   returnTo = '/pricing',
 }: UseCheckoutOptions = {}) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [phase, setPhase] = useState<CheckoutPhase>({ kind: 'idle' });
   // A ref, not state: two clicks in the same tick must not both pass the guard.
   const busy = useRef(false);
@@ -96,11 +92,11 @@ export function useCheckout({
         setPhase({
           kind: 'failed',
           item,
-          problem: describeBillingError(t, error, { returnTo }),
+          problem: describeBillingError(t, error, { returnTo, locale }),
         });
       }
     },
-    [navigate, newKey, returnTo, t],
+    [locale, navigate, newKey, returnTo, t],
   );
 
   const dismiss = useCallback(() => {

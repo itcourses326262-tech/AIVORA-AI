@@ -81,6 +81,9 @@ export function PromptField({
   const over = maxChars !== undefined && length > maxChars;
   const near = maxChars !== undefined && length > maxChars * 0.9;
   const panel = variant === 'panel';
+  // The roomy field always shows how much of the limit is used; the phone's strip, where every line
+  // counts, shows it once the end is in sight.
+  const showCount = maxChars !== undefined && (panel || length > maxChars * 0.8);
 
   const setRefs = useMergedRef(growRef, textareaRef);
 
@@ -123,7 +126,7 @@ export function PromptField({
   );
 
   const counter =
-    maxChars === undefined ? null : (
+    !showCount || maxChars === undefined ? null : (
       <span
         id={countId}
         className={cn(
@@ -142,13 +145,11 @@ export function PromptField({
 
   return (
     <div className="grid grid-cols-1 gap-2">
-      <div className="flex min-h-6 items-center justify-between gap-2">
-        {panel ? (
+      {panel ? (
+        <div className="flex min-h-6 items-center justify-between gap-2">
           <label htmlFor={id} className="text-sm font-semibold text-foreground">
             {t('studio.prompt.label')}
           </label>
-        ) : null}
-        {panel ? (
           <Button
             size="sm"
             variant="ghost"
@@ -159,8 +160,8 @@ export function PromptField({
           >
             {t('studio.prompt.surprise')}
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div
         className={cn(
@@ -180,9 +181,8 @@ export function PromptField({
           aria-label={panel ? undefined : t('studio.prompt.label')}
           aria-invalid={error || over ? true : undefined}
           aria-describedby={
-            [error ? errorId : null, panel && counter ? countId : null, noteId]
-              .filter(Boolean)
-              .join(' ') || undefined
+            [error ? errorId : null, counter ? countId : null, noteId].filter(Boolean).join(' ') ||
+            undefined
           }
           placeholder={t(PLACEHOLDER_KEYS[tool])}
           onChange={(event) => onChange(event.target.value)}
@@ -216,6 +216,8 @@ export function PromptField({
           </div>
         )}
       </div>
+
+      {!panel && counter ? <div className="flex">{counter}</div> : null}
 
       {error ? (
         <p id={errorId} role="alert" className="flex items-start gap-1.5 text-sm text-danger">

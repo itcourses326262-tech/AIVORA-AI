@@ -88,6 +88,8 @@ export interface RequestBodyObject {
   description?: string;
   required?: boolean;
   content: Record<string, MediaTypeObject>;
+  /** JSON bodies: the largest body the endpoint reads, in bytes; a larger one is a 413. */
+  'x-max-bytes'?: number;
 }
 
 /** `{}` among the alternatives means "no credentials needed either"; an empty list means public. */

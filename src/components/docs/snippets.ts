@@ -11,6 +11,9 @@ export type QuickstartLanguage = (typeof QUICKSTART_LANGUAGES)[number];
 export const QUICKSTART_STEPS = ['setup', 'generate', 'poll', 'download'] as const;
 export type QuickstartStep = (typeof QUICKSTART_STEPS)[number];
 
+/** What every example shows until the reader chooses another language. */
+export const DEFAULT_QUICKSTART_LANGUAGE: QuickstartLanguage = 'bash';
+
 export function isQuickstartLanguage(value: unknown): value is QuickstartLanguage {
   return (QUICKSTART_LANGUAGES as readonly unknown[]).includes(value);
 }
@@ -173,22 +176,4 @@ for (const [index, output] of generation.outputs.entries()) {
         handle.write(file.content)`,
     },
   };
-}
-
-/** Remembers the language a reader picked, so every visit and every block starts with it. */
-export const CODE_LANGUAGE_COOKIE = 'aivore_docs_language';
-const CODE_LANGUAGE_MAX_AGE_SEC = 60 * 60 * 24 * 365;
-
-export function serializeCodeLanguageCookie(
-  language: QuickstartLanguage,
-  options: { secure?: boolean } = {},
-): string {
-  const parts = [
-    `${CODE_LANGUAGE_COOKIE}=${language}`,
-    'Path=/',
-    `Max-Age=${CODE_LANGUAGE_MAX_AGE_SEC}`,
-    'SameSite=Lax',
-  ];
-  if (options.secure) parts.push('Secure');
-  return parts.join('; ');
 }

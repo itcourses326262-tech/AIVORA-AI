@@ -3,7 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegisterForm } from '@/components/auth/register-form';
 import { renderUi } from '../render';
-import { apiError, bodyOf, json, router, stubDesktopPointer, stubFetch } from './support';
+import {
+  apiError,
+  bodyOf,
+  focusLink,
+  json,
+  router,
+  stubDesktopPointer,
+  stubFetch,
+} from './support';
 
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/register' }));
 
@@ -43,6 +51,15 @@ describe('RegisterForm', () => {
       screen.getByRole('heading', { level: 1, name: 'Create your account' }),
     ).toBeInTheDocument();
     expect(screen.getByText('At least 8 characters.')).toBeInTheDocument();
+  });
+
+  it('does not flag the empty name when focus leaves it for the log in link', async () => {
+    stubDesktopPointer();
+    mount();
+    expect(name()).toHaveFocus();
+    await focusLink('Log in');
+    expect(screen.queryByText(/Enter your name/)).not.toBeInTheDocument();
+    expect(name()).not.toHaveAttribute('aria-invalid');
   });
 
   it('sends name, email, password and the language of the page, then goes on', async () => {

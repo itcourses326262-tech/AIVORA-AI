@@ -302,4 +302,3 @@ export function ZoomPan({ asset, alt, className }: ZoomPanProps) {
     </div>
   );
 }
-

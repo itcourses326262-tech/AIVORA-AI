@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FocusEvent, type FormEvent } from 'react';
 import type { z } from 'zod';
 import { useI18n } from '@/lib/i18n/client';
 import { describeRecoveryFailure, type RecoveryField } from './recovery-error';
+import { shouldValidateOnBlur } from './blur-policy';
 import { validate, validateField, validationMessage } from './schemas';
 
 export interface UseRecoveryFormOptions<F extends RecoveryField> {
@@ -21,7 +22,7 @@ export interface RecoveryForm<F extends RecoveryField> {
   formError: string | null;
   submitting: boolean;
   setValue: (field: F, value: string) => void;
-  onBlur: (field: F) => void;
+  onBlur: (field: F, event?: FocusEvent<HTMLElement>) => void;
   inputRef: (field: F) => (element: HTMLInputElement | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -50,6 +51,7 @@ export function useRecoveryForm<F extends RecoveryField>({
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const elements = useRef<Partial<Record<F, HTMLInputElement | null>>>({});
+  const edited = useRef(new Set<F>());
 
   const firstField = fields[0];
   useEffect(() => {
@@ -66,6 +68,7 @@ export function useRecoveryForm<F extends RecoveryField>({
   }
 
   function setValue(field: F, value: string) {
+    edited.current.add(field);
     setValues((current) => ({ ...current, [field]: value }));
     // Editing a field answers whatever the server said about it.
     setServerErrors((current) => {
@@ -75,7 +78,8 @@ export function useRecoveryForm<F extends RecoveryField>({
     });
   }
 
-  function onBlur(field: F) {
+  function onBlur(field: F, event?: FocusEvent<HTMLElement>) {
+    if (!shouldValidateOnBlur(edited.current.has(field), event)) return;
     setTouched((current) => (current.has(field) ? current : new Set(current).add(field)));
   }
 

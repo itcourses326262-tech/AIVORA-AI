@@ -18,6 +18,8 @@ export interface LedgerState {
   busy: boolean;
   /** The next page failed: the entries already shown stay, and a retry is offered. */
   moreFailed: boolean;
+  /** How many entries the last "load more" appended (0 until one has landed). */
+  added: number;
   /** Fetches the next page (also the way to try again after `moreFailed`). */
   loadMore: () => void;
   /** Fetches the first page again after it failed. */
@@ -31,6 +33,7 @@ interface State {
   error: unknown;
   busy: boolean;
   moreFailed: boolean;
+  added: number;
 }
 
 type Page = { data: LedgerEntryDTO[]; nextCursor: string | null };
@@ -50,6 +53,7 @@ const INITIAL: State = {
   error: null,
   busy: false,
   moreFailed: false,
+  added: 0,
 };
 
 function reduce(state: State, action: Action): State {
@@ -66,16 +70,17 @@ function reduce(state: State, action: Action): State {
     case 'first-failed':
       return { ...INITIAL, status: 'error', error: action.error };
     case 'more-start':
-      return { ...state, busy: true, moreFailed: false };
+      return { ...state, busy: true, moreFailed: false, added: 0 };
     case 'more-loaded':
       return {
         ...state,
         entries: [...state.entries, ...action.page.data],
         cursor: action.page.nextCursor,
         busy: false,
+        added: action.page.data.length,
       };
     case 'more-failed':
-      return { ...state, busy: false, moreFailed: true, error: action.error };
+      return { ...state, busy: false, moreFailed: true, added: 0, error: action.error };
   }
 }
 
@@ -139,6 +144,7 @@ export function useLedger(): LedgerState {
     hasMore: cursor !== null,
     busy,
     moreFailed: state.moreFailed,
+    added: state.added,
     loadMore,
     retry,
   };

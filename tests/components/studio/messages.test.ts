@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { creditsText } from '@/lib/generations/format';
 import { createTranslator } from '@/lib/i18n';
 import type { MessageTree } from '@/lib/i18n/define';
 import studio from '@/lib/i18n/messages/studio';
@@ -130,5 +131,21 @@ describe('studio messages', () => {
       '1 credit',
     );
     expect(a.plural(2, { two: a.t('studio.generations.credits.two'), other: 'x' })).toBe('رصيدان');
+  });
+
+  it('words the shortfall in Arabic so that it reads right for every count', () => {
+    const a = createTranslator('ar');
+    const sentence = (missing: number) =>
+      a.t('studio.cost.short', { missing: creditsText(a, missing) });
+    // The missing credits are the subject: nominative for one and two, the counted noun for the rest.
+    expect(sentence(1)).toBe('ينقصك رصيد واحد.');
+    expect(sentence(2)).toBe('ينقصك رصيدان.');
+    expect(sentence(5)).toBe('ينقصك ٥ أرصدة.');
+    expect(sentence(11)).toBe('ينقصك ١١ رصيدًا.');
+    expect(sentence(100)).toBe('ينقصك ١٠٠ رصيد.');
+    const en = createTranslator('en');
+    expect(en.t('studio.cost.short', { missing: creditsText(en, 3) })).toBe(
+      'You need 3 credits more.',
+    );
   });
 });

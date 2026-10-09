@@ -24,6 +24,8 @@ export interface PriceCardProps {
   /** "SAR 4.63 per 100 credits" */
   per100: string;
   perks: readonly string[];
+  /** Why the last attempt to buy this item failed; shown right above the button that was pressed. */
+  notice?: ReactNode;
   cta: ReactNode;
 }
 
@@ -46,6 +48,7 @@ export function PriceCard({
   vatLine,
   per100,
   perks,
+  notice,
   cta,
 }: PriceCardProps) {
   const titleId = `${id}-title`;
@@ -55,7 +58,7 @@ export function PriceCard({
       className={cn(
         'relative flex flex-col gap-5 rounded-2xl p-6',
         highlighted
-          ? 'border-gradient-brand shadow-md [--gradient-fill:var(--surface-raised)]'
+          ? 'shadow-md border-gradient-brand [--gradient-fill:var(--surface-raised)]'
           : 'border border-border bg-surface shadow-xs',
       )}
     >
@@ -97,7 +100,8 @@ export function PriceCard({
         ))}
       </ul>
 
-      <div className="mt-auto pt-1">{cta}</div>
+      {notice ? <div className="mt-auto">{notice}</div> : null}
+      <div className={cn('pt-1', !notice && 'mt-auto')}>{cta}</div>
     </article>
   );
 }

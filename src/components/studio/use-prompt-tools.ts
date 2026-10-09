@@ -25,6 +25,8 @@ export interface PromptTools {
   /** Present while the prompt on screen is exactly the improved one. */
   improved: { translated: boolean } | null;
   undo: () => void;
+  /** Gives up on an improvement in flight (the person is sending the prompt as it is). */
+  stop: () => void;
 }
 
 function fit(text: string, max: number | undefined): string {
@@ -53,8 +55,16 @@ export function usePromptTools({
     translated: boolean;
   } | null>(null);
   const run = useRef<AbortController | null>(null);
+  // The text the running request was made for.
+  const draftOfRun = useRef<string | null>(null);
 
   useEffect(() => () => run.current?.abort(), []);
+
+  // The answer improves the text it was asked about. Once the person types something else it would
+  // overwrite their words, so the request is dropped instead.
+  useEffect(() => {
+    if (draftOfRun.current !== null && prompt !== draftOfRun.current) run.current?.abort();
+  }, [prompt]);
 
   const surprise = useCallback(() => {
     const next = randomExample(examples, prompt);
@@ -70,6 +80,7 @@ export function usePromptTools({
     run.current?.abort();
     const controller = new AbortController();
     run.current = controller;
+    draftOfRun.current = prompt;
     setEnhancing(true);
     try {
       const response = await enhancePrompt({ prompt: draft, kind, locale }, controller.signal);
@@ -83,10 +94,18 @@ export function usePromptTools({
     } finally {
       if (run.current === controller) {
         run.current = null;
+        draftOfRun.current = null;
         setEnhancing(false);
       }
     }
   }, [prompt, kind, locale, maxChars, setPrompt, t]);
+
+  const stop = useCallback(() => {
+    run.current?.abort();
+    run.current = null;
+    draftOfRun.current = null;
+    setEnhancing(false);
+  }, []);
 
   const undo = useCallback(() => {
     if (!result) return;
@@ -95,5 +114,5 @@ export function usePromptTools({
   }, [result, setPrompt]);
 
   const improved = result && prompt === result.improved ? { translated: result.translated } : null;
-  return { examples, surprise, enhance, enhancing, improved, undo };
+  return { examples, surprise, enhance, enhancing, improved, undo, stop };
 }

@@ -1,5 +1,6 @@
 import 'server-only';
 import { eq, or } from 'drizzle-orm';
+import { AppError } from '@/lib/errors';
 import { newId } from '@/lib/id';
 import { getDb, type Db } from '@/server/db';
 import { billingEvents, orders, type OrderRow } from '@/server/db/schema';
@@ -9,6 +10,9 @@ import type { GatewayWebhookEvent } from './gateway';
 import { settleOrder } from './settle';
 
 export type WebhookResult = 'processed' | 'duplicate' | 'ignored';
+
+/** Event names that say money went back to the buyer (refund, void, chargeback). */
+const REVERSAL_EVENT = /refund|void|charge.?back|dispute|revers/i;
 
 /** Which of our orders a webhook is about, by the ids it mentions. Only ever used to choose where to look. */
 function orderForEvent(
@@ -90,7 +94,30 @@ export async function handleWebhook(
     .set({ orderId: order.id })
     .where(eq(billingEvents.id, recorded.id))
     .run();
-  await settleOrder(order.id, { now });
+  const settled = await settleOrder(order.id, { now });
+  if (settled && announcesUnseenReversal(event, settled.order)) {
+    // The gateway says money went back but its API does not show it yet (the event can overtake
+    // the data). Marking the event processed would make a redelivery a no-op and the credits
+    // would stay with the buyer; instead it stays open and the gateway delivers it again.
+    throw AppError.of('provider_error', 'The gateway does not show this refund yet', {
+      reason: 'reversal_not_visible',
+    });
+  }
   db.update(billingEvents).set({ processedAt: now }).where(eq(billingEvents.id, recorded.id)).run();
   return 'processed';
+}
+
+/**
+ * A reversal event about the payment that funded a credited order, after which the order still
+ * shows nothing returned. Events about another payment of the same checkout (a voided attempt)
+ * and orders with a refund already recorded are not retried.
+ */
+function announcesUnseenReversal(event: GatewayWebhookEvent, order: OrderRow): boolean {
+  if (!REVERSAL_EVENT.test(event.type)) return false;
+  if (order.paidAt === null || order.refundedHalalas > 0) return false;
+  return (
+    event.paymentId === null ||
+    order.gatewayPaymentId === null ||
+    event.paymentId === order.gatewayPaymentId
+  );
 }

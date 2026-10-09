@@ -85,6 +85,58 @@ describe('currentSection', () => {
     expect(currentSection(['intro', 'quickstart', 'reference'], 400)).toBe('reference');
   });
 
+  it('counts the heading a link has just scrolled to, wherever the page leaves it', () => {
+    // 80px of `scroll-padding-top` plus up to 48px of `scroll-mt` under a phone's sticky bars: a
+    // reading line above that would leave the previous section highlighted after every click.
+    for (const top of [80, 128]) {
+      tops.clear();
+      tops.set('intro', -900);
+      tops.set('quickstart', top);
+      tops.set('reference', 900);
+      expect(currentSection(['intro', 'quickstart', 'reference'])).toBe('quickstart');
+    }
+  });
+
+  describe('at the end of the page', () => {
+    function scrollAt(scrollY: number, scrollHeight = 5000) {
+      Object.defineProperty(document.documentElement, 'scrollHeight', {
+        configurable: true,
+        value: scrollHeight,
+      });
+      vi.stubGlobal('innerHeight', 800);
+      vi.stubGlobal('scrollY', scrollY);
+    }
+    afterEach(() => {
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight');
+    });
+
+    it('is the last section, even though it is too short to reach the reading line', () => {
+      tops.clear();
+      tops.set('intro', -4000);
+      tops.set('quickstart', -2000);
+      tops.set('reference', 500);
+      scrollAt(4200);
+      expect(currentSection(['intro', 'quickstart', 'reference'])).toBe('reference');
+    });
+
+    it('is still the section being read anywhere else on the page', () => {
+      tops.clear();
+      tops.set('intro', -4000);
+      tops.set('quickstart', -2000);
+      tops.set('reference', 500);
+      scrollAt(3000);
+      expect(currentSection(['intro', 'quickstart', 'reference'])).toBe('quickstart');
+    });
+
+    it('does not apply to a page that does not scroll', () => {
+      tops.clear();
+      tops.set('intro', 20);
+      tops.set('quickstart', 300);
+      scrollAt(0, 600);
+      expect(currentSection(['intro', 'quickstart'])).toBe('intro');
+    });
+  });
+
   it('falls back to the first anchor before any has been reached', () => {
     tops.clear();
     tops.set('intro', 800);

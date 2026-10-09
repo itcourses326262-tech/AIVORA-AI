@@ -1,4 +1,5 @@
 import { isValidElement, type ReactElement } from 'react';
+import type * as PeriodModule from '@/lib/billing/period';
 import type * as LegalModule from '@/lib/legal';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   cookies: new Map<string, string>(),
   acceptLanguage: null as string | null,
   draft: true,
+  refundDays: 7,
+  leadDays: 3,
+  graceDays: 7,
 }));
 
 vi.mock('next/headers', () => ({
@@ -25,7 +29,23 @@ vi.mock('@/lib/legal', async (importOriginal) => ({
   get LEGAL_DRAFT() {
     return mocks.draft;
   },
+  get REFUND_WINDOW_DAYS() {
+    return mocks.refundDays;
+  },
 }));
+// The owner may change the refund window and the billing code its renewal timing: the text follows.
+vi.mock('@/lib/billing/period', async (importOriginal) => {
+  const original = await importOriginal<typeof PeriodModule>();
+  return {
+    ...original,
+    get RENEWAL_LEAD_MS() {
+      return mocks.leadDays * original.DAY_MS;
+    },
+    get RENEWAL_GRACE_MS() {
+      return mocks.graceDays * original.DAY_MS;
+    },
+  };
+});
 
 import AcceptableUsePage, {
   generateMetadata as aupMetadata,
@@ -87,6 +107,9 @@ beforeEach(() => {
   mocks.cookies.clear();
   mocks.acceptLanguage = null;
   mocks.draft = true;
+  mocks.refundDays = 7;
+  mocks.leadDays = 3;
+  mocks.graceDays = 7;
   saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   for (const key of ENV_KEYS) delete process.env[key];
 });
@@ -301,11 +324,11 @@ describe('numbers that come from the code, not from the dictionary', () => {
     const en = await render(TermsPage, 'en');
     expect(en).toContain('value added tax at 15%');
     expect(en).toContain('About 3 days before the end of a paid month');
-    expect(en).toContain('pay for 7 more days');
+    expect(en).toContain('pay within 7 days after the month ends');
     const ar = await render(TermsPage, 'ar');
     expect(ar).toContain('بنسبة ١٥٪');
     expect(ar).toContain('بنحو ٣ أيام');
-    expect(ar).toContain('خلال ٧ أيام إضافية');
+    expect(ar).toContain('خلال ٧ أيام من انتهاء الشهر');
   });
 
   it('refunds: the refund window', async () => {
@@ -323,6 +346,113 @@ describe('numbers that come from the code, not from the dictionary', () => {
     } finally {
       process.env.VAT_RATE_PERCENT = '15';
       resetEnvForTests();
+    }
+  });
+});
+
+describe('a number of days is a phrase in the right plural form, whatever the owner configures', () => {
+  // Regression: the text used to put a typed plural word after the number, which gave "خلال ١٤ أيام"
+  // and "within 1 days" as soon as REFUND_WINDOW_DAYS was not between 3 and 10 in Arabic.
+  it.each([
+    [
+      1,
+      'within 1 day if its credits',
+      'خلال يوم واحد إذا',
+      'After 1 day, or',
+      'بعد انقضاء يوم واحد،',
+    ],
+    [2, 'within 2 days if its credits', 'خلال يومين إذا', 'After 2 days, or', 'بعد انقضاء يومين،'],
+    [
+      3,
+      'within 3 days if its credits',
+      'خلال ٣ أيام إذا',
+      'After 3 days, or',
+      'بعد انقضاء ٣ أيام،',
+    ],
+    [
+      11,
+      'within 11 days if its credits',
+      'خلال ١١ يومًا إذا',
+      'After 11 days, or',
+      'بعد انقضاء ١١ يومًا،',
+    ],
+    [
+      14,
+      'within 14 days if its credits',
+      'خلال ١٤ يومًا إذا',
+      'After 14 days, or',
+      'بعد انقضاء ١٤ يومًا،',
+    ],
+    [
+      30,
+      'within 30 days if its credits',
+      'خلال ٣٠ يومًا إذا',
+      'After 30 days, or',
+      'بعد انقضاء ٣٠ يومًا،',
+    ],
+  ])('refund window of %i days', async (days, enOverview, arOverview, enAfter, arAfter) => {
+    mocks.refundDays = days;
+    const en = await render(RefundsPage, 'en');
+    expect(en).toContain(enOverview);
+    expect(en).toContain(enAfter);
+    expect(en).toContain(`write to us within ${days === 1 ? '1 day' : `${days} days`} and`);
+    const ar = await render(RefundsPage, 'ar');
+    expect(ar).toContain(arOverview);
+    expect(ar).toContain(arAfter);
+    // The old output: a count followed by a plural word that is wrong for it.
+    expect(en).not.toMatch(/\b1 days/);
+    if (days > 10) expect(ar).not.toMatch(/[٠-٩]+ أيام/);
+    if (days === 1 || days === 2) expect(ar).not.toMatch(/[١٢] أيام/);
+  });
+
+  it.each([
+    [
+      1,
+      14,
+      'About 1 day before the end',
+      'within 14 days after the month ends',
+      'بنحو يوم واحد',
+      'خلال ١٤ يومًا من انتهاء الشهر',
+    ],
+    [
+      2,
+      1,
+      'About 2 days before the end',
+      'within 1 day after the month ends',
+      'بنحو يومين',
+      'خلال يوم واحد من انتهاء الشهر',
+    ],
+    [
+      5,
+      30,
+      'About 5 days before the end',
+      'within 30 days after the month ends',
+      'بنحو ٥ أيام',
+      'خلال ٣٠ يومًا من انتهاء الشهر',
+    ],
+  ])(
+    'renewal link %i days ahead and %i days of grace (terms)',
+    async (lead, grace, enLead, enGrace, arLead, arGrace) => {
+      mocks.leadDays = lead;
+      mocks.graceDays = grace;
+      const en = await render(TermsPage, 'en');
+      expect(en).toContain(enLead);
+      expect(en).toContain(enGrace);
+      const ar = await render(TermsPage, 'ar');
+      expect(ar).toContain(arLead);
+      expect(ar).toContain(arGrace);
+    },
+  );
+
+  it('leaves no placeholder behind for any window, on any page', async () => {
+    for (const days of [1, 2, 7, 14, 100]) {
+      mocks.refundDays = days;
+      for (const { Page } of PAGES) {
+        for (const locale of ['en', 'ar'] as const) {
+          const html = await render(Page, locale);
+          expect(html).not.toMatch(/\{(refundDays|leadDays|graceDays|vatPercent)\}/);
+        }
+      }
     }
   });
 });

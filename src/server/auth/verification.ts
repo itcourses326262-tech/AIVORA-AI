@@ -4,7 +4,12 @@ import { AppError } from '@/lib/errors';
 import { getDb, withTx, type DbOrTx, type Tx } from '@/server/db';
 import { creditLedger, users, type UserRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
-import { signupBonusKey, grantSignupBonus, type SignupBonus } from './bonus';
+import {
+  grantSignupBonus,
+  isBonusClaimedByAnother,
+  signupBonusKey,
+  type SignupBonus,
+} from './bonus';
 import { isEmailVerificationRequired } from './email-policy';
 import { EmailTokenError, consumeEmailToken, issueEmailToken, latestTokenAt } from './email-tokens';
 import { queueVerificationEmail, queueWelcomeEmail, type Recipient } from './notifications';
@@ -17,14 +22,22 @@ export function toRecipient(user: Pick<UserRow, 'email' | 'name' | 'locale'>): R
   return { email: user.email, name: user.name, locale: user.locale };
 }
 
-/** Credits the user would still receive on confirming (0 when already granted or switched off). */
-export function pendingSignupBonus(db: DbOrTx, user: Pick<UserRow, 'id'>): number {
+/**
+ * Credits the user would still receive on confirming: 0 when the bonus was already granted, is
+ * switched off, or was already claimed by another account of the same mailbox (a deleted account
+ * registered again), so no email or banner promises what confirming will not give.
+ */
+export function pendingSignupBonus(
+  db: DbOrTx,
+  user: Pick<UserRow, 'id' | 'email' | 'emailCanonical'>,
+): number {
   const granted = db
     .select({ id: creditLedger.id })
     .from(creditLedger)
     .where(eq(creditLedger.idempotencyKey, signupBonusKey(user.id)))
     .get();
-  return granted ? 0 : getEnv().SIGNUP_BONUS_CREDITS;
+  if (granted || isBonusClaimedByAnother(db, user)) return 0;
+  return getEnv().SIGNUP_BONUS_CREDITS;
 }
 
 export interface VerifiedOutcome {
@@ -34,17 +47,30 @@ export interface VerifiedOutcome {
   bonus: SignupBonus | null;
 }
 
+export interface MarkVerifiedOptions {
+  /**
+   * Also promote an `ADMIN_EMAILS` address to admin. Default false. Reading the emailed link
+   * proves the MAILBOX, not that the owner of the mailbox is the one who holds the account: the
+   * password and any live session were chosen by whoever registered first, who may be a squatter.
+   * So only a caller that knows the holder is the mailbox owner passes true: a password reset (the
+   * owner just chose the password and every old session and key is gone) or a confirmation made
+   * from a session of that very account.
+   */
+  promoteAdmin?: boolean;
+}
+
 /**
- * Marks the address confirmed (compare-and-set on the unconfirmed state), grants the sign-up bonus
- * if the account never got one, and promotes an `ADMIN_EMAILS` address to admin: whoever proves
- * the mailbox is its owner, which a bare registration never did. Idempotent. Synchronous, so the
- * callers run it in the same transaction that consumes the emailed link (or applies the operator's
- * decision), and a failure anywhere burns nothing.
+ * Marks the address confirmed (compare-and-set on the unconfirmed state) and grants the sign-up
+ * bonus if the account never got one. With `options.promoteAdmin` an `ADMIN_EMAILS` address also
+ * becomes admin. Idempotent. Synchronous, so the callers run it in the same transaction that
+ * consumes the emailed link (or applies the operator's decision), and a failure anywhere burns
+ * nothing.
  */
 export function markEmailVerified(
   tx: Tx,
   userId: string,
   now: number = Date.now(),
+  options: MarkVerifiedOptions = {},
 ): VerifiedOutcome {
   const row = tx.select().from(users).where(eq(users.id, userId)).get();
   if (!row || row.deletedAt !== null) throw AppError.of('not_found', 'User not found');
@@ -57,7 +83,11 @@ export function markEmailVerified(
     .get();
 
   const env = getEnv();
-  if (row.role !== 'admin' && env.ADMIN_EMAILS.includes(row.email)) {
+  if (
+    options.promoteAdmin === true &&
+    row.role !== 'admin' &&
+    env.ADMIN_EMAILS.includes(row.email)
+  ) {
     tx.update(users).set({ role: 'admin', updatedAt: now }).where(eq(users.id, userId)).run();
   }
   const bonus = grantSignupBonus(tx, row, env.SIGNUP_BONUS_CREDITS, now);
@@ -141,15 +171,27 @@ export interface ConfirmVerificationResult {
   bonusCredits: number;
 }
 
+export interface ConfirmOptions {
+  /**
+   * The account the request is signed in to (a browser SESSION, never an API key). When it is the
+   * owner of the link, the person confirming holds both the account and the mailbox, and an
+   * `ADMIN_EMAILS` address is promoted. Any other situation (no session, another account) only
+   * confirms.
+   */
+  signedInUserId?: string;
+}
+
 /**
  * Uses a confirmation link: marks the address confirmed and grants the sign-up bonus in ONE
  * transaction with burning the link, so a failure leaves the link usable. `bad_request` with
  * `details.reason` (`invalid`, `expired`, `used`) for a link that cannot be used. The link is
  * the credential here: callers need no session, the address on the account is what gets confirmed.
+ * Admin promotion follows {@link ConfirmOptions.signedInUserId}.
  */
 export function confirmEmailVerification(
   secret: string,
   now: number = Date.now(),
+  options: ConfirmOptions = {},
 ): ConfirmVerificationResult {
   const outcome = withTx(getDb(), (tx) => {
     const token = consumeEmailToken(tx, 'verify', secret, now);
@@ -158,7 +200,9 @@ export function confirmEmailVerification(
     if (!owner || owner.deletedAt !== null || owner.disabledAt !== null) {
       throw new EmailTokenError('invalid');
     }
-    return markEmailVerified(tx, token.userId, now);
+    return markEmailVerified(tx, token.userId, now, {
+      promoteAdmin: options.signedInUserId === token.userId,
+    });
   });
   const bonusCredits = outcome.bonus?.created ? outcome.bonus.entry.delta : 0;
   if (outcome.changed) queueWelcomeEmail(toRecipient(outcome.user), bonusCredits);

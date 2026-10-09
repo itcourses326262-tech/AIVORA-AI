@@ -8,7 +8,7 @@
  * Props
  * - `generation`: the `GenerationDTO` to show. The card re-renders as polling replaces it.
  * - `modelLabel`: display name of the model; falls back to the model id.
- * - `demo`: marks a Demo (sample) model.
+ * - `demo`: marks a Demo (sample) model; the tag is left out when the model's name already says Demo.
  * - `handlers`: which actions exist, see `GenerationHandlers`. The card shows an action only when
  *   its handler is given.
  * - `pending`: the request that creates this generation has not been accepted yet (optimistic card);
@@ -25,7 +25,7 @@ import { Heart } from 'lucide-react';
 import Link from 'next/link';
 import type { Ref } from 'react';
 import type { GenerationDTO } from '@/lib/api-types';
-import { creditsText } from '@/lib/generations/format';
+import { creditsText, needsDemoBadge } from '@/lib/generations/format';
 import type { GenerationHandlers } from '@/lib/generations/handlers';
 import { isActive, promptLabel } from '@/lib/generations/media';
 import { useMinuteClock } from '@/lib/generations/use-now';
@@ -102,7 +102,7 @@ export function GenerationCard({
           </p>
           <p className="mt-1.5 flex items-center gap-x-1.5 text-xs whitespace-nowrap text-muted">
             <span className="min-w-0 truncate">{modelLabel ?? generation.modelId}</span>
-            {demo ? (
+            {needsDemoBadge(modelLabel, demo) ? (
               <span className="shrink-0 rounded-sm bg-foreground/[0.08] px-1 text-[0.6875rem] font-medium">
                 {t('studio.generations.card.demo')}
               </span>

@@ -69,11 +69,23 @@ export interface MockGatewayOptions {
   now?: () => number;
 }
 
-export function createMockGateway(options: MockGatewayOptions): MockGateway {
+/** The fake's memory: the checkouts it knows. Plain data, so it can outlive any one module instance. */
+interface MockStore {
+  invoices: Map<string, MockInvoice>;
+  byOrder: Map<string, string>;
+}
+
+function newStore(): MockStore {
+  return { invoices: new Map(), byOrder: new Map() };
+}
+
+export function createMockGateway(
+  options: MockGatewayOptions,
+  store: MockStore = newStore(),
+): MockGateway {
   assertMockAllowed();
   const now = options.now ?? Date.now;
-  const invoices = new Map<string, MockInvoice>();
-  const byOrder = new Map<string, string>();
+  const { invoices, byOrder } = store;
 
   const invoiceOf = (invoiceId: string): MockInvoice | undefined => {
     const invoice = invoices.get(invoiceId);
@@ -201,18 +213,23 @@ export function createMockGateway(options: MockGatewayOptions): MockGateway {
   };
 }
 
-// One fake per server process, shared by every route bundle and by dev HMR.
-const SINGLETON_KEY = Symbol.for('aivore.mockBillingGateway');
-type GlobalWithMock = typeof globalThis & { [SINGLETON_KEY]?: MockGateway };
+// One fake per server process: its MEMORY (the checkouts) is shared by every route bundle and by dev
+// HMR, but each caller gets a gateway built by its own module instance. Sharing the gateway object
+// itself would hand one bundle the closures of another, and an `AppError` thrown by those closures
+// is not an `instanceof` the `AppError` that bundle's `route()` checks for (Turbopack gives the
+// route handlers, server actions and instrumentation their own copies of a module): a forged
+// webhook would then answer 500 instead of 401.
+const STORE_KEY = Symbol.for('aivore.mockBillingGateway.store');
+type GlobalWithMock = typeof globalThis & { [STORE_KEY]?: MockStore };
 
 export function getMockGateway(): MockGateway {
   assertMockAllowed();
   const scope = globalThis as GlobalWithMock;
-  scope[SINGLETON_KEY] ??= createMockGateway({ appUrl: getEnv().APP_URL });
-  return scope[SINGLETON_KEY];
+  scope[STORE_KEY] ??= newStore();
+  return createMockGateway({ appUrl: getEnv().APP_URL }, scope[STORE_KEY]);
 }
 
 /** Forgets the shared fake (tests). */
 export function resetMockGatewayForTests(): void {
-  (globalThis as GlobalWithMock)[SINGLETON_KEY] = undefined;
+  (globalThis as GlobalWithMock)[STORE_KEY] = undefined;
 }

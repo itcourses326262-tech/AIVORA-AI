@@ -107,6 +107,100 @@ describe.skipIf(chromiumPath() === undefined)('legal pages in a real browser', (
   }, 60_000);
 
   it.each([
+    ['en', 1366, 657],
+    ['ar', 1366, 657],
+    ['en', 1280, 720],
+    ['ar', 1280, 720],
+  ] as const)(
+    'keeps every section reachable from the contents on a short window: %s at %ix%i',
+    async (locale, width, height) => {
+      // Regression: the 17 sections of the Terms are taller than a laptop screen, so the sticky
+      // list ran off the bottom of the window and its last links could not be reached.
+      const page = await openPage(browser, await documentMarkup('terms', locale), {
+        locale,
+        width,
+        height,
+      });
+      const nav = page.getByRole('navigation', {
+        name: locale === 'en' ? 'On this page' : 'في هذه الصفحة',
+      });
+      await page.evaluate(() => window.scrollTo({ top: 1500, behavior: 'instant' }));
+      const stuck = await nav.boundingBox();
+      expect(stuck).not.toBeNull();
+      expect(stuck!.y).toBeGreaterThanOrEqual(0);
+      expect(stuck!.y + stuck!.height).toBeLessThanOrEqual(height);
+      // It scrolls on its own...
+      const scrolls = await nav.evaluate((element) => element.scrollHeight > element.clientHeight);
+      expect(scrolls).toBe(true);
+      expect(await nav.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
+      // ...down to the last link, which then sits inside the window and can be followed.
+      const last = nav.locator('a').last();
+      await last.scrollIntoViewIfNeeded();
+      const box = await last.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(height);
+      await last.click();
+      expect(await page.evaluate(() => window.location.hash)).toBe('#general');
+      await page.context().close();
+    },
+    60_000,
+  );
+
+  it('does not give the contents a scrollbar of their own when the window is tall enough', async () => {
+    const page = await openPage(browser, await documentMarkup('terms', 'en'), {
+      locale: 'en',
+      width: 1440,
+      height: 1000,
+    });
+    const nav = page.getByRole('navigation', { name: 'On this page' });
+    const fits = await nav.evaluate((element) => element.scrollHeight <= element.clientHeight);
+    await page.context().close();
+    expect(fits).toBe(true);
+  }, 60_000);
+
+  it.each(['en', 'ar'] as const)(
+    'does not clip the keyboard focus ring of the first and the last contents link (%s)',
+    async (locale) => {
+      const page = await openPage(browser, await documentMarkup('terms', locale), {
+        locale,
+        width: 1366,
+        height: 657,
+      });
+      const nav = page.getByRole('navigation', {
+        name: locale === 'en' ? 'On this page' : 'في هذه الصفحة',
+      });
+      const count = await nav.locator('a').count();
+      const ringWithin = async () =>
+        nav.evaluate((element) => {
+          const focused = document.activeElement as HTMLElement;
+          const style = getComputedStyle(focused);
+          const grow = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+          const link = focused.getBoundingClientRect();
+          const clip = element.getBoundingClientRect();
+          return {
+            inside: element.contains(focused),
+            left: link.left - grow - clip.left,
+            right: clip.right - (link.right + grow),
+            top: link.top - grow - clip.top,
+            bottom: clip.bottom - (link.bottom + grow),
+          };
+        });
+      for (let press = 1; press <= count; press += 1) {
+        await page.keyboard.press('Tab');
+        if (press === 1 || press === count) {
+          const ring = await ringWithin();
+          expect(ring.inside, `link ${press}`).toBe(true);
+          for (const side of [ring.left, ring.right, ring.top, ring.bottom]) {
+            expect(side, `link ${press}`).toBeGreaterThanOrEqual(0);
+          }
+        }
+      }
+      await page.context().close();
+    },
+    60_000,
+  );
+
+  it.each([
     ['en', true],
     ['ar', false],
   ] as const)(

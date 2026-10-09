@@ -40,7 +40,9 @@ import {
   type HttpMethod,
   type JsonSchema,
   type OpenApiDocument,
+  type OperationObject,
 } from '@/lib/openapi/types';
+import { setRateLimiter } from '@/server/security/rate-limit';
 import { freshDb } from '../../../helpers/db';
 import {
   createAsset,
@@ -49,8 +51,12 @@ import {
   createUser,
 } from '../../../helpers/factories';
 import { invokeRoute, type InvokeResult } from '../../../helpers/http';
-import { GOOD_PASSWORD, passwordFixture } from '../../../server/auth/trust-support';
-import { trustTestState } from '../../../server/auth/trust-support';
+import {
+  GOOD_PASSWORD,
+  passwordFixture,
+  stubEnv,
+  trustTestState,
+} from '../../../server/auth/trust-support';
 import { makePng, toFile } from '../../../server/uploads/support';
 import { problemsOf } from '../../../lib/openapi/validator';
 import { withTempStorage } from './media/support';
@@ -656,6 +662,29 @@ describe('api keys', () => {
     );
   });
 
+  it('refuses a key to an address that is not confirmed where confirmation is required', async () => {
+    const dev = await person({ emailVerifiedAt: null });
+    // Without the requirement the same account may create keys.
+    await call(
+      'post',
+      '/keys',
+      { headers: dev.browser, body: { name: 'before' } },
+      { status: 201 },
+    );
+    stubEnv({ EMAIL_VERIFICATION: 'required' });
+    const refused = await call(
+      'post',
+      '/keys',
+      { headers: dev.browser, body: { name: 'after' } },
+      { status: 403 },
+    );
+    expect(refused.json.error?.code).toBe('email_not_verified');
+    const documented = document.paths['/keys']?.post?.responses['403'];
+    expect(documented && !isReference(documented) ? documented.description : '').toContain(
+      'email_not_verified',
+    );
+  });
+
   it('stops at the documented number of active keys', async () => {
     const dev = await person();
     // `person` made one; fill the rest through the service so the route budget is not spent.
@@ -732,6 +761,16 @@ describe('sessions and sign-in', () => {
       { headers: origin, body: { email: 'new@example.com', password: 'wrong wrong wrong 1' } },
       { status: 401 },
     );
+    // A missing field is a validation error, not the uniform 401.
+    const incomplete = await call(
+      'post',
+      '/auth/login',
+      { headers: origin, body: {} },
+      { status: 422 },
+    );
+    expect(incomplete.json.error?.details).toMatchObject({
+      issues: expect.arrayContaining([expect.objectContaining({ path: 'email' })]),
+    });
 
     const signedIn = await call(
       'get',
@@ -798,6 +837,15 @@ describe('sessions and sign-in', () => {
       { status: 400 },
     );
     expect(unconfirmed.json.error?.details).toMatchObject({ reason: 'invalid' });
+    const tokenless = await call(
+      'post',
+      '/auth/verify-email/confirm',
+      { body: {} },
+      { status: 422 },
+    );
+    expect(tokenless.json.error?.details).toMatchObject({
+      issues: [expect.objectContaining({ path: 'token' })],
+    });
     const sent = await call(
       'post',
       '/auth/verify-email/request',
@@ -821,6 +869,138 @@ describe('sessions and sign-in', () => {
     );
     expect(already.json.data).toEqual({ sent: false, verified: true, resendAfterSec: 0 });
   });
+});
+
+// ---- Requests every operation reads the same way ------------------------------------------------
+
+interface Documented {
+  method: HttpMethod;
+  path: string;
+  operation: OperationObject;
+}
+
+function documentedOperations(filter: (operation: OperationObject) => boolean): Documented[] {
+  return Object.entries(document.paths).flatMap(([path, item]) =>
+    HTTP_METHODS.flatMap((method) => {
+      const operation = item[method];
+      return operation && filter(operation) ? [{ method, path, operation }] : [];
+    }),
+  );
+}
+
+const label = ({ method, path }: Documented): string => `${method.toUpperCase()} ${path}`;
+
+/** A JSON text of exactly `bytes` bytes that is a valid object but no valid request. */
+function jsonOfSize(bytes: number): string {
+  const frame = '{"pad":""}';
+  const text = `{"pad":"${'a'.repeat(bytes - frame.length)}"}`;
+  expect(Buffer.byteLength(text)).toBe(bytes);
+  return text;
+}
+
+/**
+ * The document says what any operation with a JSON body answers to a body that is malformed, that
+ * arrives with another Content-Type or that is too large, and what any paged one answers to a cursor
+ * it never returned. A new operation joins these loops by having the body or the parameter, so the
+ * statuses it documents cannot be left to whatever a hand-written scenario happens to hit.
+ */
+describe('a JSON body, the same way for every operation', () => {
+  const operations = documentedOperations((operation) =>
+    Object.keys(operation.requestBody?.content ?? {}).includes('application/json'),
+  );
+
+  it('is found on the operations that take one', () => {
+    expect(operations.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it.each(operations.map((entry) => [label(entry), entry] as const))(
+    '%s: malformed JSON is a 400, another Content-Type a 415, an oversized body a 413',
+    async (_name, entry) => {
+      const { method, path, operation } = entry;
+      const dev = await person();
+      const caller = operation['x-session-only'] ? dev.browser : { ...dev.bearer, origin: APP_URL };
+      const params = path.includes('{id}')
+        ? { id: createGeneration(harness.db, { userId: dev.user.id }).id }
+        : undefined;
+      const send = (headers: Record<string, string>, body: string) => {
+        // One budget per request: the smallest of them (three account deletions an hour) must not
+        // turn the fourth probe into a 429.
+        setRateLimiter(null);
+        return call(method, path, { headers: { ...caller, ...headers }, params, body });
+      };
+      const json = { 'content-type': 'application/json' };
+
+      const malformed = await send(json, '{"bad');
+      expect(malformed.status, label(entry)).toBe(400);
+      expect(malformed.json.error?.code).toBe('bad_request');
+
+      const text = await send({ 'content-type': 'text/plain' }, '{}');
+      expect(text.status, label(entry)).toBe(415);
+      expect(text.json.error?.code).toBe('unsupported_media_type');
+
+      const noType = await send({}, '{}');
+      expect(noType.status, label(entry)).toBe(415);
+
+      // The size the document states is the size the route enforces: a body of exactly that many
+      // bytes is read (and fails validation), one byte more is refused before it is read.
+      const limit = operation.requestBody?.['x-max-bytes'];
+      expect(limit, `${label(entry)} x-max-bytes`).toBeGreaterThan(0);
+      const atLimit = await send(json, jsonOfSize(limit ?? 0));
+      expect(atLimit.status, label(entry)).toBe(422);
+      const over = await send(json, jsonOfSize((limit ?? 0) + 1));
+      expect(over.status, label(entry)).toBe(413);
+      expect(over.json.error?.code).toBe('payload_too_large');
+
+      // The same refusal when the client announces the size up front.
+      const announced = await send(
+        { ...json, 'content-length': String((limit ?? 0) + 1) },
+        jsonOfSize((limit ?? 0) + 1),
+      );
+      expect(announced.status, label(entry)).toBe(413);
+    },
+  );
+});
+
+describe('a cursor, the same way for every paged operation', () => {
+  const operations = documentedOperations((operation) =>
+    (operation.parameters ?? []).some(
+      (parameter) => !isReference(parameter) && parameter.name === 'cursor',
+    ),
+  );
+  const strangers = [
+    'zzz',
+    'not a cursor!',
+    Buffer.from('{"createdAt":1}').toString('base64url'),
+    Buffer.from('["only-one-part"]').toString('base64url'),
+    Buffer.from('[1]').toString('base64url'),
+  ];
+
+  it('is found on the operations that page', () => {
+    expect(operations.map((entry) => entry.path).toSorted()).toEqual([
+      '/account/ledger',
+      '/explore',
+      '/generations',
+    ]);
+  });
+
+  it.each(operations.map((entry) => [label(entry), entry] as const))(
+    '%s: a cursor this API did not return is a 400',
+    async (_name, entry) => {
+      const dev = await person();
+      const headers = entry.operation.security.length === 0 ? {} : dev.bearer;
+      for (const cursor of strangers) {
+        const refused = await call(
+          entry.method,
+          entry.path,
+          { headers, query: { cursor } },
+          { status: 400 },
+        );
+        expect(refused.json.error, `${label(entry)} ${cursor}`).toMatchObject({
+          code: 'bad_request',
+        });
+      }
+    },
+  );
 });
 
 // ---- Completeness -----------------------------------------------------------------------------

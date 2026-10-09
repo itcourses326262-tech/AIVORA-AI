@@ -28,6 +28,7 @@ import {
   defaultLimitParam,
   generationIdParam,
   idempotencyKeyParam,
+  JSON_BODY_BYTES,
   kindParam,
   statusParam,
 } from './common';
@@ -62,7 +63,8 @@ export const generationEndpoints: EndpointSpec[] = [
     params: [idempotencyKeyParam],
     curl: { headers: { 'Idempotency-Key': String(idempotencyKeyParam.example) } },
     request: {
-      description: 'What to create. The body is at most 64 KiB.',
+      description: 'What to create.',
+      maxBytes: JSON_BODY_BYTES.createGeneration,
       schema: ref('CreateGenerationRequest'),
       example: createBody,
     },
@@ -97,7 +99,6 @@ export const generationEndpoints: EndpointSpec[] = [
         'The model is not configured on this deployment (`details.reason` is `model_unavailable`), or the `Idempotency-Key` was used for a different request (`idempotency_key_reused`).',
         { details: { reason: 'model_unavailable', modelId: 'fal-flux-schnell' } },
       ),
-      failure('payload_too_large', 'The body is larger than 64 KiB.'),
       validationFailed(
         'The request is not valid (`validation_failed`, every problem listed in `details.issues`), or the prompt goes against the content policy (`moderation_blocked`, `details.category`). Nothing is charged.',
         [{ path: 'params.count', message: 'count must be at most 4 for this model' }],
@@ -195,6 +196,7 @@ export const generationEndpoints: EndpointSpec[] = [
     params: [generationIdParam],
     request: {
       description: 'The flags to change.',
+      maxBytes: JSON_BODY_BYTES.updateGeneration,
       schema: ref('UpdateGenerationRequest'),
       example: { isPublic: true },
     },

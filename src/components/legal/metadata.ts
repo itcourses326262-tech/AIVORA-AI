@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
-import { getI18n } from '@/lib/i18n/server';
+import { getLocale } from '@/lib/i18n/server';
 import { LOCALES } from '@/lib/i18n/locales';
 import { LEGAL_MESSAGE_KEY, LEGAL_PATHS, type LegalSlug } from '@/lib/legal';
+import { documentOf } from './outline';
 
 /**
  * `generateMetadata` of a legal page. Like the landing page, both languages live at one URL (cookie,
@@ -9,12 +10,11 @@ import { LEGAL_MESSAGE_KEY, LEGAL_PATHS, type LegalSlug } from '@/lib/legal';
  * layout adds the " · AIVORE" suffix and the share image.
  */
 export async function legalMetadata(slug: LegalSlug): Promise<Metadata> {
-  const { t } = await getI18n();
-  const document = LEGAL_MESSAGE_KEY[slug];
+  const text = documentOf(await getLocale(), LEGAL_MESSAGE_KEY[slug]);
   const path = LEGAL_PATHS[slug];
   return {
-    title: t(`legal.${document}.meta.title`),
-    description: t(`legal.${document}.meta.description`),
+    title: text.metaTitle,
+    description: text.metaDescription,
     alternates: {
       canonical: path,
       languages: { ...Object.fromEntries(LOCALES.map((code) => [code, path])), 'x-default': path },

@@ -75,7 +75,9 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
   const dragDepth = useRef(0);
   const describedBy = useId();
   const { state } = input;
-  const problem = useProblemText(state.status === 'empty' ? state.error : undefined);
+  const problem = useProblemText(
+    input.rejected ?? (state.status === 'empty' ? state.error : undefined),
+  );
   const message = problem ?? error ?? null;
 
   const choose = useCallback(() => fileInput.current?.click(), []);
@@ -229,7 +231,7 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
           <button
             type="button"
             onClick={choose}
-            aria-label={t('studio.image.region')}
+            aria-labelledby={`${describedBy}-title`}
             aria-describedby={`${describedBy}-hint`}
             className="flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-[inherit] px-4 py-6 text-center outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-inset"
           >
@@ -239,7 +241,7 @@ export function ImageInputField({ input, variant, error }: ImageInputFieldProps)
             >
               <Upload className="size-5" />
             </span>
-            <span className="text-sm font-medium text-foreground">
+            <span id={`${describedBy}-title`} className="text-sm font-medium text-foreground">
               {dragging ? t('studio.image.drop.active') : t('studio.image.drop.title')}
             </span>
             <span id={`${describedBy}-hint`} className="text-xs text-muted">

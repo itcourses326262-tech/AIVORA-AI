@@ -30,7 +30,7 @@ export const MAX_SEARCH_CHARS = 200;
 
 // Invisible characters that arrive with pasted text and would stop a plain substring match:
 // zero-width space, left/right marks, embeddings and isolates, and the byte order mark.
-const INVISIBLE = /[​‎‏‪-‮⁦-⁩﻿]/g;
+const INVISIBLE = /[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
 
 /**
  * The search text as the server should see it: one Unicode form (an Arabic letter typed with a
@@ -87,9 +87,7 @@ export function filtersKey(filters: GalleryFilters): string {
 
 /** True when something narrows the list (the "no results" empty state versus "no creations yet"). */
 export function isFiltered(filters: GalleryFilters): boolean {
-  return (
-    filters.kind !== 'all' || filters.status !== 'all' || filters.favorite || filters.q !== ''
-  );
+  return filters.kind !== 'all' || filters.status !== 'all' || filters.favorite || filters.q !== '';
 }
 
 /** The query of `GET /generations` for these filters; unset filters are left out. */

@@ -116,6 +116,13 @@ export default defineMessages({
       videosTitle: 'Video',
       videosUnit: 'per clip',
       note: 'Sample prices for one generation. The studio always shows the exact cost first.',
+      plansTitle: 'Need more? Plans and packs',
+      plansBody:
+        'Subscribe for a fresh batch of credits every month, or buy a one-time pack. Prices are in Saudi riyals, VAT included, and credits never expire.',
+      plansCta: 'See all prices',
+      planCredits: '{credits} a month',
+      planPrice: '{price} per month',
+      packsLine: 'Prefer a single payment? Credit packs start at {price} for {credits}.',
     },
     api: {
       eyebrow: 'For developers',
@@ -315,6 +322,13 @@ export default defineMessages({
       videosTitle: 'الفيديو',
       videosUnit: 'للمقطع',
       note: 'أمثلة على الأسعار لكل عملية توليد. يعرض لك الاستوديو التكلفة بالضبط قبل البدء.',
+      plansTitle: 'تحتاج المزيد؟ باقات وحزم',
+      plansBody:
+        'اشترك لتحصل على رصيد جديد كل شهر، أو اشترِ حزمة لمرة واحدة. الأسعار بالريال السعودي شاملة ضريبة القيمة المضافة، والرصيد لا ينتهي.',
+      plansCta: 'عرض كل الأسعار',
+      planCredits: '{credits} شهريًا',
+      planPrice: '{price} شهريًا',
+      packsLine: 'تفضّل دفعة واحدة؟ تبدأ حزم الرصيد من {price} مقابل {credits}.',
     },
     api: {
       eyebrow: 'للمطوّرين',

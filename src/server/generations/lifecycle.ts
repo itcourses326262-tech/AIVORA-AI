@@ -18,6 +18,7 @@ import { withTx, type Db, type DbOrTx, type Tx } from '@/server/db';
 import { assets, generations, type GenerationRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
 import type { PersistedOutput } from '@/server/uploads';
+import { releaseUpstreamSpend } from './budget';
 import { FREE_PROVIDER, isPaidProvider } from './paid';
 
 // Every state change is a compare-and-set on (id, status[, workerId]) inside a synchronous
@@ -365,6 +366,7 @@ function failInTx(
     .get();
   if (!row) return false;
   refundGeneration(tx, id, { note: 'Generation failed', idempotencyKey: `refund:${id}` });
+  releaseUpstreamSpend(tx, id, now);
   return true;
 }
 
@@ -410,6 +412,7 @@ export function markCanceled(db: DbOrTx, userId: string, id: string): boolean {
       .get();
     if (!row) return false;
     refundGeneration(tx, id, { note: 'Generation canceled', idempotencyKey: `refund:${id}` });
+    releaseUpstreamSpend(tx, id, now);
     return true;
   });
 }

@@ -27,6 +27,7 @@ import {
 import { openSession, revokeOtherSessions } from './sessions';
 import { assertEmailAllowed, assertSignupsWithinCap, signupAddress } from './signup-guard';
 import { fieldError, normalizeEmail, parseEmail, parseName } from './validation';
+import { pendingSignupBonus } from './verification';
 
 export interface RegisterInput {
   email: string;
@@ -196,12 +197,14 @@ export async function registerUser(
       );
       const session = openSession(tx, user.id, meta, now);
       const confirmation = confirmFirst ? issueEmailToken(tx, user.id, 'verify', now) : null;
-      return { user, session, confirmation };
+      // What the email may promise: nothing for a mailbox that already got its bonus once.
+      const promisedBonus = confirmation ? pendingSignupBonus(tx, user) : 0;
+      return { user, session, confirmation, promisedBonus };
     });
     getLogger().info('User registered', { userId: result.user.id, role: result.user.role });
     const recipient = { email, name: result.user.name, locale: result.user.locale };
     if (result.confirmation) {
-      queueVerificationEmail(recipient, result.confirmation.secret, env.SIGNUP_BONUS_CREDITS);
+      queueVerificationEmail(recipient, result.confirmation.secret, result.promisedBonus);
     } else if (isSmtpConfigured(env)) {
       queueWelcomeEmail(recipient, result.user.creditBalance);
     }

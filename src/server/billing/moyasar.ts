@@ -43,7 +43,11 @@ import type {
  *    ignored and the reconciliation loop finds the payment within a minute)
  *  - the HTTP error body shape (only `message` is read, truncated, for the log)
  *  - whether a partial refund keeps the payment `paid` or sets `refunded` (amounts decide, not names)
- *  - how a chargeback appears (we expect a payment that is refunded or voided; both read as "money returned")
+ *  - how a chargeback appears (we expect the payment to become refunded, or voided together with its
+ *    invoice; a voided payment next to a payment that took money, or on an invoice that can still
+ *    be paid, is an attempt that never took money and is NOT read as "money returned")
+ *  - whether a payment can be captured on an invoice that is already canceled or expired (we treat
+ *    any payment that took money as the truth, whatever the invoice says; see {@link toPaymentState})
  *  - that webhooks carry no signature header (only the `secret_token` body field is documented)
  */
 
@@ -109,49 +113,89 @@ const invoiceSchema = z.object({
 type Invoice = z.infer<typeof invoiceSchema>;
 
 const PAID_PAYMENT_STATUSES = ['paid', 'captured'];
-const RETURNED_PAYMENT_STATUSES = ['refunded', 'voided'];
 const CLOSED_INVOICE_STATUSES = ['canceled', 'expired', 'voided'];
+const RETURNED_INVOICE_STATUSES = ['refunded', 'voided'];
 
-/** How much of one payment went back to the buyer. A voided payment returned all of it. */
-function returnedAmount(payment: z.infer<typeof paymentSchema>): number {
-  if (payment.status === 'voided') return payment.amount;
+type Payment = z.infer<typeof paymentSchema>;
+
+/** How much of a payment that took money went back to the buyer. */
+function refundedOf(payment: Payment): number {
   const refunded = payment.refunded ?? 0;
   if (payment.status === 'refunded') return refunded > 0 ? refunded : payment.amount;
   return refunded;
 }
 
-/** Moyasar's invoice, reduced to the facts the services compare with the order. */
+/**
+ * Moyasar's invoice, reduced to the facts the services compare with the order. Money is decided
+ * PAYMENT BY PAYMENT, and the payments win over the invoice's own status:
+ *  - a payment that took money (`paid`, `captured`, or `refunded` after it was captured) makes the
+ *    checkout paid whatever the invoice says. A buyer who finished 3-D Secure just as the invoice
+ *    expired or was canceled has still been charged, and must get the credits (or a human must
+ *    look), never a silently failed order;
+ *  - the amount and currency that were actually charged are reported next to the invoice's own, so
+ *    a payment of another amount, or two payments on one invoice, can never match the order;
+ *  - a `voided` payment is a payment that never took money (a released authorization) unless the
+ *    invoice itself says the money went back. It is never added to the money returned, so a voided
+ *    attempt next to a later paid payment, or on an invoice that can still be paid, changes nothing.
+ */
 function toPaymentState(invoice: Invoice): GatewayPaymentState {
   const payments = invoice.payments ?? [];
-  const returned = payments.reduce((sum, payment) => sum + returnedAmount(payment), 0);
-  const settling = payments.find(
-    (payment) =>
-      PAID_PAYMENT_STATUSES.includes(payment.status) ||
-      RETURNED_PAYMENT_STATUSES.includes(payment.status),
-  );
   const reference = invoice.metadata?.order_id;
   const base = {
     invoiceId: invoice.id,
-    paymentId: settling?.id ?? null,
     amountHalalas: invoice.amount,
     currency: invoice.currency,
     reference: typeof reference === 'string' ? reference : null,
   };
 
-  const refundedHalalas = Math.min(returned, invoice.amount);
-  const paidByInvoice = invoice.status === 'paid';
-  const returnedByInvoice = invoice.status === 'refunded';
-  if (refundedHalalas >= invoice.amount || (returnedByInvoice && payments.length === 0)) {
-    return { ...base, status: 'refunded', refundedHalalas: invoice.amount };
+  const charged = payments.filter(
+    (payment) => PAID_PAYMENT_STATUSES.includes(payment.status) || payment.status === 'refunded',
+  );
+  if (charged.length > 0) {
+    const settling = charged.find((payment) => PAID_PAYMENT_STATUSES.includes(payment.status));
+    const chargedAmount = charged.reduce((sum, payment) => sum + payment.amount, 0);
+    const returned = Math.min(
+      charged.reduce((sum, payment) => sum + refundedOf(payment), 0),
+      chargedAmount,
+    );
+    const currencies = new Set(charged.map((payment) => payment.currency));
+    const [onlyCurrency] = currencies;
+    const common = {
+      ...base,
+      paymentId: (settling ?? charged[0])?.id ?? null,
+      ...(chargedAmount === invoice.amount ? {} : { paidAmountHalalas: chargedAmount }),
+      ...(currencies.size === 1 && onlyCurrency === invoice.currency
+        ? {}
+        : { paidCurrency: currencies.size === 1 && onlyCurrency ? onlyCurrency : 'MIXED' }),
+    };
+    const refundedHalalas = Math.min(returned, invoice.amount);
+    return returned >= chargedAmount
+      ? { ...common, status: 'refunded', refundedHalalas }
+      : { ...common, status: 'paid', refundedHalalas };
   }
-  if (paidByInvoice || returnedByInvoice || refundedHalalas > 0) {
-    return { ...base, status: 'paid', refundedHalalas };
+
+  const voided = payments.find((payment) => payment.status === 'voided');
+  if (voided && RETURNED_INVOICE_STATUSES.includes(invoice.status)) {
+    return {
+      ...base,
+      paymentId: voided.id,
+      status: 'refunded',
+      refundedHalalas: Math.min(voided.amount, invoice.amount),
+      ...(voided.amount === invoice.amount ? {} : { paidAmountHalalas: voided.amount }),
+      ...(voided.currency === invoice.currency ? {} : { paidCurrency: voided.currency }),
+    };
+  }
+  if (invoice.status === 'paid') {
+    return { ...base, paymentId: null, status: 'paid', refundedHalalas: 0 };
+  }
+  if (invoice.status === 'refunded') {
+    return { ...base, paymentId: null, status: 'refunded', refundedHalalas: invoice.amount };
   }
   if (CLOSED_INVOICE_STATUSES.includes(invoice.status)) {
-    return { ...base, status: 'closed', refundedHalalas: 0 };
+    return { ...base, paymentId: null, status: 'closed', refundedHalalas: 0 };
   }
   // initiated, on_hold, failed (the page may allow another attempt) and anything we do not know.
-  return { ...base, status: 'pending', refundedHalalas: 0 };
+  return { ...base, paymentId: null, status: 'pending', refundedHalalas: 0 };
 }
 
 const webhookSchema = z.object({

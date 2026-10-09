@@ -91,6 +91,13 @@ export default defineMessages({
       viewGeneration: 'View generation',
       loadMore: 'Load more',
       loadingMore: 'Loading…',
+      moreLoaded: {
+        one: 'One more entry loaded, {total} in all.',
+        two: 'Two more entries loaded, {total} in all.',
+        few: '{count} more entries loaded, {total} in all.',
+        many: '{count} more entries loaded, {total} in all.',
+        other: '{count} more entries loaded, {total} in all.',
+      },
       end: 'That is everything.',
       loadFailed: 'We could not load your credit history.',
       empty: {
@@ -143,6 +150,8 @@ export default defineMessages({
         nameTooLong: 'Use {max} characters or fewer.',
         nameInvalid: 'Use only printable characters in the name.',
         limit: 'You already have {max} active keys. Revoke one first.',
+        emailNotVerified:
+          'Confirm your email address before creating API keys. We sent you a link when you signed up; you can request a new one from the banner at the top of the page.',
       },
       reveal: {
         title: 'Your new API key',
@@ -154,12 +163,13 @@ export default defineMessages({
         copied: 'Copied',
         copyFailed: 'Could not copy. Select the key and copy it by hand.',
         copiedToast: 'Key copied to the clipboard',
-        usage: 'Try it from a terminal:',
+        usage:
+          'Try it from a terminal. A working key answers with your account and balance; a wrong one is refused:',
         done: 'I have stored it',
       },
       quick: {
         title: 'Quick start',
-        body: 'Send the key as a Bearer token. This lists the models you can use:',
+        body: 'Send the key as a Bearer token. This shows your account and balance, and is refused if the key is wrong or revoked:',
         docs: 'Full guide and reference',
       },
     },
@@ -459,6 +469,13 @@ export default defineMessages({
       viewGeneration: 'عرض العمل',
       loadMore: 'تحميل المزيد',
       loadingMore: 'جارٍ التحميل…',
+      moreLoaded: {
+        one: 'أُضيفت حركة واحدة، والمجموع {total}.',
+        two: 'أُضيفت حركتان، والمجموع {total}.',
+        few: 'أُضيفت {count} حركات، والمجموع {total}.',
+        many: 'أُضيفت {count} حركة، والمجموع {total}.',
+        other: 'أُضيفت {count} حركة، والمجموع {total}.',
+      },
       end: 'هذا كل شيء.',
       loadFailed: 'تعذّر تحميل سجل رصيدك.',
       empty: {
@@ -511,6 +528,8 @@ export default defineMessages({
         nameTooLong: 'استخدم {max} حرفًا أو أقل.',
         nameInvalid: 'استخدم في الاسم أحرفًا مقروءة فقط.',
         limit: 'لديك بالفعل {max} مفتاحًا فعّالًا. ألغِ أحدها أولًا.',
+        emailNotVerified:
+          'أكّد بريدك الإلكتروني قبل إنشاء مفاتيح API. أرسلنا إليك رابط التأكيد عند التسجيل، ويمكنك طلب رابط جديد من الشريط في أعلى الصفحة.',
       },
       reveal: {
         title: 'مفتاح API الجديد',
@@ -522,12 +541,13 @@ export default defineMessages({
         copied: 'تم النسخ',
         copyFailed: 'تعذّر النسخ. حدّد المفتاح وانسخه يدويًا.',
         copiedToast: 'نُسخ المفتاح إلى الحافظة',
-        usage: 'جرّبه من الطرفية:',
+        usage:
+          'جرّبه من الطرفية. المفتاح الصحيح يردّ ببيانات حسابك ورصيدك، أما الخاطئ فيُرفض طلبه:',
         done: 'حفظته',
       },
       quick: {
         title: 'بداية سريعة',
-        body: 'أرسل المفتاح بصيغة Bearer. هذا الطلب يعرض النماذج التي يمكنك استخدامها:',
+        body: 'أرسل المفتاح بصيغة Bearer. يعرض هذا الطلب حسابك ورصيدك، ويُرفض إذا كان المفتاح خاطئًا أو ملغى:',
         docs: 'الدليل الكامل والمرجع',
       },
     },
@@ -733,7 +753,7 @@ export default defineMessages({
       objects: {
         title: 'الكائنات',
         intro:
-          'الصور التي تعيدها نقاط النهاية. الحقل المعلَّم بأنه مطلوب موجود دائمًا، أما غيره فيُحذف حين لا ينطبق.',
+          'أشكال البيانات التي تعيدها نقاط النهاية. الحقل المعلَّم بأنه مطلوب موجود دائمًا، أما غيره فيُحذف حين لا ينطبق.',
       },
       openapi: {
         title: 'مستند OpenAPI',

@@ -282,6 +282,23 @@ describe('real nodemailer against a local SMTP server', () => {
     }
   });
 
+  it("delivers to an address with an apostrophe, which sign-up accepts (o'brien@example.com)", async () => {
+    const server = await fakeSmtpServer();
+    try {
+      const transport = createSmtpTransport({
+        host: '127.0.0.1',
+        port: server.port,
+        secure: false,
+        requireTLS: false,
+      });
+      await transport.send(outgoing("o'brien@example.com"));
+      expect(server.received).toHaveLength(1);
+      expect(server.received[0] ?? '').toMatch(/^To: o'brien@example\.com/m);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('is the transport an SMTP_URL selects, and reports a refused recipient without retrying', async () => {
     const server = await fakeSmtpServer({ rejectRecipient: true });
     try {

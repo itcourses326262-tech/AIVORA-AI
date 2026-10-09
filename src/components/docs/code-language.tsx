@@ -1,12 +1,17 @@
 'use client';
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { SegmentedControl } from '@/components/ui/radio-group';
 import { CodeWindow, type CodeWindowLabels } from './code-window';
 import {
+  readCodeLanguage,
+  subscribeToCodeLanguage,
+  writeCodeLanguage,
+} from './code-language-storage';
+import {
+  DEFAULT_QUICKSTART_LANGUAGE,
   QUICKSTART_LANGUAGES,
   isQuickstartLanguage,
-  serializeCodeLanguageCookie,
   type QuickstartLanguage,
 } from './snippets';
 import type { CodeLine } from './tokenize';
@@ -25,32 +30,19 @@ function useCodeLanguage(): CodeLanguageValue {
   return value;
 }
 
-export interface CodeLanguageProviderProps {
-  /** What the cookie said when the page was rendered, so the first paint is already right. */
-  initial: QuickstartLanguage;
-  children: ReactNode;
-}
-
 /**
  * The language of every example in the quickstart. Choosing one switches all of them at once and
- * is remembered in a cookie for the next visit.
+ * is remembered on this device for the next visit. The server (and the hydrating render) show the
+ * default; a saved choice replaces it right after hydration.
  */
-export function CodeLanguageProvider({ initial, children }: CodeLanguageProviderProps) {
-  const [language, setCurrent] = useState(initial);
+export function CodeLanguageProvider({ children }: { children: ReactNode }) {
+  const language = useSyncExternalStore(
+    subscribeToCodeLanguage,
+    readCodeLanguage,
+    () => DEFAULT_QUICKSTART_LANGUAGE,
+  );
   const value = useMemo<CodeLanguageValue>(
-    () => ({
-      language,
-      setLanguage: (next) => {
-        setCurrent(next);
-        try {
-          document.cookie = serializeCodeLanguageCookie(next, {
-            secure: window.location.protocol === 'https:',
-          });
-        } catch {
-          // Cookies blocked: the choice still holds for this visit.
-        }
-      },
-    }),
+    () => ({ language, setLanguage: writeCodeLanguage }),
     [language],
   );
   return <CodeLanguageContext.Provider value={value}>{children}</CodeLanguageContext.Provider>;

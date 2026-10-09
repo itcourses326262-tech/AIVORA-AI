@@ -1,6 +1,6 @@
 import 'server-only';
-import { and, asc, eq, inArray, isNotNull, isNull, lt, lte } from 'drizzle-orm';
-import { RENEWAL_GRACE_MS, RENEWAL_LEAD_MS } from '@/lib/billing/period';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or } from 'drizzle-orm';
+import { DAY_MS, RENEWAL_GRACE_MS, RENEWAL_LEAD_MS } from '@/lib/billing/period';
 import { getPlan, splitVat } from '@/lib/billing/plans';
 import { newId } from '@/lib/id';
 import { getDb, withTx, type Db } from '@/server/db';
@@ -11,7 +11,7 @@ import { getGateway } from './config';
 import { ORPHAN_AFTER_MS, attachCheckout, isUniqueViolation } from './orders';
 import { closeCheckout, settleOrder } from './settle';
 import { pendingOrderOf } from './subscriptions';
-import { closeOrder } from './transitions';
+import { closeOrder, endSubscriptionNow } from './transitions';
 
 /**
  * Background work of billing. `tick(now)` is safe to run from any number of processes at once:
@@ -25,7 +25,10 @@ import { closeOrder } from './transitions';
  *     the ones that stayed unpaid long after their page expired;
  *  3. withdraws renewal links whose subscription has ended;
  *  4. walks the subscriptions that are due: issue the renewal link, mark it past due, expire it,
- *     or finish a cancellation. See {@link planStep}.
+ *     or finish a cancellation. See {@link planStep};
+ *  5. slowly re-asks the gateway about RECENT PAID orders, because a refund or a chargeback is not
+ *     always announced by a webhook (a wrong secret, a lost delivery, an event handled before the
+ *     API showed the refund) and the credits of a returned payment must not stay with the buyer.
  */
 
 const log = () => getLogger().child({ module: 'billing-scheduler' });
@@ -40,6 +43,19 @@ export const BATCH_SIZE = 25;
 export const LEASE_MS = 15 * 60 * 1000;
 /** A page this long past its expiry that the gateway still calls payable is closed by force. */
 export const EXPIRY_SLACK_MS = 60 * 60 * 1000;
+
+/** Paid orders are re-checked for refunds and chargebacks while they are younger than this. */
+export const PAID_RECHECK_WINDOW_MS = 180 * DAY_MS;
+/** Paid orders re-checked per tick: a gateway call each, so a backlog is worked off over many ticks. */
+export const PAID_BATCH_SIZE = 10;
+
+const HOUR_MS = 60 * 60 * 1000;
+/** Age bands (from the order's creation) and how often a paid order in each is re-checked: the younger, the likelier a reversal. */
+const PAID_RECHECK_BANDS = [
+  { fromMs: 0, toMs: 7 * DAY_MS, everyMs: 6 * HOUR_MS },
+  { fromMs: 7 * DAY_MS, toMs: 30 * DAY_MS, everyMs: DAY_MS },
+  { fromMs: 30 * DAY_MS, toMs: PAID_RECHECK_WINDOW_MS, everyMs: 3 * DAY_MS },
+] as const;
 
 /** How often an unpaid checkout is re-checked: eagerly while the buyer is probably paying. */
 export function pollIntervalMs(ageMs: number): number {
@@ -57,7 +73,8 @@ export type SubscriptionStep =
  *   E            still unpaid: `past_due` (`mark_past_due`), the link stays payable
  *   E + 7 days   still unpaid: `expired` (`expire`), the link is withdrawn
  * A subscription that was canceled never gets a link and ends at `E` (`finalize_cancel`). Paying at
- * any point before the end of the grace period moves the subscription to the next month. The
+ * any point before the end of the grace period moves the subscription to the next month, and a link
+ * that was closed in the meantime is issued again. The
  * function is pure; the scheduler only executes what it says.
  */
 export function planStep(
@@ -68,7 +85,11 @@ export function planStep(
   const end = subscription.currentPeriodEnd;
   if (end === null) return 'wait';
   if (subscription.cancelAtPeriodEnd) return now >= end ? 'finalize_cancel' : 'wait';
-  if (subscription.status === 'past_due') return now >= end + RENEWAL_GRACE_MS ? 'expire' : 'wait';
+  if (subscription.status === 'past_due') {
+    if (now >= end + RENEWAL_GRACE_MS) return 'expire';
+    // Paying stays possible until the grace period ends: a link the gateway closed is replaced.
+    return hasPendingRenewal ? 'wait' : 'issue_renewal';
+  }
   if (now >= end) return hasPendingRenewal ? 'mark_past_due' : 'issue_renewal';
   if (now >= end - RENEWAL_LEAD_MS) return hasPendingRenewal ? 'wait' : 'issue_renewal';
   return 'wait';
@@ -93,6 +114,8 @@ export interface TickReport {
   active: boolean;
   orphansClosed: number;
   checkoutsChecked: number;
+  /** Paid orders re-asked about refunds and chargebacks. */
+  paidChecked: number;
   subscriptionsAdvanced: number;
   errors: number;
 }
@@ -102,6 +125,7 @@ export async function tick(now: number = Date.now()): Promise<TickReport> {
     active: true,
     orphansClosed: 0,
     checkoutsChecked: 0,
+    paidChecked: 0,
     subscriptionsAdvanced: 0,
     errors: 0,
   };
@@ -130,6 +154,9 @@ export async function tick(now: number = Date.now()): Promise<TickReport> {
   await guarded(async () => withdrawOrphanedRenewals(db, now));
   await guarded(async () => {
     report.subscriptionsAdvanced = await advanceSubscriptions(db, now, report);
+  });
+  await guarded(async () => {
+    report.paidChecked = await reconcilePaid(db, gatewayId, now, report);
   });
   return report;
 }
@@ -232,6 +259,75 @@ async function reconcilePending(
     } catch (error) {
       report.errors += 1;
       log().warn('Could not check a checkout; it will be tried again', {
+        orderId: order.id,
+        err: error,
+      });
+    }
+  }
+  return checked;
+}
+
+/**
+ * Re-asks the gateway about recent paid orders (and orders parked for review), so a refund or a
+ * chargeback that no webhook announced still reaches the books. Oldest check first, in age bands
+ * ({@link paidRecheckIntervalMs}), a few per tick; a fully refunded order has nothing left to learn.
+ * Each one is claimed with a compare-and-set on its check time, like every other unit of work.
+ */
+async function reconcilePaid(
+  db: Db,
+  gatewayId: string,
+  now: number,
+  report: TickReport,
+): Promise<number> {
+  const due = or(
+    ...PAID_RECHECK_BANDS.map(({ fromMs, toMs, everyMs }) =>
+      and(
+        lte(orders.createdAt, now - fromMs),
+        gt(orders.createdAt, now - toMs),
+        or(isNull(orders.lastCheckedAt), lte(orders.lastCheckedAt, now - everyMs)),
+      ),
+    ),
+  );
+  const candidates = db
+    .select()
+    .from(orders)
+    .where(
+      and(
+        inArray(orders.status, ['paid', 'needs_review']),
+        eq(orders.gateway, gatewayId as 'mock' | 'moyasar'),
+        isNotNull(orders.gatewayInvoiceId),
+        lt(orders.refundedHalalas, orders.amountHalalas),
+        due,
+      ),
+    )
+    .orderBy(asc(orders.lastCheckedAt))
+    .limit(PAID_BATCH_SIZE)
+    .all();
+
+  let checked = 0;
+  for (const order of candidates) {
+    const claimed = withTx(db, (tx) =>
+      tx
+        .update(orders)
+        .set({ lastCheckedAt: now })
+        .where(
+          and(
+            eq(orders.id, order.id),
+            eq(orders.status, order.status),
+            order.lastCheckedAt === null
+              ? isNull(orders.lastCheckedAt)
+              : eq(orders.lastCheckedAt, order.lastCheckedAt),
+          ),
+        )
+        .run(),
+    );
+    if (claimed.changes !== 1) continue;
+    checked += 1;
+    try {
+      await settleOrder(order.id, { now });
+    } catch (error) {
+      report.errors += 1;
+      log().warn('Could not re-check a paid order; it will be tried again', {
         orderId: order.id,
         err: error,
       });
@@ -421,11 +517,20 @@ async function issueRenewal(db: Db, subscription: SubscriptionRow, now: number):
     return;
   }
   const user = db
-    .select({ locale: users.locale })
+    .select({ locale: users.locale, deletedAt: users.deletedAt })
     .from(users)
     .where(eq(users.id, subscription.userId))
     .get();
   if (!user) return;
+  if (user.deletedAt !== null) {
+    // The account is gone (deleted before billing was told, or while it was unreachable): no more
+    // links for a subscription nobody can pay or use.
+    log().warn('A subscription of a deleted account is ended instead of renewed', {
+      subscriptionId: subscription.id,
+    });
+    withTx(db, (tx) => endSubscriptionNow(tx, subscription.id, now));
+    return;
+  }
 
   const gateway = getGateway();
   const vat = splitVat(plan.priceHalalas, getEnv().VAT_RATE_PERCENT);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '@/server/providers/errors';
-import type { SubmitResult } from '@/server/providers/types';
+import type { ProviderContext, SubmitResult } from '@/server/providers/types';
+import { markCanceled } from '@/server/generations/lifecycle';
 import { expectConsistentLedger, ledgerInOrder } from '../../helpers/credits';
 import { TINY_PNG, fakeProvider } from '../../helpers/fakes';
 import { createClock, createHarness, settle, type Harness, type HarnessOptions } from './support';
@@ -46,6 +47,7 @@ function twoWorkers(h: Harness) {
     a: h.another({ now: crashed.now, sleep: crashed.sleep }),
     b: h.another({ now: survivor.now, sleep: survivor.sleep }),
     afterLease: () => survivor.advance(61_000),
+    crashed,
     survivor,
   };
 }
@@ -308,5 +310,201 @@ describe('the marker around a healthy submit', () => {
     expect(h.provider.submit).toHaveBeenCalledTimes(1); // resumed by polling, not re-submitted
     expect(h.row(job.id).status).toBe('succeeded');
     expect(h.balance()).toBe(48);
+  });
+});
+
+/*
+ * The provider's answer to `submit` can arrive AFTER the run was given up on, and then the order in
+ * which the timers and the socket fire decides what the run knows. Node runs expired timers before
+ * I/O callbacks, so a frozen worker (VM pause, long GC) or a slow request wakes up with the
+ * heartbeat first: it sees that the row is no longer its own and abandons the run while the request
+ * is still in flight (no provider job id is known yet, so there is nothing to cancel), and only then
+ * does the response arrive. The paid upstream job that response names must still be canceled.
+ */
+describe('a provider answer that arrives after the run was given up', () => {
+  const orphan: SubmitResult = { mode: 'async', providerJobId: 'orphan-1', meta: { v: 1 } };
+  const HEARTBEAT_MS = 15_000;
+
+  function pending() {
+    const answer = Promise.withResolvers<SubmitResult>();
+    const cancel = vi.fn(async (_providerJobId: string, _ctx: ProviderContext) => undefined);
+    return { answer, cancel, provider: fakeProvider({ submit: () => answer.promise, cancel }) };
+  }
+
+  it('cancels the upstream job when the heartbeat saw the lost lease first', async () => {
+    const { answer, cancel, provider } = pending();
+    const h = harness({ provider });
+    const { a, b, afterLease, crashed } = twoWorkers(h);
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = a.tick();
+    await settle();
+    await afterLease();
+    await b.tick();
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'interrupted' });
+
+    await crashed.advance(HEARTBEAT_MS + 1); // the thawed worker's heartbeat fires first ...
+    await running; // ... and the run is over, with no provider job id to cancel
+    expect(cancel).not.toHaveBeenCalled();
+    answer.resolve(orphan); // ... then the socket delivers the answer
+    await settle(12);
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel.mock.calls[0]?.[0]).toBe('orphan-1');
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'interrupted' });
+    expect(h.row(job.id).providerJobId).toBeNull();
+    expect(h.balance()).toBe(50);
+    expectConsistentLedger(h.db, h.user.id, 50);
+  });
+
+  it('cancels it when the user canceled while the request was in flight', async () => {
+    const { answer, cancel, provider } = pending();
+    const h = harness({ provider });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = h.runner.tick();
+    await settle();
+    expect(markCanceled(h.db, h.user.id, job.id)).toBe(true); // refunded in full
+
+    await h.clock.advance(HEARTBEAT_MS + 1); // the heartbeat notices the cancel
+    expect(cancel).not.toHaveBeenCalled();
+    answer.resolve(orphan);
+    await running;
+    await settle(12);
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel.mock.calls[0]?.[0]).toBe('orphan-1');
+    expect(h.row(job.id)).toMatchObject({ status: 'canceled', providerJobId: null });
+    expect(h.balance()).toBe(50);
+    expectConsistentLedger(h.db, h.user.id, 50);
+  });
+
+  it('cancels it when the deadline passed while the request was in flight', async () => {
+    const { answer, cancel, provider } = pending();
+    const h = harness({ provider, env: { GENERATION_TIMEOUT_SEC_IMAGE: '30' } });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = h.runner.tick();
+    await settle();
+    await h.clock.advance(31_000);
+    await running;
+    expect(h.row(job.id)).toMatchObject({ status: 'failed', errorCode: 'timeout' });
+    expect(cancel).not.toHaveBeenCalled();
+
+    answer.resolve(orphan);
+    await settle(12);
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel.mock.calls[0]?.[0]).toBe('orphan-1');
+    expect(h.balance()).toBe(50);
+  });
+
+  it('cancels it after a graceful shutdown too, without waiting for the shutdown signal', async () => {
+    const answer = Promise.withResolvers<SubmitResult>();
+    const abortedWhenCalled: boolean[] = [];
+    const cancel = vi.fn(async (_providerJobId: string, ctx: ProviderContext) => {
+      abortedWhenCalled.push(ctx.signal.aborted);
+    });
+    const h = harness({ provider: fakeProvider({ submit: () => answer.promise, cancel }) });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    void h.runner.tick();
+    await settle();
+    await h.clock.runUntil(h.runner.stop());
+    expect(h.row(job.id)).toMatchObject({ status: 'queued', workerId: null });
+
+    answer.resolve(orphan);
+    await settle(12);
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    // The runner is long stopped; the request to the provider must still get a live signal.
+    expect(abortedWhenCalled).toEqual([false]);
+  });
+
+  it('has nothing to cancel when the late answer already holds the pictures', async () => {
+    const answer = Promise.withResolvers<SubmitResult>();
+    const cancel = vi.fn(async (_providerJobId: string) => undefined);
+    const h = harness({ provider: fakeProvider({ submit: () => answer.promise, cancel }) });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = h.runner.tick();
+    await settle();
+    markCanceled(h.db, h.user.id, job.id);
+    await h.clock.advance(HEARTBEAT_MS + 1);
+
+    answer.resolve({ mode: 'sync', outputs: done.outputs });
+    await running;
+    await settle(12);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(h.persist).not.toHaveBeenCalled(); // the pictures are dropped, not stored
+    expect(h.row(job.id).status).toBe('canceled');
+  });
+
+  it('stops waiting for a cancel that never answers, and a failing one is only logged', async () => {
+    const answer = Promise.withResolvers<SubmitResult>();
+    const hang = vi.fn(() => new Promise<void>(() => undefined));
+    const h = harness({ provider: fakeProvider({ submit: () => answer.promise, cancel: hang }) });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = h.runner.tick();
+    await settle();
+    markCanceled(h.db, h.user.id, job.id);
+    await h.clock.advance(HEARTBEAT_MS + 1);
+    answer.resolve(orphan);
+    await running;
+    await settle();
+    expect(hang).toHaveBeenCalledTimes(1);
+
+    await h.clock.advance(10_001); // the time limit of an upstream cancel
+    await settle();
+
+    const warning = h.logs.lines.find((line) => line.msg === 'Could not cancel the upstream job');
+    expect(warning?.level).toBe('warn');
+
+    const failing = Promise.withResolvers<SubmitResult>();
+    const fails = vi.fn(async () => {
+      throw new ProviderError('unavailable', 'upstream 500', { retryable: true, httpStatus: 500 });
+    });
+    const g = harness({ provider: fakeProvider({ submit: () => failing.promise, cancel: fails }) });
+    const second = g.enqueue({ ...PAID });
+    const ticking = g.runner.tick();
+    await settle();
+    markCanceled(g.db, g.user.id, second.id);
+    await g.clock.advance(HEARTBEAT_MS + 1);
+    failing.resolve(orphan);
+    await ticking;
+    await settle(12);
+    expect(fails).toHaveBeenCalledTimes(1);
+    expect(
+      g.logs.lines.filter((line) => line.msg === 'Could not cancel the upstream job'),
+    ).toHaveLength(1);
+  });
+
+  it('says so when the provider cannot cancel: the job will run unseen, and nothing breaks', async () => {
+    const answer = Promise.withResolvers<SubmitResult>();
+    const h = harness({ provider: fakeProvider({ submit: () => answer.promise }) });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    const running = h.runner.tick();
+    await settle();
+    markCanceled(h.db, h.user.id, job.id);
+    await h.clock.advance(HEARTBEAT_MS + 1);
+    answer.resolve(orphan);
+    await running;
+    await settle(12);
+
+    const warning = h.logs.lines.find((line) => line.msg.includes('cannot cancel it'));
+    expect(warning).toMatchObject({ level: 'warn', fields: { reason: 'canceled' } });
+    expect(h.row(job.id)).toMatchObject({ status: 'canceled', providerJobId: null });
+    expect(h.balance()).toBe(50);
+  });
+
+  it('keeps working when the answer comes first: the normal ordering still stores the job id', async () => {
+    const cancel = vi.fn(async (_providerJobId: string) => undefined);
+    const h = harness({
+      provider: fakeProvider({
+        submit: () => ({ mode: 'async', providerJobId: 'job-9', meta: { v: 1 } }),
+        poll: () => done,
+        cancel,
+      }),
+    });
+    const job = h.enqueue({ ...PAID, cost: 2 });
+    await h.runner.tick();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(h.row(job.id)).toMatchObject({ status: 'succeeded', providerJobId: 'job-9' });
   });
 });

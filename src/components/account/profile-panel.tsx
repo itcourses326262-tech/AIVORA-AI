@@ -34,8 +34,16 @@ export function ProfilePanel() {
   const languageLabelId = useId();
 
   const [name, setName] = useState(user?.name ?? '');
-  // The language shown is the one the interface speaks now; saving makes the account remember it.
-  const [language, setLanguage] = useState<Locale>(locale);
+  // The language shown is the one the interface speaks now, also when it changes while this form
+  // is open (the language menu of the header does that); saving makes the account remember it. A
+  // choice made here is dropped when the interface changes language, so a switch elsewhere wins.
+  const [choice, setChoice] = useState<Locale | null>(null);
+  const [choiceFor, setChoiceFor] = useState(locale);
+  if (choiceFor !== locale) {
+    setChoiceFor(locale);
+    setChoice(null);
+  }
+  const language = choice ?? locale;
   const [nameError, setNameError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -134,7 +142,7 @@ export function ProfilePanel() {
               orientation="horizontal"
               value={language}
               onValueChange={(next) => {
-                if (isLocale(next)) setLanguage(next);
+                if (isLocale(next)) setChoice(next);
               }}
               options={LOCALES.map((code) => ({
                 value: code,

@@ -41,7 +41,8 @@ Commands:
                   (also: users stats)
   resend-verification <email>                    mails a new confirmation link (no resend gap)
   force-verify    <email>                        confirms the address without the link; grants
-                                                 the sign-up bonus if the account has none
+                                                 the sign-up bonus if the account has none (never
+                                                 changes the role: use set-role for that)
   delete-user     <email> | --id <usr_...> [--yes] [--force]
                   deletes the account like the user's own request (without the password);
                   without --yes it only shows what would go. --force: even the last admin

@@ -44,8 +44,15 @@ export function queuePasswordResetEmail(to: Recipient, secret: string): void {
   );
 }
 
-/** The notice after a reset: "if this was not you, start another reset". */
-export function queuePasswordChangedEmail(to: Recipient, at: number = Date.now()): void {
+/**
+ * The notice after a reset: "if this was not you, start another reset". `keysRevoked` > 0 adds a
+ * line saying the account's API keys were revoked too.
+ */
+export function queuePasswordChangedEmail(
+  to: Recipient,
+  at: number = Date.now(),
+  keysRevoked: number = 0,
+): void {
   queueEmail(
     renderEmail({
       kind: 'password_changed',
@@ -54,6 +61,7 @@ export function queuePasswordChangedEmail(to: Recipient, at: number = Date.now()
       name: to.name,
       link: appLink('/forgot-password'),
       at,
+      keysRevoked,
     }),
   );
 }

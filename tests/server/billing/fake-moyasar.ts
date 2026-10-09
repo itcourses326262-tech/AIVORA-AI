@@ -24,6 +24,8 @@ interface FakePayment {
 
 export interface FakeInvoice {
   id: string;
+  /** Our order id as it was sent at creation; stays when the echoed metadata is tampered with. */
+  orderId: string;
   status: InvoiceStatus;
   amount: number;
   currency: string;
@@ -131,9 +133,7 @@ export function fakeMoyasar(options: { secretKey?: string } = {}): FakeMoyasar {
   let failures = { count: 0, status: 500 };
 
   const find = (orderId: string): FakeInvoice => {
-    const invoice = [...invoices.values()].find(
-      (candidate) => candidate.metadata.order_id === orderId,
-    );
+    const invoice = [...invoices.values()].find((candidate) => candidate.orderId === orderId);
     if (!invoice) throw new Error(`The fake Moyasar has no invoice for ${orderId}`);
     return invoice;
   };
@@ -164,6 +164,7 @@ export function fakeMoyasar(options: { secretKey?: string } = {}): FakeMoyasar {
       const request = body as Record<string, unknown>;
       const invoice: FakeInvoice = {
         id: randomUUID(),
+        orderId: (request.metadata as Record<string, string>).order_id ?? '',
         status: 'initiated',
         amount: request.amount as number,
         currency: request.currency as string,

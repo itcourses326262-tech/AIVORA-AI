@@ -1,7 +1,7 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { grantCredits, type LedgerEntry } from '@/server/credits';
-import type { Tx } from '@/server/db';
+import type { DbOrTx, Tx } from '@/server/db';
 import { creditLedger, signupBonusClaims, type UserRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { canonicalizeEmail } from './email-canonical';
@@ -18,6 +18,27 @@ export function signupBonusKey(userId: string): string {
   return `signup_bonus:${userId}`;
 }
 
+type BonusRecipient = Pick<UserRow, 'id' | 'email' | 'emailCanonical'>;
+
+/** What the per-mailbox claim is stored under: a keyed hash, so the table names nobody. */
+function claimHash(user: BonusRecipient): string {
+  return hashToken(`signup-bonus:${user.emailCanonical ?? canonicalizeEmail(user.email)}`);
+}
+
+/**
+ * True when ANOTHER account (typically a deleted one under the same address) already received the
+ * sign-up bonus of this user's mailbox, so granting would be refused. Lets the confirmation email
+ * and the banner promise only what confirming will really give.
+ */
+export function isBonusClaimedByAnother(db: DbOrTx, user: BonusRecipient): boolean {
+  const claim = db
+    .select({ userId: signupBonusClaims.userId })
+    .from(signupBonusClaims)
+    .where(eq(signupBonusClaims.keyHash, claimHash(user)))
+    .get();
+  return claim !== undefined && claim.userId !== user.id;
+}
+
 /**
  * Grants the free sign-up credits, at most once per user AND at most once per mailbox.
  *
@@ -32,7 +53,7 @@ export function signupBonusKey(userId: string): string {
  */
 export function grantSignupBonus(
   tx: Tx,
-  user: Pick<UserRow, 'id' | 'email' | 'emailCanonical'>,
+  user: BonusRecipient,
   amount: number,
   now: number = Date.now(),
 ): SignupBonus | null {
@@ -41,7 +62,7 @@ export function grantSignupBonus(
   const existing = tx.select().from(creditLedger).where(eq(creditLedger.idempotencyKey, key)).get();
   if (existing) return { entry: existing, created: false };
 
-  const keyHash = hashToken(`signup-bonus:${user.emailCanonical ?? canonicalizeEmail(user.email)}`);
+  const keyHash = claimHash(user);
   const claim = tx
     .select()
     .from(signupBonusClaims)

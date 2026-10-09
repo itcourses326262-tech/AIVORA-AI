@@ -33,7 +33,7 @@ afterEach(resetEnvironment);
 
 const fileInput = () => document.querySelector('input[type="file"]') as HTMLInputElement;
 const region = () =>
-  screen.getByRole('button', { name: 'Upload an input image' }).parentElement as HTMLElement;
+  screen.getByRole('button', { name: 'Drop an image or click to upload' }).parentElement as HTMLElement;
 
 function choose(file: File) {
   fireEvent.change(fileInput(), { target: { files: [file] } });
@@ -107,14 +107,14 @@ describe('Studio: the input image of image tools', () => {
     choose(imageFile('one.png'));
     await user.click(await screen.findByRole('button', { name: 'Cancel upload' }));
     expect(uploads[0]?.aborted).toBe(true);
-    expect(screen.getByRole('button', { name: 'Upload an input image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
 
     choose(imageFile('two.png'));
     await waitFor(() => expect(uploads).toHaveLength(2));
     uploads[1]?.respond(201, { data: assetDTO() });
     await screen.findByText('two.png');
     await user.click(screen.getByRole('button', { name: 'Remove image' }));
-    expect(screen.getByRole('button', { name: 'Upload an input image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
 
     choose(imageFile('three.png'));
     await waitFor(() => expect(uploads).toHaveLength(3));
@@ -160,7 +160,7 @@ describe('Studio: the input image of image tools', () => {
     await waitFor(() => expect(uploads).toHaveLength(1));
     uploads[0]?.respond(413, { error: { code: 'payload_too_large', message: 'x' } });
     expect(await screen.findByText('The file or request is too large.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Upload an input image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop an image or click to upload' })).toBeInTheDocument();
 
     choose(imageFile('b.png'));
     await waitFor(() => expect(uploads).toHaveLength(2));
@@ -257,6 +257,76 @@ describe('Studio: the input image of image tools', () => {
     document.dispatchEvent(picture);
     expect(picture.defaultPrevented).toBe(false);
     expect(uploads).toHaveLength(0);
+  });
+});
+
+describe('Studio: a refused file leaves the picture that is there alone', () => {
+  const pdf = () => imageFile('notes.pdf', 'application/pdf');
+  const typeError = 'Only PNG, JPEG or WebP images are supported.';
+
+  async function attach(name = 'keep.png', id = 'ast_keep') {
+    choose(imageFile(name));
+    await waitFor(() => expect(uploads.length).toBeGreaterThan(0));
+    uploads[uploads.length - 1]?.respond(201, { data: assetDTO({ id }) });
+    await screen.findByText(name);
+  }
+
+  it('keeps a ready picture, says why the other file was refused, and still sends the picture', async () => {
+    const { api } = await openImageTool();
+    await attach();
+    choose(pdf());
+    expect(await screen.findByText(typeError)).toBeInTheDocument();
+    // Still there, still replaceable, and nothing was sent for the refused file.
+    expect(screen.getByText('keep.png')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Replace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove image' })).toBeInTheDocument();
+    expect(uploads).toHaveLength(1);
+
+    const user = userEvent.setup();
+    await user.type(promptBox(), 'Turn it into watercolor');
+    await user.click(generateButton());
+    await waitFor(() => expect(api.callsTo('POST', '/generations')).toHaveLength(1));
+    expect(api.callsTo('POST', '/generations')[0]?.body).toMatchObject({
+      inputAssetId: 'ast_keep',
+    });
+  });
+
+  it('lets an upload in progress finish when a wrong file is dropped on top of it', async () => {
+    await openImageTool();
+    choose(imageFile('slow.png'));
+    await screen.findByText('Uploading… 0%');
+    choose(pdf());
+    expect(await screen.findByText(typeError)).toBeInTheDocument();
+    // The screen still tells the truth: an upload is running, and nothing aborted it.
+    expect(screen.getByText('Uploading… 0%')).toBeInTheDocument();
+    expect(uploads[0]?.aborted).toBe(false);
+
+    uploads[0]?.respond(201, { data: assetDTO({ id: 'ast_slow' }) });
+    expect(await screen.findByText('slow.png')).toBeInTheDocument();
+  });
+
+  it('forgets the refusal once a good file, a removal or a replacement follows', async () => {
+    await openImageTool();
+    await attach();
+    const user = userEvent.setup();
+    choose(pdf());
+    await screen.findByText(typeError);
+    await user.click(screen.getByRole('button', { name: 'Remove image' }));
+    expect(screen.queryByText(typeError)).not.toBeInTheDocument();
+
+    choose(pdf());
+    await screen.findByText(typeError);
+    choose(imageFile('next.png'));
+    await waitFor(() => expect(screen.queryByText(typeError)).not.toBeInTheDocument());
+  });
+
+  it('does the same on a phone, where the picture is a chip', async () => {
+    await openImageTool({ desktop: false });
+    await attach('phone.png', 'ast_phone');
+    choose(pdf());
+    expect(await screen.findByText(typeError)).toBeInTheDocument();
+    expect(screen.getByText('phone.png')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove image' })).toBeInTheDocument();
   });
 });
 

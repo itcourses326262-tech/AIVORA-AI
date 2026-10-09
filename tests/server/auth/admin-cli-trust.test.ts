@@ -13,7 +13,7 @@ import {
   createUser,
   fakeStorage,
 } from '../../helpers/factories';
-import { trustTestState } from './trust-support';
+import { stubEnv, trustTestState } from './trust-support';
 
 const harness = freshDb();
 trustTestState();
@@ -221,6 +221,22 @@ describe('force-verify', () => {
 
   it('fails for an unknown account', async () => {
     expect((await run(['force-verify', 'nobody@example.com'])).code).toBe(EXIT_FAILED);
+  });
+
+  it('never promotes an ADMIN_EMAILS address (the operator vouches for the mailbox, not for the holder) and says how to', async () => {
+    stubEnv({ ADMIN_EMAILS: 'boss@example.com' });
+    createUser(harness.db, { email: 'boss@example.com', emailVerifiedAt: null, creditBalance: 0 });
+    createUser(harness.db, { email: 'a@example.com', emailVerifiedAt: null, creditBalance: 0 });
+
+    const boss = await run(['force-verify', 'boss@example.com']);
+    expect(boss.code).toBe(EXIT_OK);
+    expect(boss.out).toContain('Confirmed boss@example.com.');
+    expect(boss.out).toContain('listed in ADMIN_EMAILS but its role is unchanged');
+    expect(boss.out).toContain('set-role');
+    expect(userRow('boss@example.com')).toMatchObject({ role: 'user', creditBalance: 50 });
+
+    // Another address gets no such hint.
+    expect((await run(['force-verify', 'a@example.com'])).out).not.toContain('ADMIN_EMAILS');
   });
 });
 

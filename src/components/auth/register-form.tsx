@@ -97,7 +97,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
         <NameField
           value={form.values.name}
           onValueChange={(value) => form.setValue('name', value)}
-          onBlur={() => form.onBlur('name')}
+          onBlur={(event) => form.onBlur('name', event)}
           error={form.errors.name}
           inputRef={form.inputRef('name')}
         />
@@ -105,7 +105,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
           <EmailField
             value={form.values.email}
             onValueChange={(value) => form.setValue('email', value)}
-            onBlur={() => form.onBlur('email')}
+            onBlur={(event) => form.onBlur('email', event)}
             error={form.errors.email}
             inputRef={form.inputRef('email')}
           />
@@ -122,7 +122,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside }: RegisterFormPro
           label={t('auth.fields.password')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}
-          onBlur={() => form.onBlur('password')}
+          onBlur={(event) => form.onBlur('password', event)}
           error={form.errors.password}
           autoComplete="new-password"
           inputRef={form.inputRef('password')}

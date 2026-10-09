@@ -1,3 +1,4 @@
+import { act, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 
 /** The App Router hooks the forms use, shared by the form tests. */
@@ -33,4 +34,13 @@ export function stubDesktopPointer() {
     'matchMedia',
     vi.fn((query: string) => ({ matches: query.includes('pointer: fine'), media: query })),
   );
+}
+
+/**
+ * Moves focus to a link the way a press on it does (the field being left gets a blur whose
+ * `relatedTarget` is the link), without clicking: jsdom cannot navigate and would print a warning.
+ */
+export async function focusLink(name: string) {
+  const link = screen.getByRole('link', { name });
+  await act(async () => link.focus());
 }

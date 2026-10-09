@@ -31,7 +31,7 @@ export function LoginForm({ next, aside }: LoginFormProps) {
         <EmailField
           value={form.values.email}
           onValueChange={(value) => form.setValue('email', value)}
-          onBlur={() => form.onBlur('email')}
+          onBlur={(event) => form.onBlur('email', event)}
           error={form.errors.email}
           inputRef={form.inputRef('email')}
         />
@@ -39,7 +39,7 @@ export function LoginForm({ next, aside }: LoginFormProps) {
           label={t('auth.fields.password')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}
-          onBlur={() => form.onBlur('password')}
+          onBlur={(event) => form.onBlur('password', event)}
           error={form.errors.password}
           autoComplete="current-password"
           inputRef={form.inputRef('password')}

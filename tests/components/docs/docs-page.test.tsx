@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { buildDocsNav, DocsPage } from '@/components/docs/docs-page';
 import type { DocsNavNode } from '@/components/docs/docs-nav';
 import { referenceGroups } from '@/components/docs/reference-model';
-import type { QuickstartLanguage } from '@/components/docs/snippets';
 import { createTranslator, type Locale } from '@/lib/i18n';
 import { I18nProvider } from '@/lib/i18n/client';
 import { buildOpenApiDocument } from '@/lib/openapi/spec';
@@ -11,7 +10,7 @@ import { buildOpenApiDocument } from '@/lib/openapi/spec';
 const ORIGIN = 'https://aivore.example';
 const doc = buildOpenApiDocument(ORIGIN);
 
-function render(locale: Locale, language: QuickstartLanguage = 'bash'): string {
+function render(locale: Locale): string {
   return renderToStaticMarkup(
     <I18nProvider locale={locale}>
       <DocsPage
@@ -19,7 +18,6 @@ function render(locale: Locale, language: QuickstartLanguage = 'bash'): string {
         document={doc}
         origin={ORIGIN}
         quickstart={{ modelId: 'aivore-demo-image', aspectRatio: '16:9', cost: 1, usable: true }}
-        initialLanguage={language}
       />
     </I18nProvider>,
   );
@@ -93,6 +91,17 @@ describe.each(['en', 'ar'] as const)('the documentation page (%s)', (locale) => 
     expect(markup).toContain(t('account.docs.hero.title'));
   });
 
+  it('gives the sentences in the reader’s language their own direction inside the English cards', () => {
+    // A phrase such as "Returns a page of LedgerEntry" mixes Arabic and an English name: inside a
+    // left-to-right card it would come out in the wrong order unless it carries its own direction.
+    const { t, dir } = createTranslator(locale);
+    const sentences = [...markup.matchAll(/<p dir="(\w+)" class="w-fit text-sm text-muted">/g)];
+    expect(sentences.length).toBeGreaterThan(20);
+    expect(new Set(sentences.map((match) => match[1]))).toEqual(new Set([dir]));
+    expect(markup).toContain(`<span dir="${dir}">${t('account.docs.reference.access.any')}</span>`);
+    expect(markup).toMatch(new RegExp(`<h5 dir="${dir}" class="[^"]*w-fit`));
+  });
+
   it('shows no placeholder that was never filled in', () => {
     for (const placeholder of [
       '{model}',
@@ -115,13 +124,12 @@ describe.each(['en', 'ar'] as const)('the documentation page (%s)', (locale) => 
 });
 
 describe('the quickstart', () => {
-  it('starts in the language the reader saved', () => {
-    const python = render('en', 'python');
-    expect(python).toContain('Python (requests)');
-    expect(python).not.toContain('JavaScript (fetch)');
-    expect(python).toMatch(/aria-checked="true"[^>]*data-state="checked"[^>]*>Python</);
-    expect(render('en', 'javascript')).toContain('JavaScript (fetch)');
-    expect(render('en')).toMatch(/aria-checked="true"[^>]*data-state="checked"[^>]*>cURL</);
+  it('is rendered in cURL: the language a reader saved is applied after hydration', () => {
+    const markup = render('en');
+    expect(markup).toContain('cURL');
+    expect(markup).not.toContain('JavaScript (fetch)');
+    expect(markup).not.toContain('Python (requests)');
+    expect(markup).toMatch(/aria-checked="true"[^>]*data-state="checked"[^>]*>cURL</);
   });
 
   it('shows the model and its price in words of the active language', () => {

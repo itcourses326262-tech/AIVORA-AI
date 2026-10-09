@@ -130,9 +130,26 @@ describe('estimateCardHeight', () => {
     expect(wide).toBeLessThan(one);
   });
 
-  it('gives a failed or running card a placeholder of at least the minimum height', () => {
+  it('measures three results as one across the top and a pair below, 1.5 times a single result', () => {
+    const done = (count: number) =>
+      estimateCardHeight(
+        generation({
+          status: 'succeeded',
+          params: { aspectRatio: '1:1', count },
+          outputs: Array.from({ length: count }, () => asset()),
+        }),
+        300,
+      );
+    const footer = done(1) - 300;
+    expect(done(3) - footer).toBeCloseTo(1.5 * (done(1) - footer), 0);
+    expect(done(2) - footer).toBeCloseTo(0.5 * (done(1) - footer), 0);
+  });
+
+  it('gives a failed card and a running card a placeholder of at least the minimum height', () => {
     expect(estimateCardHeight(generation({ status: 'failed' }), 300)).toBeGreaterThan(208);
-    expect(estimateCardHeight(generation({ status: 'processing' }), 100)).toBeGreaterThan(208);
+    // The running placeholder is taller than the failure panel: it carries a spinner, the percent,
+    // the elapsed time, a progress bar and Cancel, which have to fit a 16:9 box.
+    expect(estimateCardHeight(generation({ status: 'processing' }), 100)).toBeGreaterThan(240);
   });
 });
 

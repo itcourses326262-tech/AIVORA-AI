@@ -35,10 +35,25 @@ export interface RateLimitOptions {
    *
    * `'ip'` is the explicit per-address budget (login, register, the public feed): it is counted
    * before authentication, for everybody, and an unknown address stays `ip:unknown`, so the route
-   * must size that case itself (see `addressRoute`). `'user'` keys signed-in callers by account and
-   * anonymous ones by address.
+   * must size that case itself (see `addressRoute`). One exception, because the shared bucket of
+   * an unknown address is the only thing a signed-in visitor could be starved by: on a request that
+   * cannot change anything (GET, HEAD, OPTIONS) a signed-in caller is keyed `user:<id>` instead,
+   * even on `auth: 'none'` routes (the credentials are then looked at for this, and for nothing
+   * else). Requests that can change something (POST ...) keep the shared bucket whoever sends
+   * them: an account must never be a way around a sign-up or credential budget.
+   * `'user'` keys signed-in callers by account and anonymous ones by address.
    */
   by?: 'ip' | 'user';
+  /**
+   * `'all'` (default): every request spends the budget. `'successes'`: a request that ends in an
+   * error (status 400 or above) gives its hit back, so only requests that did what they were for
+   * count. For a budget every visitor shares (an unknown address), where counting refusals turns it
+   * into a switch any script can pull for everybody: garbage bodies, taken names and the like never
+   * close the endpoint, while whatever the endpoint creates stays capped. Do not use it where the
+   * refusals are what has to be limited (password and token guessing). A request refused by this
+   * very budget (429) is never given back.
+   */
+  count?: 'all' | 'successes';
 }
 
 /**
@@ -138,6 +153,7 @@ export function route<P>(
     const requestId = requestIdOf(req);
     const log = getLogger().child({ requestId });
     let rateInfo: RateInfo | undefined;
+    let giveBack: (() => void) | undefined;
     let failure: unknown;
     let response: Response;
 
@@ -145,21 +161,22 @@ export function route<P>(
       const ip = getClientIp(req);
       const rate = opts.rateLimit === false ? undefined : (opts.rateLimit ?? GENERAL_RATE_LIMIT);
       const hit = (rateLimit: RateLimitOptions, scope: string, limit: number) => {
-        const result = getRateLimiter().hit(
-          `${rateLimit.name}:${scope}`,
-          limit,
-          rateLimit.windowSec,
-        );
+        const limiter = getRateLimiter();
+        const key = `${rateLimit.name}:${scope}`;
+        const result = limiter.hit(key, limit, rateLimit.windowSec);
         rateInfo = { limit, result };
         if (!result.allowed) {
           const retryAfterSec = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));
           throw AppError.of('rate_limited', 'Too many requests', { retryAfterSec });
         }
+        if (rateLimit.count === 'successes') giveBack = () => limiter.release?.(key, result);
       };
 
       // An explicit per-address budget is counted before authentication, so floods never reach the
-      // credential lookup.
-      if (rate?.by === 'ip') hit(rate, `ip:${ip}`, rate.limit);
+      // credential lookup. The exception is the shared bucket of an unknown address on a request
+      // that changes nothing: there a signed-in caller is told apart and counted by account.
+      const accountFirst = rate?.by === 'ip' && ip === UNKNOWN_IP && !isMutatingMethod(req.method);
+      if (rate?.by === 'ip' && !accountFirst) hit(rate, `ip:${ip}`, rate.limit);
 
       // Credentials are resolved before an identity budget is spent, also on `optional` routes: a
       // signed-in caller is keyed by account and must never consume (or be starved by) the bucket
@@ -172,8 +189,10 @@ export function route<P>(
       if (isMutatingMethod(req.method) && (opts.csrf ?? auth?.via === 'session')) {
         assertSameOrigin(req);
       }
-      if (rate && rate.by !== 'ip') {
-        if (auth) hit(rate, `user:${auth.user.id}`, rate.limit);
+      if (rate && (rate.by !== 'ip' || accountFirst)) {
+        // `auth: 'none'` routes never expose the caller to the handler; the lookup only picks the key.
+        const caller = auth ?? (accountFirst ? await resolveAuth(req, 'optional') : null);
+        if (caller) hit(rate, `user:${caller.user.id}`, rate.limit);
         else if (rate.by === undefined && ip === UNKNOWN_IP) {
           hit(rate, ANONYMOUS_UNKNOWN_SCOPE, rate.limit * ANONYMOUS_UNKNOWN_FACTOR);
         } else hit(rate, `ip:${ip}`, rate.limit);
@@ -206,6 +225,7 @@ export function route<P>(
       response = errorResponse(error);
     }
 
+    if (response.status >= 400) giveBack?.();
     response = decorate(response, requestId, rateInfo);
     logOutcome(log, req, response, startedAt, failure);
     return response;

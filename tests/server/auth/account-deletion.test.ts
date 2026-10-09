@@ -161,9 +161,11 @@ describe('deleteAccount', () => {
       name: '',
       passwordHash: 'deleted',
       role: 'user',
-      signupIp: null,
       emailVerifiedAt: null,
     });
+    // The address is gone; a keyed digest stays for the rest of the day (see signup-cap-deletion.test.ts).
+    expect(row?.signupIp).toMatch(/^h:[0-9a-f]{64}$/);
+    expect(JSON.stringify(row)).not.toContain('203.0.113.7');
     expect(row?.deletedAt).toBeGreaterThan(0);
     expect(row?.disabledAt).toBe(row?.deletedAt);
     expect(row?.email).toMatch(/@deleted\.invalid$/);

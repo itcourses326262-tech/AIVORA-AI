@@ -4,6 +4,7 @@ import type * as LoggerModule from '@/server/logger';
 import { DELETE as deleteRoute } from '@/app/api/v1/account/route';
 import { GET as me } from '@/app/api/v1/auth/me/route';
 import { onAccountDeleted } from '@/server/auth/account-hooks';
+import { flushBackground } from '@/server/auth/background';
 import { createApiKey, resolveApiKey } from '@/server/auth/api-keys';
 import { apiKeys, assets, generations, sessions, users } from '@/server/db/schema';
 import { getOutbox } from '@/server/email';
@@ -96,6 +97,8 @@ describe('DELETE /api/v1/account', () => {
     expect(cleared.attributes.get('max-age')).toBe('0');
     expect(setCookies(result).map((cookie) => cookie.name)).toEqual(['aivore_session']);
 
+    // The account is closed when the response is out; the library is erased right after it.
+    await flushBackground();
     expect(row(a.user.id)).toMatchObject({ name: '', email: `${a.user.id}@deleted.invalid` });
     expect(row(a.user.id)?.deletedAt).not.toBeNull();
     expect(harness.db.select().from(sessions).where(eq(sessions.userId, a.user.id)).all()).toEqual(

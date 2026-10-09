@@ -1,6 +1,6 @@
 'use client';
 
-import { Coins, Sparkles, TriangleAlert } from 'lucide-react';
+import { Coins, LogIn, Sparkles, TriangleAlert } from 'lucide-react';
 import { useSyncExternalStore, type MouseEvent } from 'react';
 import { creditsText } from '@/lib/generations/format';
 import { useI18n } from '@/lib/i18n/client';
@@ -9,10 +9,39 @@ import { Button } from '../ui/button';
 import { Kbd } from '../ui/kbd';
 import { PRICING_HREF, isShort, type CreditStatus } from './credits';
 
-/** Says what is missing and links to the page that sells it. Renders nothing when affordable. */
-export function CreditNotice({ status, className }: { status: CreditStatus; className?: string }) {
+export interface CreditNoticeProps {
+  status: CreditStatus;
+  /** Where "Log in" leads once the session has ended (back to this studio). */
+  loginHref?: string;
+  className?: string;
+}
+
+/**
+ * Says what is missing and links to the page that sells it. Renders nothing when affordable. After
+ * the session ended it says so instead, and links to the login page.
+ */
+export function CreditNotice({ status, loginHref, className }: CreditNoticeProps) {
   const i18n = useI18n();
   const { t } = i18n;
+  if (status.signedOut) {
+    return (
+      <div
+        role="status"
+        className={cn(
+          'flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border border-warning/35 bg-warning-soft px-3 py-2.5',
+          className,
+        )}
+      >
+        <p className="flex items-center gap-2 text-sm text-foreground">
+          <LogIn aria-hidden="true" className="size-4 shrink-0 text-warning" />
+          {t('studio.submit.sessionExpired')}
+        </p>
+        <Button href={loginHref ?? '/login'} size="sm" variant="secondary">
+          {t('common.nav.login')}
+        </Button>
+      </div>
+    );
+  }
   if (!isShort(status) || status.cost === null) return null;
   return (
     <div
@@ -57,6 +86,7 @@ export interface GenerateButtonProps extends CreditStatus {
 export function GenerateButton({
   cost,
   balance,
+  signedOut,
   busy,
   noModel,
   onGenerate,
@@ -70,7 +100,7 @@ export function GenerateButton({
       size={size}
       fullWidth={fullWidth}
       loading={busy}
-      disabled={noModel || cost === null || isShort({ cost, balance })}
+      disabled={noModel || cost === null || isShort({ cost, balance, signedOut })}
       startIcon={busy ? undefined : <Sparkles aria-hidden="true" />}
       onClick={onGenerate}
     >
@@ -84,15 +114,16 @@ export function GenerateButton({
 }
 
 export interface GenerateBarProps extends GenerateButtonProps {
+  loginHref?: string;
   className?: string;
 }
 
 /** Cost, balance, the "get credits" way out and the Generate button, pinned under the controls. */
-export function GenerateBar({ className, ...button }: GenerateBarProps) {
+export function GenerateBar({ className, loginHref, ...button }: GenerateBarProps) {
   const i18n = useI18n();
   const { t, locale } = i18n;
   const modifier = useShortcutModifier();
-  const { cost, balance } = button;
+  const { cost, balance, signedOut } = button;
   return (
     <div className={cn('grid gap-3 border-t border-border bg-surface p-4', className)}>
       <div className="flex items-center justify-between gap-3 text-sm">
@@ -104,10 +135,10 @@ export function GenerateBar({ className, ...button }: GenerateBarProps) {
           </strong>
         </p>
         <p className="text-muted tabular-nums">
-          {t('studio.cost.balance', { balance: formatCredits(balance, locale) })}
+          {t('studio.cost.balance', { balance: signedOut ? '—' : formatCredits(balance, locale) })}
         </p>
       </div>
-      <CreditNotice status={{ cost, balance }} />
+      <CreditNotice status={{ cost, balance, signedOut }} loginHref={loginHref} />
       {cost === null && !button.noModel ? (
         <p role="status" className="text-sm text-warning">
           {t('studio.cost.unavailable')}

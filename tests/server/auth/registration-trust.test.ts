@@ -3,7 +3,7 @@ import type * as PasswordModule from '@/server/auth/password';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/lib/errors';
 import { deleteAccount } from '@/server/auth/account-deletion';
-import { signupCapFor } from '@/server/auth/signup-guard';
+import { UNKNOWN_ADDRESS_CAP_FACTOR, signupCapFor } from '@/server/auth/signup-guard';
 import { confirmEmailVerification } from '@/server/auth/verification';
 import { provisionUser, registerUser } from '@/server/auth/users';
 import { creditLedger, emailTokens, signupBonusClaims, users } from '@/server/db/schema';
@@ -95,8 +95,11 @@ describe('the confirmation policy matrix (EMAIL_VERIFICATION x SMTP configured)'
         expect(url.pathname).toBe('/verify-email');
         expect(url.origin).toBe('http://localhost:3000');
 
-        // Confirming grants the bonus exactly once and promotes the admin address.
-        const confirmed = confirmEmailVerification(token);
+        // Confirming grants the bonus exactly once. A bare click does not promote the admin
+        // address (see admin-promotion.test.ts); the account's own signed-in session does.
+        const confirmed = confirmEmailVerification(token, Date.now(), {
+          signedInUserId: result.user.id,
+        });
         expect(confirmed).toEqual({ verified: true, alreadyVerified: false, bonusCredits: 50 });
         expect(userRow('layla@example.com')).toMatchObject({
           creditBalance: 50,
@@ -324,13 +327,15 @@ describe('the daily cap per client address', () => {
   });
 
   describe('when the address is unknown (no trusted proxy)', () => {
-    it('shares a 20 times larger budget, so one script cannot close sign-up for everybody', () => {
+    it('shares a much larger budget, so one script cannot close sign-up for everybody', () => {
+      // 1000 accounts a day at the default of 5: a launch day does not lock out newcomers.
+      expect(UNKNOWN_ADDRESS_CAP_FACTOR).toBe(200);
       expect(
         signupCapFor(undefined, { SIGNUPS_PER_IP_PER_DAY: 5, RATE_LIMIT_DISABLED: false }),
-      ).toBe(100);
+      ).toBe(1000);
       expect(
         signupCapFor('unknown', { SIGNUPS_PER_IP_PER_DAY: 5, RATE_LIMIT_DISABLED: false }),
-      ).toBe(100);
+      ).toBe(1000);
       expect(
         signupCapFor('203.0.113.7', { SIGNUPS_PER_IP_PER_DAY: 5, RATE_LIMIT_DISABLED: false }),
       ).toBe(5);
@@ -341,7 +346,7 @@ describe('the daily cap per client address', () => {
 
     it('still bounds how many accounts a day can mint', async () => {
       stubEnv({ SIGNUPS_PER_IP_PER_DAY: '1' });
-      for (let index = 0; index < 19; index += 1) {
+      for (let index = 0; index < UNKNOWN_ADDRESS_CAP_FACTOR - 1; index += 1) {
         createUser(harness.db, { signupIp: 'unknown' });
       }
       await registerUser(input('last-one@example.com'), { ip: 'unknown' });
@@ -415,9 +420,11 @@ describe('administrators are made by proof, not by typing', () => {
     const squatter = await registerUser(input('boss@example.com'));
     expect(squatter.user.role).toBe('user');
     expect(userRow('boss@example.com')?.role).toBe('user');
-    // The squatter cannot read the mailbox; the owner can.
+    // The squatter cannot read the mailbox; the owner can. Reading it proves the mailbox, not who
+    // holds the account, so the click alone does not promote (admin-promotion.test.ts has the
+    // signed-in and password-reset cases that do).
     confirmEmailVerification(linkIn(await mailTo('boss@example.com')).token);
-    expect(userRow('boss@example.com')?.role).toBe('admin');
+    expect(userRow('boss@example.com')?.role).toBe('user');
   });
 });
 

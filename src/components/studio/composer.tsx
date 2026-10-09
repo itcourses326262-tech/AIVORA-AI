@@ -53,7 +53,10 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
     >
       <ImageSection studio={studio} variant="compact" />
       <PromptSection studio={studio} variant="composer" />
-      <CreditNotice status={{ cost, balance: studio.balance }} />
+      <CreditNotice
+        status={{ cost, balance: studio.balance, signedOut: studio.signedOut }}
+        loginHref={studio.loginHref}
+      />
       <div className="flex items-center gap-2">
         <Button
           variant="secondary"
@@ -68,6 +71,7 @@ export function Composer({ studio, onOpenSettings }: ComposerProps) {
           <GenerateButton
             cost={cost}
             balance={studio.balance}
+            signedOut={studio.signedOut}
             busy={studio.busy}
             noModel={!model}
             onGenerate={(event) => studio.generate({ keyboard: event.detail === 0 })}

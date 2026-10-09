@@ -44,7 +44,6 @@ export default defineMessages({
     },
     image: {
       label: 'Input image',
-      region: 'Upload an input image',
       drop: {
         title: 'Drop an image or click to upload',
         hint: 'You can also paste one. PNG, JPEG or WebP, up to {size}.',
@@ -260,6 +259,7 @@ export default defineMessages({
         confirm: 'Cancel generation',
         keep: 'Keep going',
         done: 'Generation canceled. Your credits were refunded.',
+        tooLate: 'It had already finished, so it could not be canceled.',
       },
       failure: {
         title: 'Generation failed',
@@ -366,7 +366,6 @@ export default defineMessages({
     },
     image: {
       label: 'الصورة المدخلة',
-      region: 'رفع صورة مدخلة',
       drop: {
         title: 'أفلت صورة هنا أو انقر للرفع',
         hint: 'يمكنك أيضًا لصق صورة. PNG أو JPEG أو WebP بحجم يصل إلى {size}.',
@@ -447,7 +446,7 @@ export default defineMessages({
     cost: {
       label: 'التكلفة',
       balance: 'الرصيد: {balance}',
-      short: 'تحتاج إلى {missing} إضافية.',
+      short: 'ينقصك {missing}.',
       getCredits: 'احصل على رصيد',
       unavailable: 'تعذّر حساب التكلفة لهذه الخيارات.',
     },
@@ -558,7 +557,7 @@ export default defineMessages({
         canceled: 'أُلغي',
       },
       card: {
-        label: '{kind}: {prompt}',
+        label: '{kind}، {prompt}',
         shared: 'مشارَك',
         favorite: 'مفضّل',
         demo: 'تجريبي',
@@ -578,6 +577,7 @@ export default defineMessages({
         confirm: 'إلغاء العملية',
         keep: 'متابعة الإنشاء',
         done: 'أُلغيت العملية وأُعيد رصيدك.',
+        tooLate: 'انتهى الإنشاء قبل الإلغاء، فلم يعد إلغاؤه ممكنًا.',
       },
       failure: {
         title: 'فشلت عملية الإنشاء',
