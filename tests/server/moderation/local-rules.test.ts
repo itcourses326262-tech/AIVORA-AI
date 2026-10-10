@@ -343,7 +343,8 @@ describe('rule data', () => {
         expectBlocked(`${c} ${firstB} ${firstA}`, rule.category);
       }
     }
-  });
+    // Thousands of expectations: about 5 s on a busy machine, so the default limit is too tight.
+  }, 60_000);
 
   it('needs all three parts of a three-part combination', () => {
     for (const rule of COMBO_RULES.filter((candidate) => candidate.c !== undefined)) {

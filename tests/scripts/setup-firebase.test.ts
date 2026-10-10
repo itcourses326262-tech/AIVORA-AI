@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import {
   existsSync,
@@ -111,9 +111,110 @@ function expectNoLeak(text: string) {
   expect(text).not.toContain('k'.repeat(30));
 }
 
+// Python's pty module gives the script a real terminal (stdin.isTTY, raw mode, echo) without a
+// native dependency. The plan is a list of steps: wait for some text, pause, send pieces.
+const PTY_DRIVER = String.raw`
+import json, os, pty, select, signal, sys, time
+plan = json.loads(sys.argv[1])
+argv = json.loads(sys.argv[2])
+cwd = sys.argv[3]
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(cwd)
+    os.execv(argv[0], argv)
+out = b''
+closed = False
+deadline = time.time() + 80
+def pump(seconds):
+    global out, closed
+    end = time.time() + seconds
+    while not closed:
+        left = end - time.time()
+        if left <= 0:
+            return
+        ready, _, _ = select.select([fd], [], [], left)
+        if fd in ready:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                data = b''
+            if not data:
+                closed = True
+                return
+            out += data
+mark = 0
+for step in plan:
+    wanted = step.get('waitFor')
+    while wanted and wanted.encode() not in out[mark:] and not closed and time.time() < deadline:
+        pump(0.05)
+    pump(step.get('pause', 0))
+    mark = len(out)
+    for piece in step.get('send', []):
+        os.write(fd, piece.encode())
+        pump(step.get('gap', 0.02))
+while not closed and time.time() < deadline:
+    pump(0.1)
+if not closed:
+    os.kill(pid, signal.SIGKILL)
+_, status = os.waitpid(pid, 0)
+print(json.dumps({'code': os.waitstatus_to_exitcode(status) if closed else -1, 'out': out.decode('utf8', 'replace')}))
+`;
+
+function hasPty(): boolean {
+  if (process.platform === 'win32') return false;
+  return spawnSync('python3', ['-I', '-c', 'import pty']).status === 0;
+}
+
+interface PtyStep {
+  waitFor?: string;
+  pause?: number;
+  send?: string[];
+  gap?: number;
+}
+
+/** Runs the real script in a pseudo-terminal in `work` and plays `steps` against it. */
+function ptySetup(steps: PtyStep[], args: string[] = []): Promise<{ code: number; out: string }> {
+  return new Promise((done, fail) => {
+    const command = [
+      process.execPath,
+      '--import',
+      TSX,
+      '--conditions=react-server',
+      SCRIPT,
+      ...args,
+    ];
+    const child = spawn(
+      'python3',
+      ['-I', '-c', PTY_DRIVER, JSON.stringify(steps), JSON.stringify(command), work],
+      {
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          TERM: 'xterm',
+          TSX_TSCONFIG_PATH: join(ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+    child.stderr.on('data', (chunk) => (stderr += String(chunk)));
+    child.on('error', fail);
+    child.on('close', () => {
+      try {
+        done(JSON.parse(stdout.trim().split('\n').pop() ?? '') as { code: number; out: string });
+      } catch {
+        fail(new Error(`the terminal driver gave no result: ${stderr || stdout}`));
+      }
+    });
+  });
+}
+
 describe('npm run setup:firebase', () => {
   it('reads the pasted block, copies the key with mode 600 and writes only the path', async () => {
-    const { code, out } = await setup(`${SNIPPET}${keyFile}\n`);
+    const { code, out } = await setup(`${SNIPPET}y\n${keyFile}\n`);
     expect(code).toBe(0);
 
     const saved = savedEnv();
@@ -145,7 +246,7 @@ describe('npm run setup:firebase', () => {
 
   it('never switches storage by itself, and prints the steps instead', async () => {
     // Not interactively (even when every question is answered yes) ...
-    const asked = await setup(`${SNIPPET}${keyFile}\ny\ny\ny\n`);
+    const asked = await setup(`${SNIPPET}y\n${keyFile}\ny\ny\ny\n`);
     expect(asked.code).toBe(0);
     expect(savedEnv()).not.toContain('STORAGE_DRIVER');
     expect(asked.out).toContain('No pictures are stored on this computer yet');
@@ -251,9 +352,9 @@ describe('npm run setup:firebase', () => {
     expect(out).toContain('No pictures are stored on this computer yet');
   }, 60_000);
 
-  it('leaves STORAGE_DRIVER alone with --no-storage', async () => {
+  it('leaves STORAGE_DRIVER alone unless --use-storage is given', async () => {
     writeFileSync(envFile, 'STORAGE_DRIVER=s3\n');
-    const { code } = await setup('', ['--config', SNIPPET, '--file', keyFile, '--no-storage']);
+    const { code } = await setup('', ['--config', SNIPPET, '--file', keyFile]);
     expect(code).toBe(0);
     expect(savedEnv()).toContain('STORAGE_DRIVER=s3');
     expect(savedEnv()).toContain('FIREBASE_STORAGE_BUCKET=demo-project.firebasestorage.app');
@@ -310,7 +411,7 @@ describe('npm run setup:firebase', () => {
 
     it('refuses a pasted key in place of the path, without echoing it', async () => {
       const oneLine = JSON.stringify(serviceAccountFixture());
-      const { code, out } = await setup(`${SNIPPET}${oneLine}\n`);
+      const { code, out } = await setup(`${SNIPPET}y\n${oneLine}\n`);
       expect(code).toBe(1);
       expect(out).toContain('CONTENTS');
       expectNoLeak(out);
@@ -323,7 +424,7 @@ describe('npm run setup:firebase', () => {
       for (const typed of [`"${keyFile}"`, `& '${keyFile}'`, `'${keyFile}'`, '~/keys/a key.json']) {
         rmSync(join(work, 'data'), { recursive: true, force: true });
         rmSync(envFile, { force: true });
-        const { code, out } = await setup(`${SNIPPET}${typed}\n`, ['--no-storage']);
+        const { code, out } = await setup(`${SNIPPET}y\n${typed}\n`);
         expect(code, `${typed}\n${out}`).toBe(0);
         expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
       }
@@ -333,22 +434,20 @@ describe('npm run setup:firebase', () => {
       mkdirSync(join(home, 'Downloads'));
       const found = join(home, 'Downloads', 'demo-project-firebase-adminsdk-abcde-0123456789.json');
       writeFileSync(found, readFileSync(keyFile));
-      const { code, out } = await setup(`${SNIPPET}\n`, ['--no-storage']);
+      const { code, out } = await setup(`${SNIPPET}y\n`);
       expect(code, out).toBe(0);
       expect(out).toContain('demo-project-firebase-adminsdk-abcde-0123456789.json');
       expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
     }, 60_000);
 
     it('asks for the path again after a stray Enter or a wrong path', async () => {
-      const { code } = await setup(`${SNIPPET}\n\n${join(home, 'nope.json')}\n${keyFile}\n`, [
-        '--no-storage',
-      ]);
+      const { code } = await setup(`${SNIPPET}y\n\n${join(home, 'nope.json')}\n${keyFile}\n`);
       expect(code).toBe(0);
       expect(existsSync(copiedKey())).toBe(true);
     }, 60_000);
 
     it('gives up cleanly when no path ever arrives', async () => {
-      const { code, out } = await setup(SNIPPET);
+      const { code, out } = await setup(`${SNIPPET}y\n`);
       expect(code).toBe(1);
       expect(out).toContain('no usable key file arrived');
       expectNothingSaved();
@@ -366,7 +465,8 @@ describe('npm run setup:firebase', () => {
 
   describe('the config', () => {
     it('asks for the values one by one when the block is skipped, with defaults', async () => {
-      const typed = ['', 'demo-project', API_KEY, APP_ID, '', '', keyFile].join('\n') + '\n';
+      // The bucket is asked for after the answer to the storage question, not before it.
+      const typed = ['', 'demo-project', API_KEY, APP_ID, '', 'y', '', keyFile].join('\n') + '\n';
       const { code, out } = await setup(typed);
       expect(code, out).toBe(0);
       const saved = savedEnv();
@@ -403,11 +503,11 @@ describe('npm run setup:firebase', () => {
       expectNothingSaved();
     }, 60_000);
 
-    it('works without a bucket (sign-in only) and says storage is not set up', async () => {
+    it('asks for the bucket only once Storage is wanted; Enter takes the default for the project', async () => {
       const noBucket = SNIPPET.replace(/ {2}storageBucket: .*\n/, '');
-      const { code, out } = await setup(`${noBucket}\n\n${keyFile}\n`);
-      // The bucket is asked for; pressing Enter takes the default for the project.
+      const { code, out } = await setup(`${noBucket}y\n\n${keyFile}\n`);
       expect(code, out).toBe(0);
+      expect(out).toContain('storageBucket [demo-project.firebasestorage.app]');
       expect(savedEnv()).toContain('FIREBASE_STORAGE_BUCKET=demo-project.firebasestorage.app');
     }, 60_000);
   });
@@ -480,7 +580,7 @@ describe('npm run setup:firebase', () => {
         envFile,
         '# mine\r\nFIREBASE_PROJECT_ID=old\r\nFAL_KEY=abc\r\n\r\nFIREBASE_PROJECT_ID=older\r\n',
       );
-      const { code } = await setup('', [...flagList(), '--no-storage']);
+      const { code } = await setup('', flagList());
       expect(code).toBe(0);
       const saved = savedEnv();
       expect(saved.match(/^FIREBASE_PROJECT_ID=/gm)).toHaveLength(2);
@@ -491,6 +591,225 @@ describe('npm run setup:firebase', () => {
       expect(saved).toContain('# mine\r\n');
       expect(saved).toContain('FAL_KEY=abc');
     }, 60_000);
+  });
+
+  describe('Google sign-in only (no key file)', () => {
+    const ids = [
+      'FIREBASE_API_KEY',
+      'FIREBASE_AUTH_DOMAIN',
+      'FIREBASE_PROJECT_ID',
+      'FIREBASE_APP_ID',
+    ];
+    const namesIn = (text: string) =>
+      [...text.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]);
+
+    /** Nothing about Storage or a key file may reach the screen or the disk. */
+    function expectNoStorageTalk(out: string) {
+      expect(out).not.toMatch(/key file|service-account|\.json|Downloads|Storage Object Admin/i);
+      expect(out).not.toMatch(/STORAGE_DRIVER|check:storage|migrate:media|bucket/i);
+      expect(out).not.toContain('[y/N]');
+      expect(existsSync(join(work, 'data'))).toBe(false);
+    }
+
+    it.each(['--signin-only', '--no-storage'])(
+      '%s writes the four public identifiers, asks nothing and prints the sign-in steps',
+      async (flag) => {
+        const { code, out } = await setup('', ['--config', SNIPPET, flag]);
+        expect(code, out).toBe(0);
+
+        const saved = savedEnv();
+        expect(namesIn(saved)).toEqual(ids);
+        expect(saved).toContain(`FIREBASE_API_KEY=${API_KEY}`);
+        expect(saved).toContain('FIREBASE_AUTH_DOMAIN=demo-project.firebaseapp.com');
+        expect(saved).toContain('FIREBASE_PROJECT_ID=demo-project');
+        expect(saved).toContain(`FIREBASE_APP_ID=${APP_ID}`);
+        if (process.platform !== 'win32') expect(statSync(envFile).mode & 0o777).toBe(0o600);
+
+        // The one-line notice about the old flag name is the only place a key file is mentioned.
+        expectNoStorageTalk(out.replace(/^Note: --no-storage now means .*\n/m, ''));
+        expectNoLeak(out);
+        expect(out).not.toContain(API_KEY);
+        expect(out).toContain('Saved FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN');
+        expect(out).toContain('Build > Authentication > Get started > Sign-in method');
+        expect(out).toContain('Authorized domains');
+        expect(out).toContain('picks the settings up by itself within a few seconds');
+        expect(out).toContain('otherwise restart it: npm run dev   (PowerShell: npm.cmd run dev)');
+        expect(out).toContain('To add Cloud Storage later, run npm run setup:firebase again');
+        expect(out).toContain('answer y (or pass --file)');
+        expect(out).toContain('npm.cmd run setup:firebase');
+        expect(out).not.toContain('Restart the site');
+      },
+      60_000,
+    );
+
+    it('is the answer under --yes, and --file with --yes still means Storage', async () => {
+      const auto = await setup('', ['--config', SNIPPET, '--yes']);
+      expect(auto.code, auto.out).toBe(0);
+      expect(namesIn(savedEnv())).toEqual(ids);
+      expectNoStorageTalk(auto.out);
+
+      rmSync(envFile);
+      const withKey = await setup('', ['--config', SNIPPET, '--yes', '--file', keyFile]);
+      expect(withKey.code, withKey.out).toBe(0);
+      expect(savedEnv()).toContain('FIREBASE_SERVICE_ACCOUNT_FILE=');
+      expect(existsSync(copiedKey())).toBe(true);
+    }, 120_000);
+
+    it('leaves every Storage line of the env file exactly as it was, and updates only the four', async () => {
+      const before = [
+        '# mine',
+        'STORAGE_DRIVER=gcs',
+        'FIREBASE_STORAGE_BUCKET=old-bucket.firebasestorage.app',
+        'FIREBASE_SERVICE_ACCOUNT_FILE=./nowhere/at-all.json',
+        'FIREBASE_PROJECT_ID=old',
+        'FIREBASE_AUTH=auto',
+        'APP_URL=http://localhost:3000',
+        '',
+      ].join('\n');
+      writeFileSync(envFile, before);
+      const { code, out } = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(code, out).toBe(0);
+      const saved = savedEnv();
+      for (const line of before.split('\n')) {
+        if (line !== '' && !line.startsWith('FIREBASE_PROJECT_ID=')) expect(saved).toContain(line);
+      }
+      expect(saved).toContain('FIREBASE_PROJECT_ID=demo-project');
+      expect(saved).not.toContain('FIREBASE_PROJECT_ID=old');
+      expect(saved.match(/^STORAGE_DRIVER=/gm)).toHaveLength(1);
+      expect(saved).not.toContain('demo-project.firebasestorage.app');
+      // The unreadable key path is neither opened nor reported.
+      expect(out).not.toContain('nowhere');
+      expect(existsSync(join(work, 'data'))).toBe(false);
+    }, 60_000);
+
+    it('does not look for, offer or copy a key file that lies in Downloads', async () => {
+      mkdirSync(join(home, 'Downloads'));
+      const found = 'demo-project-firebase-adminsdk-abcde-0123456789.json';
+      writeFileSync(join(home, 'Downloads', found), readFileSync(keyFile));
+      const { code, out } = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(code, out).toBe(0);
+      expect(out).not.toContain(found);
+      expectNoStorageTalk(out);
+    }, 60_000);
+
+    it('never asks for the bucket, and a bucket that cannot be right does not matter', async () => {
+      const noBucket = SNIPPET.replace(/ {2}storageBucket: .*\n/, '');
+      const missing = await setup('', ['--config', noBucket, '--signin-only']);
+      expect(missing.code, missing.out).toBe(0);
+      expectNoStorageTalk(missing.out);
+      expect(missing.out).not.toContain('Note:');
+
+      rmSync(envFile);
+      const broken = SNIPPET.replace('demo-project.firebasestorage.app', 'Not A Bucket!');
+      const wrong = await setup('', ['--config', broken, '--signin-only']);
+      expect(wrong.code, wrong.out).toBe(0);
+      expect(namesIn(savedEnv())).toEqual(ids);
+      expectNoStorageTalk(wrong.out);
+    }, 120_000);
+
+    it('still refuses a config that cannot sign anyone in, and saves nothing', async () => {
+      const { code, out } = await setup('', [
+        '--config',
+        SNIPPET.replace(API_KEY, 'tooshort'),
+        '--signin-only',
+      ]);
+      expect(code).toBe(1);
+      expect(out).toContain('apiKey');
+      expectNothingSaved();
+    }, 60_000);
+
+    it('says that FIREBASE_AUTH=off keeps the button hidden, and does not change it', async () => {
+      writeFileSync(envFile, 'FIREBASE_AUTH=off\n');
+      const { code, out } = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(code, out).toBe(0);
+      expect(out).toContain('FIREBASE_AUTH=off is set in this file');
+      expect(savedEnv()).toContain('FIREBASE_AUTH=off');
+    }, 60_000);
+
+    it('running it twice changes nothing', async () => {
+      const args = ['--config', SNIPPET, '--signin-only'];
+      expect((await setup('', args)).code).toBe(0);
+      const first = savedEnv();
+      expect((await setup('', args)).code).toBe(0);
+      expect(savedEnv()).toBe(first);
+    }, 120_000);
+
+    it('contradicts --file and --use-storage, in either spelling, and saves nothing', async () => {
+      for (const signin of ['--signin-only', '--no-storage']) {
+        for (const storage of [['--file', keyFile], ['--use-storage']]) {
+          const { code, out } = await setup('', ['--config', SNIPPET, signin, ...storage]);
+          expect(code, `${signin} ${storage[0]}\n${out}`).toBe(2);
+          expect(out).toContain(`${signin} (Google sign-in only, no key file)`);
+          expect(out).toContain(`${storage[0]} (Cloud Storage) contradict each other`);
+          expect(out).toContain('usage:');
+          expectNothingSaved();
+        }
+      }
+    }, 180_000);
+
+    it('is listed in --help', async () => {
+      expect((await setup('', ['--help'])).out).toContain('--signin-only');
+    }, 60_000);
+  });
+
+  describe('the question "Also use the project\'s Cloud Storage?"', () => {
+    const QUESTION =
+      "Also use the project's Cloud Storage? It needs a service-account key file. [y/N]";
+
+    it('is asked after the config summary, and Enter or end of input means no', async () => {
+      for (const typed of [`${SNIPPET}\n`, SNIPPET, `${SNIPPET}n\n`, `${SNIPPET}NO\n`]) {
+        rmSync(envFile, { force: true });
+        const { code, out } = await setup(typed);
+        expect(code, `${JSON.stringify(typed.slice(-6))}\n${out}`).toBe(0);
+        expect(out.indexOf('Firebase project:')).toBeGreaterThan(-1);
+        expect(out.indexOf(QUESTION)).toBeGreaterThan(out.indexOf('apiKey'));
+        expect(savedEnv()).not.toContain('FIREBASE_SERVICE_ACCOUNT_FILE');
+        expect(savedEnv()).not.toContain('FIREBASE_STORAGE_BUCKET');
+        expect(out).not.toContain('Path of the downloaded');
+        expect(out).toContain('To add Cloud Storage later');
+        expect(existsSync(join(work, 'data'))).toBe(false);
+      }
+    }, 240_000);
+
+    it.each(['y', 'Y', 'yes', ' YES '])(
+      'goes on to the key file after the answer %j',
+      async (answer) => {
+        const { code, out } = await setup(`${SNIPPET}${answer}\n${keyFile}\n`);
+        expect(code, out).toBe(0);
+        expect(out).toContain('Path of the downloaded .json file');
+        expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
+        expect(savedEnv()).toContain(
+          'FIREBASE_SERVICE_ACCOUNT_FILE=./data/firebase-service-account.json',
+        );
+        expect(out).not.toContain('To add Cloud Storage later');
+      },
+      60_000,
+    );
+
+    it('asks again for an answer it cannot read, instead of guessing', async () => {
+      const { code, out } = await setup(`${SNIPPET}maybe\nsure\ny\n${keyFile}\n`);
+      expect(code, out).toBe(0);
+      expect(out.match(/Please answer y or n\./g)).toHaveLength(2);
+      expect(existsSync(copiedKey())).toBe(true);
+    }, 60_000);
+
+    it('is not answered by the lines that follow a pasted block', async () => {
+      // After the closing brace the console snippet goes on with comments, imports, code and blank
+      // lines; none of them is an answer, and a blank line with more lines behind it is not an Enter.
+      const { code, out } = await setup(`${SNIPPET}\n\n// done\n\nyes\n${keyFile}\n`);
+      expect(code, out).toBe(0);
+      expect(existsSync(copiedKey())).toBe(true);
+    }, 60_000);
+
+    it('is not asked when a flag has answered it', async () => {
+      for (const args of [['--signin-only'], ['--no-storage'], ['--yes'], ['--file', keyFile]]) {
+        rmSync(envFile, { force: true });
+        rmSync(join(work, 'data'), { recursive: true, force: true });
+        const { code, out } = await setup('', ['--config', SNIPPET, ...args]);
+        expect(code, `${args.join(' ')}\n${out}`).toBe(0);
+        expect(out).not.toContain(QUESTION);
+      }
+    }, 240_000);
   });
 
   describe('--use-storage', () => {
@@ -585,12 +904,12 @@ describe('npm run setup:firebase', () => {
 
   describe('the downloaded key file and the project folder', () => {
     const git = (...args: string[]) => execFileSync('git', args, { cwd: work, stdio: 'ignore' });
-    const flags = ['--config', SNIPPET, '--yes', '--no-storage'];
+    const flags = ['--config', SNIPPET, '--yes'];
     const adminsdk = 'demo-project-firebase-adminsdk-abcde-0123456789.json';
 
     it('does not look for keys in the project folder, only in Downloads', async () => {
       writeFileSync(join(work, adminsdk), readFileSync(keyFile));
-      const { code, out } = await setup(`${SNIPPET}\n${keyFile}\n`, ['--no-storage']);
+      const { code, out } = await setup(`${SNIPPET}y\n${keyFile}\n`);
       expect(code, out).toBe(0);
       expect(out).not.toContain('Found a key file');
       expect(out).toContain('Path of the downloaded .json file');
@@ -619,13 +938,7 @@ describe('npm run setup:firebase', () => {
       git('init', '-q');
       const inRepo = join(work, 'my-key.json');
       writeFileSync(inRepo, readFileSync(keyFile));
-      const { code, out } = await setup('n\n', [
-        '--config',
-        SNIPPET,
-        '--file',
-        inRepo,
-        '--no-storage',
-      ]);
+      const { code, out } = await setup('n\n', ['--config', SNIPPET, '--file', inRepo]);
       expect(code, out).toBe(0);
       expect(out).toContain('Move it to ./data/firebase-service-account.json now');
       expect(out).toContain('Left where it is');
@@ -682,6 +995,115 @@ describe('npm run setup:firebase', () => {
       expect(out).toContain('git ignores the key file');
       expect(out).not.toContain('WARNING: git does NOT');
     }, 60_000);
+  });
+
+  // A person pastes the Firebase snippet into a real terminal: the lines arrive in a burst, the
+  // pieces of it one after the other, and the paste ends with an Enter of its own. None of that may
+  // answer the question that follows; only what is typed afterwards does.
+  describe.skipIf(!hasPty())('in a real terminal (pseudo-terminal)', () => {
+    /** The paste as a terminal sends it: Enter is a carriage return. Cut after the closing brace. */
+    const cut = SNIPPET.indexOf('};') + 3;
+    const [head, tail] = [SNIPPET.slice(0, cut), SNIPPET.slice(cut)].map((part) =>
+      part.replace(/\n/g, '\r'),
+    ) as [string, string];
+    const paste = {
+      waitFor: 'Paste the firebaseConfig block',
+      send: [head, tail, '\r'],
+      gap: 0.015,
+    };
+
+    it('waits for the person after a paste that arrives in pieces, then takes y', async () => {
+      const { code, out } = await ptySetup([
+        paste,
+        { waitFor: '[y/N]', pause: 0.5, send: ['y\r'] },
+        { waitFor: 'Path of the downloaded', send: [`${keyFile}\r`] },
+      ]);
+      expect(code, out).toBe(0);
+      expect(out).toContain("Also use the project's Cloud Storage?");
+      expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
+      expect(savedEnv()).toContain(
+        'FIREBASE_SERVICE_ACCOUNT_FILE=./data/firebase-service-account.json',
+      );
+      expectNoLeak(out);
+    }, 90_000);
+
+    it('takes the Enter of the person as no, and writes only the four identifiers', async () => {
+      const { code, out } = await ptySetup([paste, { waitFor: '[y/N]', pause: 0.5, send: ['\r'] }]);
+      expect(code, out).toBe(0);
+      expect(savedEnv()).toContain('FIREBASE_APP_ID=');
+      expect(savedEnv()).not.toContain('FIREBASE_SERVICE_ACCOUNT_FILE');
+      expect(out).not.toContain('Path of the downloaded');
+      expect(out).toContain('To add Cloud Storage later');
+      expect(existsSync(join(work, 'data'))).toBe(false);
+    }, 90_000);
+
+    it('asks nothing under --signin-only, even with the same paste', async () => {
+      const { code, out } = await ptySetup([paste], ['--signin-only']);
+      expect(code, out).toBe(0);
+      expect(out).not.toContain('[y/N]');
+      expect(savedEnv()).not.toContain('FIREBASE_SERVICE_ACCOUNT_FILE');
+    }, 90_000);
+
+    it.each([
+      ['Ctrl+C', '\x03'],
+      ['Ctrl+D', '\x04'],
+    ])(
+      'treats %s at the Storage question as an abort: nothing is saved',
+      async (_name, key) => {
+        const { code, out } = await ptySetup([
+          paste,
+          { waitFor: '[y/N]', pause: 0.6, send: [key] },
+        ]);
+        expect(code, out).toBe(1);
+        expect(out).toContain('Nothing was saved');
+        expect(out).not.toContain('Saved FIREBASE_API_KEY');
+        expect(existsSync(envFile)).toBe(false);
+      },
+      90_000,
+    );
+
+    it('does not take a blank line that arrives right after the question as the answer', async () => {
+      // The console snippet has a blank line after the closing brace; a slow terminal can deliver it
+      // after the question has been drawn. Only a person's later Enter or y answers.
+      const { code, out } = await ptySetup([
+        paste,
+        { waitFor: '[y/N]', send: ['\r'] },
+        { waitFor: '[y/N]', pause: 0.7, send: ['y\r'] },
+        { waitFor: 'Path of the downloaded', send: [`${keyFile}\r`] },
+      ]);
+      expect(code, out).toBe(0);
+      expect(out.split('[y/N]').length - 1).toBeGreaterThanOrEqual(2);
+      expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
+    }, 90_000);
+  });
+
+  describe('sign-in only: what it says afterwards', () => {
+    it('offers to add Storage later when the env file has none', async () => {
+      const { code, out } = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(code, out).toBe(0);
+      expect(out).toContain('To add Cloud Storage later');
+      expect(out).not.toContain('left exactly as they are');
+    }, 60_000);
+
+    it('does not tell someone who already has Storage how to add it', async () => {
+      writeFileSync(
+        envFile,
+        'STORAGE_DRIVER=gcs\nFIREBASE_SERVICE_ACCOUNT_FILE=./data/firebase-service-account.json\n',
+      );
+      const { code, out } = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(code, out).toBe(0);
+      expect(out).toContain('Storage settings in this file were left exactly as they are');
+      expect(out).not.toContain('To add Cloud Storage later');
+      expect(savedEnv()).toContain('STORAGE_DRIVER=gcs');
+    }, 60_000);
+
+    it('says that --no-storage now means --signin-only', async () => {
+      const { code, out } = await setup('', ['--config', SNIPPET, '--no-storage']);
+      expect(code, out).toBe(0);
+      expect(out).toContain('--no-storage now means --signin-only');
+      const plain = await setup('', ['--config', SNIPPET, '--signin-only']);
+      expect(plain.out).not.toContain('--no-storage now means');
+    }, 120_000);
   });
 
   describe('usage', () => {

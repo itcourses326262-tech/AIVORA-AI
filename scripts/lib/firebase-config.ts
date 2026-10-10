@@ -72,8 +72,20 @@ export interface ConfigCheck {
   warnings: string[];
 }
 
+export interface CheckOptions {
+  /**
+   * Whether the bucket matters. Without Storage (sign-in only) it is neither checked nor kept: the
+   * result has an empty `storageBucket` and no problem or warning about it. Default true.
+   */
+  storage?: boolean;
+}
+
 /** Checks the shape of the values (not that they exist at Google) and normalises the bucket name. */
-export function checkFirebaseConfig(input: Partial<FirebaseWebConfig>): ConfigCheck {
+export function checkFirebaseConfig(
+  input: Partial<FirebaseWebConfig>,
+  options: CheckOptions = {},
+): ConfigCheck {
+  const storage = options.storage ?? true;
   const problems: string[] = [];
   const warnings: string[] = [];
   const clean = (value: string | undefined) => (value ?? '').trim();
@@ -83,7 +95,7 @@ export function checkFirebaseConfig(input: Partial<FirebaseWebConfig>): ConfigCh
     .replace(/^https?:\/\//i, '')
     .replace(/\/+$/, '');
   const projectId = clean(input.projectId);
-  const storageBucket = bareBucketName(clean(input.storageBucket));
+  const storageBucket = storage ? bareBucketName(clean(input.storageBucket)) : '';
   const appId = clean(input.appId);
 
   if (apiKey === '') problems.push('apiKey is missing.');
@@ -102,12 +114,16 @@ export function checkFirebaseConfig(input: Partial<FirebaseWebConfig>): ConfigCh
   else if (!APP_ID.test(appId)) {
     problems.push('appId should look like 1:123456789:web:abcdef0123456789.');
   }
-  if (storageBucket === '') {
-    warnings.push('storageBucket is missing: Google sign-in will work, Storage will not.');
-  } else if (!BUCKET.test(storageBucket)) {
-    problems.push('storageBucket is not a bucket name such as my-project.firebasestorage.app.');
-  } else if (PROJECT_ID.test(projectId) && !storageBucket.startsWith(projectId)) {
-    warnings.push(`storageBucket does not start with the project id (${projectId}): is it right?`);
+  if (storage) {
+    if (storageBucket === '') {
+      warnings.push('storageBucket is missing: Google sign-in will work, Storage will not.');
+    } else if (!BUCKET.test(storageBucket)) {
+      problems.push('storageBucket is not a bucket name such as my-project.firebasestorage.app.');
+    } else if (PROJECT_ID.test(projectId) && !storageBucket.startsWith(projectId)) {
+      warnings.push(
+        `storageBucket does not start with the project id (${projectId}): is it right?`,
+      );
+    }
   }
   if (HOSTNAME.test(authDomain) && PROJECT_ID.test(projectId)) {
     if (authDomain.endsWith('.firebaseapp.com') && authDomain !== `${projectId}.firebaseapp.com`) {

@@ -1,15 +1,22 @@
-// `npm run setup:firebase`: connects the site to your Firebase project (Google sign-in and the
-// project's Cloud Storage bucket) and writes the settings to `.env.local` (git-ignored).
+// `npm run setup:firebase`: connects the site to your Firebase project and writes the settings to
+// `.env.local` (git-ignored). Google sign-in needs only the four public web identifiers; the
+// project's Cloud Storage bucket also needs a service-account key file, so it is a second, optional
+// step that the wizard asks about after the config summary (default: no).
 //
-//   npm run setup:firebase                        asks for the config block and the key file
+//   npm run setup:firebase                        asks for the config block, then whether to also set
+//                                                 up Cloud Storage (it needs the key file)
 //   npm run setup:firebase -- --config <p|text>   the firebaseConfig block, as a file path or inline text
-//   npm run setup:firebase -- --file <path>       the downloaded service-account JSON
-//   npm run setup:firebase -- --yes               do not ask questions that have a safe default
-//   npm run setup:firebase -- --use-storage       ALSO switch STORAGE_DRIVER to gcs, but only after the
-//                                                 same round trip as `npm run check:storage` passed and
-//                                                 only for a site with no pictures stored yet
-//   npm run setup:firebase -- --no-storage        say nothing about STORAGE_DRIVER (it is never changed
-//                                                 without --use-storage anyway)
+//   npm run setup:firebase -- --signin-only       Google sign-in only: no question, no key file, and
+//                                                 STORAGE_DRIVER, the bucket and the key path in the env
+//                                                 file stay as they are (--no-storage is the same)
+//   npm run setup:firebase -- --file <path>       also Cloud Storage, no question: the downloaded
+//                                                 service-account JSON
+//   npm run setup:firebase -- --use-storage       also Cloud Storage, no question, and ALSO switch
+//                                                 STORAGE_DRIVER to gcs, but only after the same round
+//                                                 trip as `npm run check:storage` passed and only for a
+//                                                 site with no pictures stored yet
+//   npm run setup:firebase -- --yes               do not ask questions that have a safe default; the
+//                                                 answer to the storage question is then no
 //   npm run setup:firebase -- --env <path>        write to another env file (default ./.env.local)
 //                                                 (--env-file also works, but Node itself reads that
 //                                                 flag and fails when the file does not exist yet)
@@ -17,6 +24,7 @@
 // The web config is public (every browser receives it), so it is typed visibly. The service-account
 // key is the one secret: it is validated, copied to ./data/firebase-service-account.json (mode 600)
 // and only its PATH goes to the env file. Nothing from the key is printed or put on a command line.
+// Without Storage the key file is not asked for, looked for, read or copied.
 //
 // STORAGE_DRIVER is never switched by default, not even under --yes: a site that flips to the bucket
 // before its pictures were copied (`npm run migrate:media`) shows every old picture as missing, and a
@@ -31,8 +39,9 @@ import {
   readServiceAccount,
   ServiceAccountError,
 } from '@/server/storage/gcs-credentials';
-import { upsertEnv, writePrivateFile } from './lib/env-file';
+import { readEnvValue, upsertEnv, writePrivateFile } from './lib/env-file';
 import {
+  bareBucketName,
   checkFirebaseConfig,
   findDownloadedKeys,
   hasLoginFields,
@@ -49,12 +58,26 @@ import { runStorageCheck } from './lib/storage-check';
 import { countAssetRows, readStorageSettings, switchBlocker } from './lib/storage-state';
 
 const USAGE = [
-  'usage: npm run setup:firebase -- [--config <file|text>] [--file <service-account.json>]',
-  '                                  [--yes] [--use-storage | --no-storage] [--env <path>]',
+  'usage: npm run setup:firebase -- [--config <file|text>] [--yes] [--env <path>]',
+  '                                  [--signin-only | --no-storage]',
+  '                                  [--file <service-account.json>] [--use-storage]',
+  '--signin-only (alias --no-storage) configures Google sign-in alone and excludes --file and --use-storage.',
 ].join('\n');
 
 const FLAGS_WITH_VALUE = ['--config', '--file', '--env', '--env-file'];
-const FLAGS = ['--yes', '--use-storage', '--no-storage', '--help', '-h', ...FLAGS_WITH_VALUE];
+const FLAGS = [
+  '--yes',
+  '--signin-only',
+  '--use-storage',
+  '--no-storage',
+  '--help',
+  '-h',
+  ...FLAGS_WITH_VALUE,
+];
+
+/** The flags that mean "Google sign-in only" (`--no-storage` is the older name) and "also Storage". */
+const SIGNIN_FLAGS = ['--signin-only', '--no-storage'];
+const STORAGE_FLAGS = ['--file', '--use-storage'];
 
 const args = process.argv.slice(2);
 const has = (flag: string) => args.includes(flag);
@@ -69,6 +92,16 @@ const KEY_COPY_SETTING = './data/firebase-service-account.json';
 const MAX_KEY_FILE_BYTES = 64 * 1024;
 const MAX_QUESTION_ATTEMPTS = 6;
 const MAX_SKIPPED_LINES = 60;
+/** The tail of a paste can still be on its way when the next question is shown (a terminal sends it in pieces). */
+const PASTE_SETTLE_MS = 80;
+/**
+ * In a terminal a blank answer that arrives this soon after the question was drawn is a pasted blank
+ * line (the console snippet has one after the closing brace), not a person pressing Enter: nobody
+ * reads the question and answers in that time.
+ */
+const STRAY_ENTER_MS = 400;
+const STORAGE_QUESTION =
+  "Also use the project's Cloud Storage? It needs a service-account key file. [y/N] ";
 
 function say(line = '') {
   console.log(line);
@@ -85,10 +118,27 @@ function badUsage(): string | undefined {
       index += 1;
     }
   }
-  if (has('--use-storage') && has('--no-storage')) {
-    return '--use-storage and --no-storage contradict each other.';
+  for (const signin of SIGNIN_FLAGS) {
+    for (const storage of STORAGE_FLAGS) {
+      if (has(signin) && has(storage)) {
+        return `${signin} (Google sign-in only, no key file) and ${storage} (Cloud Storage) contradict each other.`;
+      }
+    }
   }
   return undefined;
+}
+
+/**
+ * What the flags decide before anything is asked: `storage` (a key file or --use-storage was
+ * given), `signin` (--signin-only, or --yes, whose answer to the storage question is no) or `ask`
+ * (the question follows the config summary).
+ */
+type Mode = 'storage' | 'signin' | 'ask';
+
+function modeFromFlags(auto: boolean): Mode {
+  if (STORAGE_FLAGS.some(has)) return 'storage';
+  if (SIGNIN_FLAGS.some(has) || auto) return 'signin';
+  return 'ask';
 }
 
 function yes(answer: string, fallback: boolean): boolean {
@@ -151,7 +201,11 @@ async function askValue(
   return undefined;
 }
 
-async function collectConfig(prompter: Prompter): Promise<{
+/** `bucket`: ask for the storage bucket too when the block lacks it (only when Storage is wanted). */
+async function collectConfig(
+  prompter: Prompter,
+  bucket: boolean,
+): Promise<{
   config: Partial<FirebaseWebConfig>;
   sawAnalytics: boolean;
 } | null> {
@@ -162,7 +216,7 @@ async function collectConfig(prompter: Prompter): Promise<{
   if (Object.keys(config).length > 0) {
     say(`Read ${Object.keys(config).length} values from the config block.`);
   }
-  const absent = missingFields(config);
+  const absent = missingFields(config).filter((name) => bucket || name !== 'storageBucket');
   if (absent.length === 0) return { config, sawAnalytics };
 
   // Ask only for what the block did not contain, project id first because it makes the defaults.
@@ -175,21 +229,75 @@ async function collectConfig(prompter: Prompter): Promise<{
     say('Open Firebase console > Project settings > General > Your apps > Web app (SDK setup).');
   }
   for (const name of order) {
-    const projectId = config.projectId;
-    const fallback =
-      name === 'authDomain' && projectId
-        ? `${projectId}.firebaseapp.com`
-        : name === 'storageBucket' && projectId
-          ? `${projectId}.firebasestorage.app`
-          : undefined;
-    const value = await askValue(prompter, name, fallback);
-    if (value === undefined) {
-      say(`\nNothing was saved: no value for ${name} arrived. Run the command again.`);
-      return null;
-    }
-    config[name] = value;
+    if (!(await askConfigValue(prompter, config, name))) return null;
   }
   return { config, sawAnalytics };
+}
+
+/** Asks for one missing field into `config`. False (after saying so) when no value arrived. */
+async function askConfigValue(
+  prompter: Prompter,
+  config: Partial<FirebaseWebConfig>,
+  name: keyof FirebaseWebConfig,
+): Promise<boolean> {
+  const projectId = config.projectId;
+  const fallback =
+    name === 'authDomain' && projectId
+      ? `${projectId}.firebaseapp.com`
+      : name === 'storageBucket' && projectId
+        ? `${projectId}.firebasestorage.app`
+        : undefined;
+  const value = await askValue(prompter, name, fallback);
+  if (value === undefined) {
+    say(`\nNothing was saved: no value for ${name} arrived. Run the command again.`);
+    return false;
+  }
+  config[name] = value;
+  return true;
+}
+
+/**
+ * Waits a moment, then throws away what has arrived: the pieces of a pasted block can reach a
+ * terminal one after the other, and its trailing Enter must not answer the next question.
+ */
+async function dropPasteTail(prompter: Prompter): Promise<void> {
+  if (!process.stdin.isTTY) return;
+  await new Promise((done) => setTimeout(done, PASTE_SETTLE_MS));
+  prompter.discardPending();
+}
+
+/** "Also use Cloud Storage?" Enter means no: sign-in works without it and needs no secret. */
+/** True or false for the answer, or null when the person aborted (Ctrl+C or Ctrl+D in a terminal). */
+async function askUseStorage(prompter: Prompter): Promise<boolean | null> {
+  await dropPasteTail(prompter);
+  const terminal = Boolean(process.stdin.isTTY);
+  for (
+    let reads = 0, unclear = 0;
+    reads < MAX_SKIPPED_LINES && unclear < MAX_QUESTION_ATTEMPTS;
+    reads += 1
+  ) {
+    const askedAt = Date.now();
+    const answer = await prompter.ask(STORAGE_QUESTION);
+    const word = answer.trim().toLowerCase();
+    // The terminal closed while waiting: Ctrl+C or Ctrl+D is an abort, not "no" (piped input that
+    // simply ends still means no).
+    if (terminal && word === '' && prompter.isClosed()) return null;
+    // Leftover lines of a pasted snippet are not an answer, neither is an Enter that has more
+    // lines behind it (a person pressing Enter has nothing behind it), nor one that arrives
+    // before anyone could have read the question.
+    const strayEnter =
+      word === '' &&
+      (prompter.pendingCount() > 0 || (terminal && Date.now() - askedAt < STRAY_ENTER_MS));
+    if (looksLikeSnippetCode(answer) || strayEnter) {
+      if (prompter.isClosed()) break;
+      continue;
+    }
+    if (word === '' || ['y', 'yes', 'n', 'no'].includes(word)) return yes(word, false);
+    say('Please answer y or n.');
+    unclear += 1;
+    if (prompter.isClosed()) break;
+  }
+  return false;
 }
 
 type KeyFile = { bytes: Buffer; projectId: string; source: string };
@@ -366,6 +474,56 @@ async function bucketWorks(bucket: string): Promise<boolean> {
   return false;
 }
 
+/** Whether git would commit the env file, and the one setting that keeps the Google button hidden. */
+function reportEnvFile(target: string, previous: string): void {
+  const envIgnored = gitIgnores(target);
+  if (envIgnored === false) {
+    say(
+      'WARNING: git does NOT ignore this env file. Do not commit it. Add ".env*" to .gitignore first.',
+    );
+  } else if (envIgnored === true) {
+    say('Checked: git ignores this file, so it cannot be committed by accident.');
+  }
+  if (readEnvValue(previous, 'FIREBASE_AUTH')?.toLowerCase() === 'off') {
+    say('Note: FIREBASE_AUTH=off is set in this file, so the Google button stays hidden.');
+    say('Remove that line (or set it to auto) to show it.');
+  }
+}
+
+/**
+ * Google sign-in without Storage: writes the four public identifiers and nothing else. The key
+ * file, the bucket and STORAGE_DRIVER are not asked for, looked at, copied or mentioned, and lines
+ * the env file already has for them stay exactly as they are.
+ */
+function saveSignInOnly(config: FirebaseWebConfig, target: string): number {
+  const previous = existsSync(target) ? readFileSync(target, 'utf8') : '';
+  const updates: Record<string, string> = {
+    FIREBASE_API_KEY: config.apiKey,
+    FIREBASE_AUTH_DOMAIN: config.authDomain,
+    FIREBASE_PROJECT_ID: config.projectId,
+    FIREBASE_APP_ID: config.appId,
+  };
+  writePrivateFile(target, upsertEnv(previous, updates));
+  say(`\nSaved ${Object.keys(updates).join(', ')}.`);
+  reportEnvFile(target, previous);
+
+  say('\nWhat is left to do (in the Firebase console, project "' + config.projectId + '"):');
+  say('  1. Build > Authentication > Get started > Sign-in method: enable "Google".');
+  say('  2. Authentication > Settings > Authorized domains: add the domain of your site');
+  say('     (localhost is there already).');
+  say('  3. A running npm run dev picks the settings up by itself within a few seconds;');
+  say('     otherwise restart it: npm run dev   (PowerShell: npm.cmd run dev)');
+  const hasStorage =
+    readEnvValue(previous, 'FIREBASE_SERVICE_ACCOUNT_FILE') !== undefined ||
+    readEnvValue(previous, 'STORAGE_DRIVER') === 'gcs';
+  say(
+    hasStorage
+      ? '\nThe Storage settings in this file were left exactly as they are.'
+      : '\nTo add Cloud Storage later, run npm run setup:firebase again and answer y (or pass --file);\nPowerShell: npm.cmd run setup:firebase.',
+  );
+  return 0;
+}
+
 async function main(): Promise<number> {
   if (has('--help') || has('-h')) {
     say(USAGE);
@@ -381,30 +539,48 @@ async function main(): Promise<number> {
     option('--env') ?? option('--env-file') ?? '.env.local',
   );
   const auto = has('--yes');
+  if (has('--no-storage') && !has('--signin-only')) {
+    say('Note: --no-storage now means --signin-only: no key file is read and none is needed.');
+  }
+  const mode = modeFromFlags(auto);
 
-  say('AIVORE: connect Firebase (Google sign-in and Cloud Storage)\n');
+  say(
+    mode === 'storage'
+      ? 'AIVORE: connect Firebase (Google sign-in and Cloud Storage)\n'
+      : mode === 'signin'
+        ? 'AIVORE: connect Google sign-in (Firebase)\n'
+        : 'AIVORE: connect Firebase (Google sign-in, and Cloud Storage if you want it)\n',
+  );
   say(`Settings will be saved in: ${target}`);
-  say('The web config below is public (every visitor receives it). The key file is secret and');
-  say('stays on this computer.\n');
+  if (mode === 'storage') {
+    say('The web config below is public (every visitor receives it). The key file is secret and');
+    say('stays on this computer.\n');
+  } else {
+    say('The web config below is public (every visitor receives it).\n');
+  }
 
   const prompter = createPrompter();
   try {
-    const collected = await collectConfig(prompter);
+    // The bucket is only asked for when Storage is wanted; with the question still to come it is
+    // asked for after the answer.
+    const collected = await collectConfig(prompter, mode === 'storage');
     if (!collected) return 1;
-    const checked = checkFirebaseConfig(collected.config);
-    if (checked.problems.length > 0) {
+    const first = checkFirebaseConfig(collected.config, { storage: mode === 'storage' });
+    if (first.problems.length > 0) {
       say('\nNothing was saved. The config has problems:');
-      for (const line of checked.problems) say(`  - ${line}`);
+      for (const line of first.problems) say(`  - ${line}`);
       return 1;
     }
-    const { config } = checked;
-    for (const line of checked.warnings) say(`Note: ${line}`);
+    let config = first.config;
+    for (const line of first.warnings) say(`Note: ${line}`);
     say('\nFirebase project:');
     say(`  projectId      ${config.projectId}`);
     say(`  authDomain     ${config.authDomain}`);
     say(`  appId          ${config.appId}`);
     say(`  apiKey         ${maskedApiKey(config.apiKey)}`);
-    say(`  storageBucket  ${config.storageBucket || '(none)'}`);
+    if (mode !== 'signin') {
+      say(`  storageBucket  ${bareBucketName(collected.config.storageBucket ?? '') || '(none)'}`);
+    }
     if (collected.sawAnalytics) {
       say('Analytics is not used: measurementId and getAnalytics are ignored.');
     }
@@ -412,6 +588,37 @@ async function main(): Promise<number> {
       say('\nNothing was saved: the sign-in settings are incomplete.');
       return 1;
     }
+
+    let storage = mode === 'storage';
+    if (mode === 'ask') {
+      say();
+      const answer = await askUseStorage(prompter);
+      if (answer === null) {
+        say('\nNothing was saved.');
+        return 1;
+      }
+      storage = answer;
+      if (storage) {
+        say('The service-account key is secret and stays on this computer.');
+        if (
+          !collected.config.storageBucket &&
+          !(await askConfigValue(prompter, collected.config, 'storageBucket'))
+        ) {
+          return 1;
+        }
+        const second = checkFirebaseConfig(collected.config);
+        if (second.problems.length > 0) {
+          say('\nNothing was saved. The config has problems:');
+          for (const line of second.problems) say(`  - ${line}`);
+          return 1;
+        }
+        config = second.config;
+        for (const line of second.warnings) {
+          if (!first.warnings.includes(line)) say(`Note: ${line}`);
+        }
+      }
+    }
+    if (!storage) return saveSignInOnly(config, target);
 
     const key = await chooseKeyFile(prompter, config.projectId, auto);
     if (!key) return 1;
@@ -447,7 +654,7 @@ async function main(): Promise<number> {
 
     // STORAGE_DRIVER changes only on request (--use-storage), after the bucket passed the same round
     // trip as `npm run check:storage`, and never for a site that has pictures to move.
-    const talkAboutStorage = !has('--no-storage') && Boolean(config.storageBucket);
+    const talkAboutStorage = Boolean(config.storageBucket);
     let switchedStorage = false;
     let refusedSwitch = false;
     if (has('--use-storage') && !config.storageBucket) {
@@ -501,14 +708,7 @@ async function main(): Promise<number> {
     writePrivateFile(target, upsertEnv(previous, updates));
     say(`Saved ${Object.keys(updates).join(', ')}.`);
     say('The key file itself is never written to the env file, only its path.');
-    const envIgnored = gitIgnores(target);
-    if (envIgnored === false) {
-      say(
-        'WARNING: git does NOT ignore this env file. Do not commit it. Add ".env*" to .gitignore first.',
-      );
-    } else if (envIgnored === true) {
-      say('Checked: git ignores this file, so it cannot be committed by accident.');
-    }
+    reportEnvFile(target, previous);
 
     say('\nWhat is left to do (in the Firebase console, project "' + config.projectId + '"):');
     say('  1. Build > Authentication > Get started > Sign-in method: enable "Google".');

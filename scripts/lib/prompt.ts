@@ -10,6 +10,8 @@ export interface Prompter {
   isClosed(): boolean;
   /** Throws away lines that already arrived but were not asked for (the tail of a paste). */
   discardPending(): number;
+  /** How many lines have arrived and are waiting for a question. */
+  pendingCount(): number;
   close(): void;
 }
 
@@ -72,6 +74,7 @@ export function createPrompter(): Prompter {
     },
     isClosed: () => closed && queue.length === 0,
     discardPending: () => queue.splice(0, queue.length).length,
+    pendingCount: () => queue.length,
     close: () => rl.close(),
   };
 }

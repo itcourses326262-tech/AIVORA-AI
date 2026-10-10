@@ -198,7 +198,7 @@ What it does **not** change: SQLite stays on the disk, so you still need the per
 
 **Where the file lives.**
 
-- On your computer: `npm run setup:firebase` (PowerShell: `npm.cmd run setup:firebase`) validates the file, copies it to `./data/firebase-service-account.json` (git-ignored, mode 600) and writes only its **path** to `.env.local`.
+- On your computer: `npm run setup:firebase` (PowerShell: `npm.cmd run setup:firebase`) asks first whether you want Storage (`y` or `--file <key>`; Enter or `--signin-only` means Google sign-in alone, no key), then validates the file, copies it to `./data/firebase-service-account.json` (git-ignored, mode 600) and writes only its **path** to `.env.local`.
 - With Docker, keep the file **outside the repository checkout** and mount it read-only. It must be readable by uid 1000, the container user:
 
   ```bash

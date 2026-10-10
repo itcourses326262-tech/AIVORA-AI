@@ -367,12 +367,12 @@ function memory(): EnvMemory {
 }
 
 /**
- * The settings a developer changes while the site is running: provider keys, the Demo switch and
- * the spend cap. `next dev` reloads `.env.local` into `process.env` when it changes, so in
- * development `getEnv()` picks these up when one differs from what was parsed. That is what lets
- * `npm run setup:fal` take effect without restarting the site. Every other setting keeps the value
- * it had at start-up. Never consulted in production or in tests, where the environment is fixed
- * for the life of the process.
+ * The settings a developer changes while the site is running: provider keys, the Demo switch, the
+ * spend cap and the Google sign-in identifiers. `next dev` reloads `.env.local` into `process.env`
+ * when it changes, so in development `getEnv()` picks these up when one differs from what was
+ * parsed. That is what lets `npm run setup:fal` and `npm run setup:firebase` take effect without
+ * restarting the site. Every other setting keeps the value it had at start-up. Never consulted in
+ * production or in tests, where the environment is fixed for the life of the process.
  */
 const HOT_RELOAD_NAMES = [
   'FAL_KEY',
@@ -380,6 +380,11 @@ const HOT_RELOAD_NAMES = [
   'REPLICATE_API_TOKEN',
   'ENABLE_MOCK_PROVIDER',
   'DAILY_UPSTREAM_BUDGET_CREDITS',
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_APP_ID',
+  'FIREBASE_AUTH',
 ] as const satisfies readonly (keyof Env)[];
 
 function hotReloadStamp(): string {
@@ -419,10 +424,13 @@ function reloadHotSettings(remembered: EnvMemory, previous: Env): Env {
     const next: Env = { ...previous };
     for (const name of HOT_RELOAD_NAMES) Object.assign(next, { [name]: parsed[name] });
     remembered.env = next;
-    getLogger().info('Reloaded provider settings from the environment.', {
+    getLogger().info('Reloaded provider and sign-in settings from the environment.', {
       fal: Boolean(next.FAL_KEY),
       openai: Boolean(next.OPENAI_API_KEY),
       replicate: Boolean(next.REPLICATE_API_TOKEN),
+      googleSignIn:
+        next.FIREBASE_AUTH !== 'off' &&
+        Boolean(next.FIREBASE_API_KEY && next.FIREBASE_AUTH_DOMAIN && next.FIREBASE_PROJECT_ID),
     });
     return next;
   } catch (error) {

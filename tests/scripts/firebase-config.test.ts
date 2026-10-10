@@ -148,6 +148,17 @@ describe('checkFirebaseConfig', () => {
     expect(result.problems.join(' ')).toContain(field);
   });
 
+  it('does not look at the bucket without Storage, but still checks the sign-in values', () => {
+    for (const storageBucket of ['', 'demo-project.firebasestorage.app', 'not a bucket!']) {
+      const result = checkFirebaseConfig({ ...FIELDS, storageBucket }, { storage: false });
+      expect(result.problems, storageBucket).toEqual([]);
+      expect(result.warnings, storageBucket).toEqual([]);
+      expect(result.config.storageBucket).toBe('');
+    }
+    const broken = checkFirebaseConfig({ ...FIELDS, apiKey: 'short' }, { storage: false });
+    expect(broken.problems.join(' ')).toContain('apiKey');
+  });
+
   it('warns, without blocking, about a missing bucket and about odd combinations', () => {
     const noBucket = checkFirebaseConfig({ ...FIELDS, storageBucket: '' });
     expect(noBucket.problems).toEqual([]);

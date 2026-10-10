@@ -393,7 +393,9 @@ describe('performance budget', () => {
     });
     expect(parseGif(gifOf(outputs[0]!))).toMatchObject({ frameCount: 30, endsWithTrailer: true });
     expect(cost.cpuMs).toBeLessThan(3000);
-    expect(cost.longestStallMs).toBeLessThan(1000);
+    // The regression was one blocking call of about 6 s; 3 s still catches it and leaves room for
+    // a machine that is running the whole suite in parallel (1.4 s was measured there).
+    expect(cost.longestStallMs).toBeLessThan(3000);
   }, 60_000);
 
   it('keeps memory bounded: at most thirty small frames are held at once', async () => {

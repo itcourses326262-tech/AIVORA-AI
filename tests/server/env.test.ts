@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isFirebaseAuthEnabled } from '@/server/auth/firebase';
 import {
   DEV_SESSION_SECRET,
   EnvError,
@@ -389,11 +390,22 @@ describe('getEnv', () => {
   });
 });
 
-// `next dev` reloads .env.local into process.env while the site runs; `npm run setup:fal` relies on
-// getEnv() noticing, so a provider key takes effect without a restart. Only in development.
+// `next dev` reloads .env.local into process.env while the site runs; `npm run setup:fal` and
+// `npm run setup:firebase` rely on getEnv() noticing, so a provider key or the Google button takes
+// effect without a restart. Only in development.
 describe('getEnv hot reload', () => {
   // Built at runtime: key-shaped literals are rejected by tests/security/no-secret-literals.test.ts.
   const FAKE_KEY = 'k'.repeat(30);
+  const WEB_ID = {
+    FIREBASE_API_KEY: FAKE_KEY,
+    FIREBASE_AUTH_DOMAIN: 'demo-project.firebaseapp.com',
+    FIREBASE_PROJECT_ID: 'demo-project',
+  };
+  const stubWebIds = (values: Record<string, string> = WEB_ID) => {
+    for (const [name, value] of Object.entries(values)) vi.stubEnv(name, value);
+  };
+  const clearWebIds = () =>
+    stubWebIds({ FIREBASE_API_KEY: '', FIREBASE_AUTH_DOMAIN: '', FIREBASE_PROJECT_ID: '' });
 
   /** Starts capturing what the logger writes to stderr; call the result for the lines so far. */
   function captureStderr(): () => string[] {
@@ -408,6 +420,8 @@ describe('getEnv hot reload', () => {
       ['REPLICATE_API_TOKEN', FAKE_KEY, (env) => env.REPLICATE_API_TOKEN, FAKE_KEY],
       ['ENABLE_MOCK_PROVIDER', 'false', (env) => env.ENABLE_MOCK_PROVIDER, false],
       ['DAILY_UPSTREAM_BUDGET_CREDITS', '500', (env) => env.DAILY_UPSTREAM_BUDGET_CREDITS, 500],
+      ['FIREBASE_APP_ID', '1:1:web:abc', (env) => env.FIREBASE_APP_ID, '1:1:web:abc'],
+      ['FIREBASE_AUTH', 'off', (env) => env.FIREBASE_AUTH, 'off'],
     ])('sees %s changed after the first read', (name, value, read, expected) => {
       vi.stubEnv('NODE_ENV', 'development');
       const first = getEnv();
@@ -433,6 +447,55 @@ describe('getEnv hot reload', () => {
       expect(getEnv().FAL_KEY).toBe(FAKE_KEY);
       vi.stubEnv('FAL_KEY', '');
       expect(getEnv().FAL_KEY).toBeUndefined();
+    });
+
+    it('sees the three sign-in identifiers added together after the first read', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      const first = getEnv();
+      expect(first.FIREBASE_API_KEY).toBeUndefined();
+      expect(first.FIREBASE_AUTH_DOMAIN).toBeUndefined();
+      expect(first.FIREBASE_PROJECT_ID).toBeUndefined();
+      stubWebIds();
+      const second = getEnv();
+      expect(second).not.toBe(first);
+      expect(second).toMatchObject(WEB_ID);
+    });
+
+    it('shows the Google button after the identifiers are added, and hides it when they are removed', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(false);
+      stubWebIds();
+      const enabled = getEnv();
+      expect(isFirebaseAuthEnabled(enabled)).toBe(true);
+      expect(getEnv()).toBe(enabled);
+      // Removing the lines from .env.local leaves the variables unset again.
+      clearWebIds();
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(false);
+      stubWebIds();
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(true);
+    });
+
+    it('follows FIREBASE_AUTH=off and back without a restart', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      stubWebIds();
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(true);
+      vi.stubEnv('FIREBASE_AUTH', 'off');
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(false);
+      vi.stubEnv('FIREBASE_AUTH', 'auto');
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(true);
+    });
+
+    it('keeps the settings in use while the sign-in identifiers are only half written', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('LOG_LEVEL', 'silent');
+      stubWebIds();
+      const enabled = getEnv();
+      // An editor that saved the file between two lines: the key is gone, the others are not.
+      vi.stubEnv('FIREBASE_API_KEY', '');
+      expect(getEnv()).toBe(enabled);
+      expect(isFirebaseAuthEnabled(getEnv())).toBe(true);
+      vi.stubEnv('FIREBASE_API_KEY', `${FAKE_KEY}2`);
+      expect(getEnv().FIREBASE_API_KEY).toBe(`${FAKE_KEY}2`);
     });
 
     it('returns the very same object while the settings are unchanged', () => {
@@ -593,14 +656,31 @@ describe('getEnv hot reload', () => {
       expect(lines).toHaveLength(1);
       expect(JSON.parse(lines[0] ?? '')).toMatchObject({
         level: 'info',
-        msg: expect.stringContaining('Reloaded provider settings'),
+        msg: expect.stringContaining('Reloaded provider and sign-in settings'),
         fal: true,
         openai: false,
         replicate: false,
+        googleSignIn: false,
       });
       expect(
         [...lines, ...stderr.mock.calls.map(([chunk]) => String(chunk))].join('\n'),
       ).not.toContain(FAKE_KEY);
+    });
+    it('says in the reload log line whether Google sign-in is on, and never prints the values', () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('LOG_LEVEL', 'info');
+      resetLoggerForTests();
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      getEnv();
+      vi.stubEnv('FIREBASE_API_KEY', FAKE_KEY);
+      vi.stubEnv('FIREBASE_AUTH_DOMAIN', 'demo-project.firebaseapp.com');
+      vi.stubEnv('FIREBASE_PROJECT_ID', 'demo-project');
+      getEnv();
+      const lines = stdout.mock.calls.map(([chunk]) => String(chunk));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? '')).toMatchObject({ googleSignIn: true, fal: false });
+      expect(lines.join('\n')).not.toContain(FAKE_KEY);
     });
   });
 
@@ -620,6 +700,31 @@ describe('getEnv hot reload', () => {
         expect(getEnv()).toBe(first);
         expect(getEnv().FAL_KEY).toBeUndefined();
         expect(getEnv().DAILY_UPSTREAM_BUDGET_CREDITS).toBe(0);
+      },
+    );
+
+    it.each(['test', 'production'])(
+      'does not switch Google sign-in on or off after the first read in %s',
+      (mode) => {
+        vi.stubEnv('NODE_ENV', mode);
+        vi.stubEnv('LOG_LEVEL', 'silent');
+        vi.stubEnv('SESSION_SECRET', GOOD_SECRET);
+        const first = getEnv();
+        expect(isFirebaseAuthEnabled(first)).toBe(false);
+        stubWebIds();
+        vi.stubEnv('FIREBASE_APP_ID', '1:1:web:abc');
+        expect(getEnv()).toBe(first);
+        expect(isFirebaseAuthEnabled(getEnv())).toBe(false);
+        expect(getEnv().FIREBASE_APP_ID).toBeUndefined();
+
+        // The other way round: a site that started with Google sign-in keeps it.
+        resetEnvForTests();
+        const started = getEnv();
+        expect(isFirebaseAuthEnabled(started)).toBe(true);
+        vi.stubEnv('FIREBASE_AUTH', 'off');
+        clearWebIds();
+        expect(getEnv()).toBe(started);
+        expect(isFirebaseAuthEnabled(getEnv())).toBe(true);
       },
     );
 
