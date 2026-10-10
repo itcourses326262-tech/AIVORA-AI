@@ -26,6 +26,8 @@ export const E2E_LIMITS = {
 export const E2E_PINNED_ENV: Readonly<Record<string, string>> = {
   SIGNUP_ENABLED: 'true',
   SIGNUP_BONUS_CREDITS: String(E2E_LIMITS.signupBonusCredits),
+  // The e2e site has no Google sign-in, and its journeys register password accounts that need credits.
+  SIGNUP_BONUS_PROVIDER: 'any',
   MAX_ACTIVE_PER_USER: String(E2E_LIMITS.maxActivePerUser),
   MAX_UPLOAD_MB: String(E2E_LIMITS.maxUploadMb),
   VAT_RATE_PERCENT: String(E2E_LIMITS.vatRatePercent),

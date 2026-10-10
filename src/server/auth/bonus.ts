@@ -5,7 +5,32 @@ import type { DbOrTx, Tx } from '@/server/db';
 import { creditLedger, signupBonusClaims, type UserRow } from '@/server/db/schema';
 import { getLogger } from '@/server/logger';
 import { canonicalizeEmail } from './email-canonical';
+import type { Env } from '@/server/env';
+import { isFirebaseAuthEnabled } from './firebase';
 import { hashToken } from './tokens';
+
+/** How an account came to exist or was confirmed: only some of them earn the free credits. */
+export type SignupMethod = 'google' | 'password';
+
+/**
+ * The product policy: the free sign-up credits go to accounts created (or first linked) through
+ * Google sign-in. Password accounts get none unless SIGNUP_BONUS_PROVIDER=any (development, tests).
+ */
+export function earnsSignupBonus(env: Env, method: SignupMethod): boolean {
+  if (env.SIGNUP_BONUS_CREDITS <= 0) return false;
+  return method === 'google' || env.SIGNUP_BONUS_PROVIDER === 'any';
+}
+
+/**
+ * The number of free credits the pages may promise a visitor: 0 when nobody can earn them here
+ * (Google sign-in is not set up and password accounts get none).
+ */
+export function signupBonusOffer(env: Env): number {
+  const reachable =
+    (isFirebaseAuthEnabled(env) && earnsSignupBonus(env, 'google')) ||
+    earnsSignupBonus(env, 'password');
+  return reachable ? env.SIGNUP_BONUS_CREDITS : 0;
+}
 
 export interface SignupBonus {
   entry: LedgerEntry;

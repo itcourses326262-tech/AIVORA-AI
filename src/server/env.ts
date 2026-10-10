@@ -107,6 +107,12 @@ const envSchema = z
     PROMPT_ENHANCER_ANTHROPIC_MODEL: text(z.string().default('claude-haiku-5-5')),
     SIGNUP_ENABLED: flag(true),
     SIGNUP_BONUS_CREDITS: whole(50, 0, 1_000_000),
+    /**
+     * Who earns the free sign-up credits: `google` (only an account created, or first linked, through
+     * Google sign-in; the default and the product policy) or `any` (also password accounts once their
+     * address is confirmed: for local development and the test suites).
+     */
+    SIGNUP_BONUS_PROVIDER: choice(['google', 'any'], 'google'),
     ADMIN_EMAILS: lowerList,
     WORKER_MODE: choice(['inline', 'external', 'off'], 'inline'),
     WORKER_CONCURRENCY: whole(2, 1, 32),

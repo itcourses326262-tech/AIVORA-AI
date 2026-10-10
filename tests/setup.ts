@@ -24,6 +24,8 @@ const defaults: Record<string, string> = {
   SESSION_SECRET: 'test-session-secret-0123456789abcdef0123456789abcdef',
   SIGNUP_ENABLED: 'true',
   SIGNUP_BONUS_CREDITS: '50',
+  // The product default is `google`; most tests register password accounts and need the credits.
+  SIGNUP_BONUS_PROVIDER: 'any',
   LOG_LEVEL: 'error',
 };
 for (const [key, value] of Object.entries(defaults)) {

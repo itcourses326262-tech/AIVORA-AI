@@ -63,6 +63,7 @@ describe('parseEnv defaults', () => {
       PROMPT_ENHANCER_ANTHROPIC_MODEL: 'claude-haiku-5-5',
       SIGNUP_ENABLED: true,
       SIGNUP_BONUS_CREDITS: 50,
+      SIGNUP_BONUS_PROVIDER: 'google',
       ADMIN_EMAILS: [],
       WORKER_MODE: 'inline',
       WORKER_CONCURRENCY: 2,
