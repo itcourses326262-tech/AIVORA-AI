@@ -1,6 +1,6 @@
 # Operating AIVORE
 
-> **ملخص بالعربية.** هذا دليل التشغيل اليومي لمن يدير الخادم. الأوامر مكتوبة لنشر Docker Compose من [DEPLOYMENT.md](DEPLOYMENT.md). أهم ثلاثة أشياء: (1) **نسخ احتياطي مجدول** بـ `scripts/backup.mjs` ونسخه خارج الجهاز، مع **تجربة استعادة** مرة كل شهر على الأقل؛ (2) **قبل أي ترقية** خذ نسخة احتياطية واحتفظ بالصورة القديمة؛ (3) لا تعدّل جداول `generations` أو `credit_ledger` يدويًا أبدًا، فالرصيد والدفتر يتغيران في معاملة واحدة؛ استخدم `grant-credits` و`refund-order` و`resolve-order`. تغيير `SESSION_SECRET` يُنهي كل الجلسات ويُبطل كل مفاتيح API.
+> **ملخص بالعربية.** هذا دليل التشغيل اليومي لمن يدير الخادم. الأوامر مكتوبة لنشر Docker Compose من [DEPLOYMENT.md](DEPLOYMENT.md). أهم ثلاثة أشياء: (1) **نسخ احتياطي مجدول** بـ `scripts/backup.mjs` ونسخه خارج الجهاز، مع **تجربة استعادة** مرة كل شهر على الأقل؛ (2) **قبل أي ترقية** خذ نسخة احتياطية واحتفظ بالصورة القديمة؛ (3) لا تعدّل جداول `generations` أو `credit_ledger` يدويًا أبدًا، فالرصيد والدفتر يتغيران في معاملة واحدة؛ استخدم `grant-credits` و`refund-order` و`resolve-order`. والرصيد المجاني التلقائي للتسجيل لا ينتهي إلا لمن يسجّل بحساب Google؛ لمنح رصيد لمستخدم يدويًا استخدم `grant-credits` (القسم 3). تغيير `SESSION_SECRET` يُنهي كل الجلسات ويُبطل كل مفاتيح API.
 
 Everything here was checked against the code. Commands marked "observed" were also run against a replica of the production image layout (see [DEPLOYMENT.md](DEPLOYMENT.md), "What was verified"); the Docker-specific wrapper (`docker compose exec ...`) itself could not be run in the development sandbox.
 
@@ -85,6 +85,8 @@ The last active admin cannot be demoted or disabled without `--force`. `ADMIN_EM
 $ADMIN grant-credits --email user@example.com --amount 100 --note "compensation for ticket 123"
 ```
 
+This is also how a user gets free credits by hand. The automatic free sign-up credits (`SIGNUP_BONUS_CREDITS`) go only to accounts created, or first linked, through Google sign-in; an account made by e-mail and password, or by `create-user`, starts at zero (`create-user --credits n` is the other way to start an account with credits). If someone says "I never got my free credits": check that they signed up with Google (`$ADMIN list-users --search their@address`), and if they did not, either ask them to sign in with Google once with that address (the first link pays them, once) or use `grant-credits`.
+
 **Find an order and refund it.**
 
 ```bash
@@ -108,7 +110,7 @@ $ADMIN settle-order ord_xxxxxxxx
 $ADMIN resolve-order ord_xxxxxxxx --note "refunded by hand in the dashboard, 2026-11-02"
 ```
 
-**Confirm an e-mail address by hand** (the user lost the mail, or the account predates SMTP). It also grants the sign-up bonus if the account never got it, and never changes the role:
+**Confirm an e-mail address by hand** (the user lost the mail, or the account predates SMTP). It pays no credits (use `grant-credits` for that) and never changes the role:
 
 ```bash
 $ADMIN force-verify user@example.com

@@ -105,3 +105,49 @@ describe.each([
     expect(element.props.firebase).toBeNull();
   });
 });
+
+type WithPlaceholder = ReactElement<{ firebase: unknown; googlePlaceholder: boolean }>;
+
+describe.each([
+  ['log in', LoginPage],
+  ['register', RegisterPage],
+])('the %s page and the development placeholder', (_name, Page) => {
+  const develop = (values: Record<string, string> = {}, nodeEnv = 'development') => {
+    setEnv(values);
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    resetEnvForTests();
+  };
+  const flag = async () => ((await Page(search())) as WithPlaceholder).props.googlePlaceholder;
+
+  it('asks for the placeholder while developing without Google sign-in', async () => {
+    develop();
+    expect(await flag()).toBe(true);
+  });
+
+  it('does not once the public identifiers are set (the real button takes the place)', async () => {
+    develop(PUBLIC_CONFIG);
+    expect(await flag()).toBe(false);
+  });
+
+  it('does not when FIREBASE_AUTH=off', async () => {
+    develop({ ...PUBLIC_CONFIG, FIREBASE_AUTH: 'off' });
+    expect(await flag()).toBe(false);
+    develop({ FIREBASE_AUTH: 'off' });
+    expect(await flag()).toBe(false);
+  });
+
+  it.each(['production', 'test'])('never in %s, configured or not', async (nodeEnv) => {
+    develop({}, nodeEnv);
+    expect(await flag()).toBe(false);
+    develop(PUBLIC_CONFIG, nodeEnv);
+    expect(await flag()).toBe(false);
+  });
+
+  it('follows .env.local without a restart: the dev server reloads the identifiers', async () => {
+    develop();
+    expect(await flag()).toBe(true);
+    for (const [key, value] of Object.entries(PUBLIC_CONFIG)) vi.stubEnv(key, value);
+    expect(await flag()).toBe(false);
+    expect(((await Page(search())) as WithPlaceholder).props.firebase).not.toBeNull();
+  });
+});

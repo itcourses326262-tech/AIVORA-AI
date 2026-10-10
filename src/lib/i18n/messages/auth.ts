@@ -13,14 +13,14 @@ export default defineMessages({
     },
     register: {
       title: 'Create your account',
-      subtitle: 'Start with free credits. No card needed.',
+      subtitle: 'Create your account in a minute. No card needed.',
       submit: 'Create account',
       submitting: 'Creating your account…',
       haveAccount: 'Already have an account?',
       logIn: 'Log in',
       benefitsLabel: 'What you get',
       benefits: {
-        credits: '{credits} free to start',
+        credits: '{credits} free when you sign up with Google',
         languages: 'Prompts in Arabic or English',
         studio: 'Images and video in one studio',
       },
@@ -60,6 +60,12 @@ export default defineMessages({
       button: 'Continue with Google',
       busy: 'Waiting for Google…',
       divider: 'or',
+      dev: {
+        title: 'Developer note',
+        note: 'Google sign-in is not set up yet. Run:',
+        powershell: 'In PowerShell:',
+        after: 'Then reload this page. This box appears in development only.',
+      },
       errors: {
         popupBlocked:
           'Your browser blocked the Google window. Allow pop-ups for this site, then try again.',
@@ -222,14 +228,14 @@ export default defineMessages({
     },
     register: {
       title: 'أنشئ حسابك',
-      subtitle: 'ابدأ برصيد مجاني. لا حاجة لبطاقة.',
+      subtitle: 'أنشئ حسابك في دقيقة. لا حاجة لبطاقة.',
       submit: 'إنشاء الحساب',
       submitting: 'جارٍ إنشاء حسابك…',
       haveAccount: 'لديك حساب بالفعل؟',
       logIn: 'تسجيل الدخول',
       benefitsLabel: 'ما ستحصل عليه',
       benefits: {
-        credits: '{credits} مجانًا للبدء',
+        credits: '{credits} مجانًا عند التسجيل عبر Google',
         languages: 'وصف بالعربية أو الإنجليزية',
         studio: 'صور وفيديوهات في استوديو واحد',
       },
@@ -269,6 +275,12 @@ export default defineMessages({
       button: 'المتابعة باستخدام Google',
       busy: 'في انتظار Google…',
       divider: 'أو',
+      dev: {
+        title: 'ملاحظة للمطوّر',
+        note: 'تسجيل الدخول عبر Google غير مُعدّ بعد. شغّل:',
+        powershell: 'في PowerShell:',
+        after: 'ثم أعد تحميل هذه الصفحة. يظهر هذا الصندوق أثناء التطوير فقط.',
+      },
       errors: {
         popupBlocked:
           'منع المتصفح نافذة Google. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.',

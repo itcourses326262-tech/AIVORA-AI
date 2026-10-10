@@ -38,7 +38,8 @@ describe('LoginForm', () => {
   it('has the fields and attributes password managers and keyboards look for', () => {
     renderUi(<LoginForm next="/studio" />);
     expect(email()).toHaveAttribute('type', 'email');
-    expect(email()).toHaveAttribute('autocomplete', 'email');
+    // The address is the login name: the browser's password manager saves it with the password.
+    expect(email()).toHaveAttribute('autocomplete', 'username');
     expect(email()).toHaveAttribute('inputmode', 'email');
     expect(email()).toHaveAttribute('dir', 'ltr');
     expect(email()).toBeRequired();

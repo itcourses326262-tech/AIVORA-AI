@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * `POST /api/v1/auth/verify-email/confirm` `{ token }` -> `{ data: { verified: true,
- * alreadyVerified, bonusCredits } }`. The link in the email opens a PAGE that calls this; the page
+ * alreadyVerified, bonusCredits } }` (`bonusCredits` is 0 unless SIGNUP_BONUS_PROVIDER=any: the
+ * free credits are for Google sign-in). The link in the email opens a PAGE that calls this; the page
  * load itself changes nothing, so mail scanners that fetch links cannot burn them. No session is
  * needed (the link may be opened on another device); a link that cannot be used is a 400
  * `bad_request` with `details.reason` of `invalid`, `expired` or `used`.

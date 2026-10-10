@@ -12,8 +12,10 @@ type VerificationFacts = Pick<
 >;
 
 /**
- * Where the account stands with email confirmation, for the UI. The bonus is looked up only for an
- * account that has to confirm and has not: everybody else pays for no query.
+ * Where the account stands with email confirmation, for the UI. The pending bonus is 0 for
+ * everybody except, in a setup where password accounts earn the free credits at all
+ * (SIGNUP_BONUS_PROVIDER=any), an account that has to confirm and has not; it is looked up only
+ * then, so everybody else pays for no query.
  */
 function verificationFacts(user: UserRow): VerificationFacts {
   const required = isEmailVerificationRequired();

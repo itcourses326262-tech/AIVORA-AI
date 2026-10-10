@@ -75,7 +75,8 @@ describe('scripts/admin.ts', () => {
     const listed = await admin(['list-users', '--json']);
     expect(listed.code).toBe(0);
     expect(JSON.parse(listed.stdout)).toMatchObject([
-      { email: 'root@example.com', role: 'admin', credits: 50, status: 'active' },
+      // The free sign-up credits are for Google sign-in: an operator-made account starts empty.
+      { email: 'root@example.com', role: 'admin', credits: 0, status: 'active' },
     ]);
 
     const db = new Database(databasePath, { readonly: true });
@@ -87,7 +88,7 @@ describe('scripts/admin.ts', () => {
   it('grants credits through the ledger', async () => {
     const granted = await admin(['grant-credits', '--email', 'root@example.com', '--amount', '25']);
     expect(granted.code).toBe(0);
-    expect(granted.stdout).toContain('Balance: 75');
+    expect(granted.stdout).toContain('Balance: 25');
   });
 
   it('exits 1 when the command fails and 2 when it is used wrongly', async () => {

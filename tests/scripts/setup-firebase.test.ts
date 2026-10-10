@@ -1106,6 +1106,290 @@ describe('npm run setup:firebase', () => {
     }, 120_000);
   });
 
+  describe('the four identifiers as flags (one line sets Google sign-in up)', () => {
+    const DOMAIN = 'demo-project.firebaseapp.com';
+    const pairs = (over: Record<string, string> = {}) =>
+      Object.entries({
+        '--api-key': API_KEY,
+        '--auth-domain': DOMAIN,
+        '--project-id': 'demo-project',
+        '--app-id': APP_ID,
+        ...over,
+      });
+    const flags = (over: Record<string, string> = {}) => pairs(over).flat();
+    const ids = [
+      'FIREBASE_API_KEY',
+      'FIREBASE_AUTH_DOMAIN',
+      'FIREBASE_PROJECT_ID',
+      'FIREBASE_APP_ID',
+    ];
+    const namesIn = (text: string) =>
+      [...text.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]);
+
+    it('writes the four values and asks nothing: no block to paste, no question, no key file', async () => {
+      const { code, out } = await setup('', ['--signin-only', '--yes', ...flags()]);
+      expect(code, out).toBe(0);
+
+      const saved = savedEnv();
+      expect(namesIn(saved)).toEqual(ids);
+      expect(saved).toContain(`FIREBASE_API_KEY=${API_KEY}`);
+      expect(saved).toContain(`FIREBASE_AUTH_DOMAIN=${DOMAIN}`);
+      expect(saved).toContain('FIREBASE_PROJECT_ID=demo-project');
+      expect(saved).toContain(`FIREBASE_APP_ID=${APP_ID}`);
+      if (process.platform !== 'win32') expect(statSync(envFile).mode & 0o777).toBe(0o600);
+
+      expect(out).toContain('Took 4 values from the command line.');
+      expect(out).not.toContain('Paste the firebaseConfig');
+      expect(out).not.toContain('[y/N]');
+      expect(out).not.toMatch(/key file|service-account|Storage Object Admin|STORAGE_DRIVER/i);
+      expect(existsSync(join(work, 'data'))).toBe(false);
+      expect(out).toContain('Saved FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN');
+      expect(out).toContain('Authorized domains');
+    }, 60_000);
+
+    it('masks the API key in everything it prints', async () => {
+      const { code, out } = await setup('', ['--signin-only', '--yes', ...flags()]);
+      expect(code, out).toBe(0);
+      expect(out).toContain(
+        `apiKey         ${API_KEY.slice(0, 4)}... (${API_KEY.length} characters)`,
+      );
+      expect(out).not.toContain(API_KEY);
+      expect(out).not.toContain(API_KEY.slice(0, 12));
+      expectNoLeak(out);
+    }, 60_000);
+
+    it('takes them in any order, and without --yes when --signin-only is there', async () => {
+      const { code, out } = await setup('', ['--signin-only', ...pairs().reverse().flat()]);
+      expect(code, out).toBe(0);
+      expect(namesIn(savedEnv())).toEqual(ids);
+      expect(savedEnv()).toContain('FIREBASE_PROJECT_ID=demo-project');
+    }, 60_000);
+
+    it('runs the same checks as the pasted block, and saves nothing when one fails', async () => {
+      const bad: Array<[string, string, string]> = [
+        ['--api-key', 'tooshort', 'apiKey'],
+        ['--auth-domain', 'not a host name', 'authDomain'],
+        ['--project-id', 'Bad_Project', 'projectId'],
+        ['--app-id', 'nope', 'appId'],
+      ];
+      for (const [flag, value, field] of bad) {
+        const { code, out } = await setup('', [
+          '--signin-only',
+          '--yes',
+          ...flags({ [flag]: value }),
+        ]);
+        expect(code, `${flag}\n${out}`).toBe(1);
+        expect(out).toContain('Nothing was saved. The config has problems:');
+        expect(out).toContain(field);
+        expect(out).not.toContain(API_KEY);
+        expectNothingSaved();
+      }
+    }, 240_000);
+
+    it('lets a flag override the same value of --config, and the rest comes from the block', async () => {
+      const { code, out } = await setup('', [
+        '--config',
+        SNIPPET,
+        '--signin-only',
+        '--project-id',
+        'other-project',
+        '--auth-domain',
+        'other-project.firebaseapp.com',
+      ]);
+      expect(code, out).toBe(0);
+      const saved = savedEnv();
+      expect(saved).toContain('FIREBASE_PROJECT_ID=other-project');
+      expect(saved).toContain('FIREBASE_AUTH_DOMAIN=other-project.firebaseapp.com');
+      expect(saved).not.toContain('demo-project');
+      expect(saved).toContain(`FIREBASE_API_KEY=${API_KEY}`);
+      expect(saved).toContain(`FIREBASE_APP_ID=${APP_ID}`);
+      expect(out).toContain('Read 5 values from the config block.');
+      expect(out).toContain('Took 2 values from the command line.');
+      expect(out).not.toContain('Paste the firebaseConfig');
+    }, 60_000);
+
+    it('completes a block that lacks a value', async () => {
+      const withoutAppId = SNIPPET.replace(/ {2}appId: .*\n/, '');
+      const missing = await setup('', ['--config', withoutAppId, '--signin-only']);
+      expect(missing.code).toBe(1);
+      expectNothingSaved();
+
+      const { code, out } = await setup('', [
+        '--config',
+        withoutAppId,
+        '--signin-only',
+        '--app-id',
+        APP_ID,
+      ]);
+      expect(code, out).toBe(0);
+      expect(savedEnv()).toContain(`FIREBASE_APP_ID=${APP_ID}`);
+    }, 120_000);
+
+    it('asks only for what is missing, and never waits for a pasted block', async () => {
+      const { code, out } = await setup('\n', [
+        '--signin-only',
+        '--api-key',
+        API_KEY,
+        '--project-id',
+        'demo-project',
+        '--app-id',
+        APP_ID,
+      ]);
+      expect(code, out).toBe(0);
+      expect(out).toContain('Missing from the command line: authDomain. Type them in.');
+      expect(out).not.toContain('Paste the firebaseConfig');
+      // Enter takes the default made from the project id.
+      expect(savedEnv()).toContain(`FIREBASE_AUTH_DOMAIN=${DOMAIN}`);
+    }, 60_000);
+
+    it('saves nothing when a value it needs never arrives', async () => {
+      const { code, out } = await setup('', [
+        '--signin-only',
+        '--api-key',
+        API_KEY,
+        '--project-id',
+        'demo-project',
+        '--auth-domain',
+        DOMAIN,
+      ]);
+      expect(code).toBe(1);
+      expect(out).toContain('Nothing was saved: no value for appId arrived.');
+      expectNothingSaved();
+    }, 60_000);
+
+    it('takes away quotes a shell left around a value, a trailing comma and the scheme of the domain', async () => {
+      const { code, out } = await setup('', [
+        '--signin-only',
+        ...flags({
+          '--api-key': `'${API_KEY}',`,
+          '--auth-domain': `https://${DOMAIN}/`,
+          '--project-id': '"demo-project"',
+          '--app-id': `\`${APP_ID}\``,
+        }),
+      ]);
+      expect(code, out).toBe(0);
+      const saved = savedEnv();
+      expect(saved).toContain(`FIREBASE_API_KEY=${API_KEY}\n`);
+      expect(saved).toContain(`FIREBASE_AUTH_DOMAIN=${DOMAIN}\n`);
+      expect(saved).toContain('FIREBASE_PROJECT_ID=demo-project\n');
+      expect(saved).toContain(`FIREBASE_APP_ID=${APP_ID}\n`);
+    }, 60_000);
+
+    it('writes to --env, keeps the other settings, and running it twice changes nothing', async () => {
+      const other = join(work, 'custom.env');
+      writeFileSync(other, 'APP_URL=http://localhost:3000\nSTORAGE_DRIVER=gcs\n');
+      const args = ['--signin-only', '--yes', '--env', other, ...flags()];
+      expect((await setup('', args)).code).toBe(0);
+      const first = readFileSync(other, 'utf8');
+      expect(first).toContain('APP_URL=http://localhost:3000');
+      expect(first).toContain('STORAGE_DRIVER=gcs');
+      expect(namesIn(first)).toContain('FIREBASE_APP_ID');
+      expect((await setup('', args)).code).toBe(0);
+      expect(readFileSync(other, 'utf8')).toBe(first);
+      expect(existsSync(envFile)).toBe(false);
+    }, 120_000);
+
+    it('also feeds the Storage setup (--file): the bucket is the one thing still asked for', async () => {
+      const { code, out } = await setup('\n', ['--yes', '--file', keyFile, ...flags()]);
+      expect(code, out).toBe(0);
+      expect(out).toContain('Missing from the command line: storageBucket');
+      expect(savedEnv()).toContain('FIREBASE_STORAGE_BUCKET=demo-project.firebasestorage.app');
+      expect(savedEnv()).toContain(`FIREBASE_API_KEY=${API_KEY}`);
+      expect(readFileSync(copiedKey())).toEqual(readFileSync(keyFile));
+      expect(out).not.toContain(API_KEY);
+      expectNoLeak(out);
+    }, 60_000);
+
+    it('is listed in --help', async () => {
+      const { code, out } = await setup('', ['--help']);
+      expect(code).toBe(0);
+      expect(out).toContain(
+        '[--api-key <v>] [--auth-domain <v>] [--project-id <v>] [--app-id <v>]',
+      );
+      expect(out).toContain('override the same value of --config');
+    }, 60_000);
+
+    describe('usage mistakes', () => {
+      it.each(['--api-key', '--auth-domain', '--project-id', '--app-id'])(
+        '%s without a value is a usage error, whatever follows it',
+        async (flag) => {
+          for (const args of [[flag], [flag, '--yes'], [flag, ''], [flag, '  ']]) {
+            const { code, out } = await setup('', args);
+            expect(code, args.join(' ')).toBe(2);
+            expect(out).toContain(`${flag} needs a value.`);
+            expect(out).toContain('usage:');
+            expectNothingSaved();
+          }
+        },
+        120_000,
+      );
+
+      it('refuses a flag given twice instead of silently taking the first', async () => {
+        const { code, out } = await setup('', [
+          '--signin-only',
+          ...flags(),
+          '--project-id',
+          'another-one',
+        ]);
+        expect(code).toBe(2);
+        expect(out).toContain('--project-id was given twice.');
+        expectNothingSaved();
+      }, 60_000);
+
+      it('does not repeat a value written as --api-key=<value>, and says what to write instead', async () => {
+        const { code, out } = await setup('', [`--api-key=${API_KEY}`]);
+        expect(code).toBe(2);
+        expect(out).toContain('Unknown argument: --api-key=...');
+        expect(out).toContain('--api-key <value>');
+        expect(out).not.toContain(API_KEY);
+        expectNothingSaved();
+      }, 60_000);
+
+      it('does not repeat a value that has no flag in front of it either', async () => {
+        const { code, out } = await setup('', ['--signin-only', API_KEY]);
+        expect(code).toBe(2);
+        expect(out).toContain('a value without a flag in front of it');
+        expect(out).not.toContain(API_KEY);
+      }, 60_000);
+
+      it('keeps reporting an unknown flag by name', async () => {
+        const { out } = await setup('', ['--bogus=secret-looking-text']);
+        expect(out).toContain('Unknown argument: --bogus');
+        expect(out).not.toContain('secret-looking-text');
+      }, 60_000);
+
+      it('prints only ASCII', async () => {
+        const { out } = await setup('', ['--signin-only', '--yes', ...flags()]);
+        expect(out).toMatch(/^[\x09\x0a\x0d\x20-\x7e]*$/);
+      }, 60_000);
+    });
+
+    describe.skipIf(!hasPty())('in a real terminal (pseudo-terminal)', () => {
+      it('sets sign-in up from the line alone: no paste is waited for and nothing is asked', async () => {
+        const { code, out } = await ptySetup([], ['--signin-only', '--yes', ...flags()]);
+        expect(code, out).toBe(0);
+        expect(namesIn(savedEnv())).toEqual(ids);
+        expect(out).not.toContain('Paste the firebaseConfig');
+        expect(out).not.toContain('[y/N]');
+        expect(out).toContain('Took 4 values from the command line.');
+        expect(out).not.toContain(API_KEY);
+        expectNoLeak(out);
+      }, 90_000);
+
+      it('still asks the Storage question when only the flags were given, and Enter means no', async () => {
+        const { code, out } = await ptySetup(
+          [{ waitFor: '[y/N]', pause: 0.5, send: ['\r'] }],
+          flags(),
+        );
+        expect(code, out).toBe(0);
+        expect(out).not.toContain('Paste the firebaseConfig');
+        expect(namesIn(savedEnv())).toEqual(ids);
+        expect(out).toContain('To add Cloud Storage later');
+        expect(out).not.toContain(API_KEY);
+      }, 90_000);
+    });
+  });
+
   describe('usage', () => {
     it('rejects unknown flags and flags without a value', async () => {
       for (const args of [['--bogus'], ['--file'], ['--config', '--yes']]) {

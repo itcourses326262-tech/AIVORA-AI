@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { POST as register } from '@/app/api/v1/auth/register/route';
 import { POST as confirm } from '@/app/api/v1/auth/verify-email/confirm/route';
 import { GET as list, POST as create } from '@/app/api/v1/generations/route';
@@ -13,6 +13,9 @@ import { PASSWORD, browser, cookieNamed, routeTestState, stubEnv, type ErrorBody
 
 const harness = freshDb();
 routeTestState();
+// The bonus assertions in this file are about a setup where password accounts earn it
+// (SIGNUP_BONUS_PROVIDER=any, the suite default); who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 cleanEmailState();
 
 type Body = { data: Record<string, unknown> } & ErrorBody;

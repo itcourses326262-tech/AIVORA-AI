@@ -9,13 +9,9 @@ import { renderLayout, singleLine, type Paragraph } from './layout';
 type Dictionary = (typeof emailCopy)['en'];
 
 export type EmailSpec =
-  | (Common & {
-      kind: 'verification';
-      link: string;
-      ttlHours: number;
-      /** Credits the confirmation unlocks (0 or absent: no bonus line). */
-      bonusCredits?: number;
-    })
+  // Confirming an address pays no credits (the free ones are for Google sign-in), so this mail
+  // never talks about credits.
+  | (Common & { kind: 'verification'; link: string; ttlHours: number })
   | (Common & { kind: 'password_reset'; link: string; ttlHours: number })
   | (Common & {
       kind: 'password_changed';
@@ -25,7 +21,12 @@ export type EmailSpec =
       /** API keys the reset revoked (0 or absent: the notice does not mention keys). */
       keysRevoked?: number;
     })
-  | (Common & { kind: 'welcome'; link: string; bonusCredits?: number })
+  | (Common & {
+      kind: 'welcome';
+      link: string;
+      /** Free credits this account was given on joining (0 or absent: the mail does not mention any). */
+      bonusCredits?: number;
+    })
   | (Common & { kind: 'account_deleted' })
   | BillingEmailSpec;
 
@@ -59,31 +60,26 @@ function renderAccountEmail(spec: AccountEmailSpec): EmailMessage {
   const footer = paragraph(c.shared.sentTo, { email: { value: to, ltr: true } }, locale, 'muted');
 
   switch (spec.kind) {
-    case 'verification': {
-      const lines: Paragraph[] = [greeting, paragraph(c.verification.intro, { email }, locale)];
-      if (spec.bonusCredits && spec.bonusCredits > 0) {
-        const credits: Value = { value: creditsLabel(locale, spec.bonusCredits), strong: true };
-        lines.push(paragraph(c.verification.bonus, { credits }, locale));
-      }
-      lines.push(
-        paragraph(
-          c.verification.expiry,
-          { duration: { value: duration(locale, 'hour', spec.ttlHours) } },
-          locale,
-          'muted',
-        ),
-        paragraph(c.verification.ignore, {}, locale, 'muted'),
-      );
+    case 'verification':
       return build(spec, c.verification.subject, {
         ...base,
         subject: c.verification.subject,
         preheader: c.verification.preheader,
         heading: c.verification.heading,
-        paragraphs: lines,
+        paragraphs: [
+          greeting,
+          paragraph(c.verification.intro, { email }, locale),
+          paragraph(
+            c.verification.expiry,
+            { duration: { value: duration(locale, 'hour', spec.ttlHours) } },
+            locale,
+            'muted',
+          ),
+          paragraph(c.verification.ignore, {}, locale, 'muted'),
+        ],
         action: { label: c.verification.action, url: spec.link },
         footer,
       });
-    }
     case 'password_reset':
       return build(spec, c.passwordReset.subject, {
         ...base,

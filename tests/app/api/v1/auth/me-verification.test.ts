@@ -40,8 +40,29 @@ describe('GET /api/v1/auth/me tells the UI where the account stands with email c
     });
   });
 
-  it('for a new account that has to confirm: unconfirmed, no credits yet, the bonus that confirming adds; then confirmed and paid', async () => {
-    stubEnv({ EMAIL_VERIFICATION: 'required' });
+  it('under the product policy a password account has nothing pending, and confirming leaves it at 0', async () => {
+    stubEnv({ EMAIL_VERIFICATION: 'required', SIGNUP_BONUS_PROVIDER: 'google' });
+    const { user } = await registerUser({
+      email: 'layla@example.com',
+      password: 'correct horse battery staple',
+      name: 'Layla',
+      locale: 'en',
+    });
+    const cookie = createSession(harness.db, user.id).cookie;
+    const expected = { creditBalance: 0, emailVerificationRequired: true, pendingBonusCredits: 0 };
+
+    const before = await get(cookie);
+    expectUserDTO(before.json.data);
+    expect(before.json.data).toMatchObject({ ...expected, emailVerified: false });
+
+    confirmEmailVerification(linkIn(await mailTo('layla@example.com')).token);
+
+    const after = await get(cookie);
+    expect(after.json.data).toMatchObject({ ...expected, emailVerified: true });
+  });
+
+  it('for a new account that has to confirm, where password accounts earn the bonus: unconfirmed, no credits yet, the bonus that confirming adds; then confirmed and paid', async () => {
+    stubEnv({ EMAIL_VERIFICATION: 'required', SIGNUP_BONUS_PROVIDER: 'any' });
     const { user } = await registerUser({
       email: 'layla@example.com',
       password: 'correct horse battery staple',

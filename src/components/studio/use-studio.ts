@@ -51,8 +51,8 @@ export interface StudioController {
   /** The session ended while the page was open: the balance reads 0 only for want of a user. */
   signedOut: boolean;
   /**
-   * The account must confirm its email address before it may generate (the balance reads 0 until
-   * the sign-up bonus is paid on confirmation): the studio asks for that instead of for credits.
+   * The account must confirm its email address before it may generate or buy credits: the studio
+   * asks for that instead of for credits.
    */
   emailUnconfirmed: boolean;
   /** `/login` back to this very studio; set once the session has ended. */

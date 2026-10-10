@@ -19,7 +19,6 @@ export const emailCopy = defineMessages({
       heading: 'Confirm your email',
       intro:
         'Thanks for signing up for AIVORE. Confirm that {email} is your address to activate your account.',
-      bonus: 'Confirming adds your sign-up bonus of {credits} to your balance.',
       action: 'Confirm email',
       expiry: 'This link works for {duration} and can be used once.',
       ignore: "If you didn't create an AIVORE account, you can ignore this email.",
@@ -168,7 +167,6 @@ export const emailCopy = defineMessages({
       preheader: 'خطوة واحدة وتبدأ الإبداع.',
       heading: 'أكّد بريدك الإلكتروني',
       intro: 'شكرًا لتسجيلك في AIVORE. أكّد أن {email} هو بريدك الإلكتروني لتفعيل حسابك.',
-      bonus: 'بعد التأكيد يُضاف {credits} مجانًا إلى رصيدك.',
       action: 'تأكيد البريد',
       expiry: 'الرابط صالح لمدة {duration} ويُستخدم مرة واحدة فقط.',
       ignore: 'إن لم تنشئ حسابًا في AIVORE فتجاهل هذه الرسالة.',

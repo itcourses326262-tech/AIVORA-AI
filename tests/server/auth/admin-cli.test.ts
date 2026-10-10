@@ -8,7 +8,7 @@ import type { CliIo } from '@/server/auth/admin/io';
 import { creditLedger, sessions, users } from '@/server/db/schema';
 import { loginUser } from '@/server/auth/users';
 import { resolveSession } from '@/server/auth/sessions';
-import { GOOD_PASSWORD, cleanSecurityState, passwordFixture } from './support';
+import { GOOD_PASSWORD, cleanSecurityState, passwordFixture, stubEnv } from './support';
 
 const harness = freshDb();
 const fixture = passwordFixture();
@@ -64,6 +64,9 @@ describe('usage', () => {
       expect(help.out).toContain(command);
     }
     expect(help.out).toMatch(/exit codes/i);
+    // The help says what the free sign-up credits are for, so nobody expects them from create-user.
+    expect(help.out).toContain('starts with 0 credits unless --credits is given');
+    expect(help.out).toContain('pays no');
     expect((await run([])).code).toBe(EXIT_USAGE);
   });
 
@@ -82,23 +85,50 @@ describe('usage', () => {
 });
 
 describe('create-user', () => {
-  it('creates a user with a password from stdin and the signup bonus, without printing the password', async () => {
+  it('creates a user with a password from stdin and no credits, without printing the password', async () => {
     const result = await run(
       ['create-user', '--email', 'New@Example.com', '--name', 'New One', '--password-stdin'],
       { secrets: [GOOD_PASSWORD] },
     );
     expect(result.code).toBe(EXIT_OK);
     expect(result.out).toContain('new@example.com');
+    expect(result.out).toContain('with 0 credits');
     expect(result.out + result.err).not.toContain(GOOD_PASSWORD);
     const row = userByEmail('new@example.com');
-    expect(row).toMatchObject({ name: 'New One', role: 'user', locale: 'ar', creditBalance: 50 });
+    // The free sign-up credits are for Google sign-in, not for accounts made by password.
+    expect(row).toMatchObject({ name: 'New One', role: 'user', locale: 'ar', creditBalance: 0 });
+    expect(harness.db.select().from(creditLedger).all()).toEqual([]);
     expect(row?.passwordHash).toMatch(/^scrypt\$/);
     expect(result.out).not.toContain(row?.passwordHash ?? 'x');
-    expectConsistentLedger(harness.db, row?.id ?? '', 0);
     await expect(
       loginUser({ email: 'new@example.com', password: GOOD_PASSWORD }),
     ).resolves.toBeDefined();
   });
+
+  it.each(['google', 'any'])(
+    'starts empty by default whatever SIGNUP_BONUS_PROVIDER says (%s), and gives --credits exactly',
+    async (provider) => {
+      stubEnv({ SIGNUP_BONUS_PROVIDER: provider });
+      const empty = await run(['create-user', '--email', 'empty@example.com', '--password-stdin'], {
+        secrets: [GOOD_PASSWORD],
+      });
+      expect(empty.code).toBe(EXIT_OK);
+      expect(userByEmail('empty@example.com')?.creditBalance).toBe(0);
+
+      const funded = await run(
+        ['create-user', '--email', 'funded@example.com', '--credits', '25', '--password-stdin'],
+        { secrets: [GOOD_PASSWORD] },
+      );
+      expect(funded.code).toBe(EXIT_OK);
+      expect(funded.out).toContain('with 25 credits');
+      const row = userByEmail('funded@example.com');
+      expect(row?.creditBalance).toBe(25);
+      expectConsistentLedger(harness.db, row?.id ?? '', 0);
+      expect(harness.db.select().from(creditLedger).all()).toMatchObject([
+        { userId: row?.id, delta: 25, reason: 'signup_bonus' },
+      ]);
+    },
+  );
 
   it('creates an admin with a chosen locale and credit amount', async () => {
     const result = await run(

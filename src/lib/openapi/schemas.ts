@@ -104,7 +104,7 @@ export const userSchema = exact<UserDTO>()(
       .number()
       .int()
       .describe(
-        'Free credits that confirming the address would add right now; 0 when there are none.',
+        'Free credits that confirming the address would add right now. Always 0 on a server that gives the free sign-up credits to Google sign-in only (the default): confirming a password account pays nothing.',
       ),
     hasPassword: z
       .boolean()
@@ -325,5 +325,10 @@ export const verifyEmailRequestSchema = z.object({
 export const verifyEmailConfirmSchema = z.object({
   verified: z.literal(true),
   alreadyVerified: z.boolean(),
-  bonusCredits: z.number().int().describe('Signup credits released by the confirmation.'),
+  bonusCredits: z
+    .number()
+    .int()
+    .describe(
+      'Signup credits released by the confirmation. 0 on a server that gives them to Google sign-in only (the default).',
+    ),
 });

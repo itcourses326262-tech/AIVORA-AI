@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { POST as register } from '@/app/api/v1/auth/register/route';
 import { GET as me } from '@/app/api/v1/auth/me/route';
 import { creditLedger, sessions, users } from '@/server/db/schema';
@@ -22,6 +22,9 @@ import {
 
 const harness = freshDb();
 routeTestState();
+// The bonus assertions in this file are about a setup where password accounts earn it
+// (SIGNUP_BONUS_PROVIDER=any, the suite default); who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 
 const URL_ = '/api/v1/auth/register';
 const valid = { email: 'Lina@Example.com', password: PASSWORD, name: 'Lina Hassan', locale: 'en' };
@@ -76,6 +79,16 @@ describe('POST /api/v1/auth/register', () => {
     expect(harness.db.select().from(creditLedger).all()).toMatchObject([
       { delta: 50, balanceAfter: 50, reason: 'signup_bonus' },
     ]);
+  });
+
+  it('gives the account no credits under the product policy: the free ones are for Google sign-in', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'google' });
+    const result = await post(valid);
+
+    expect(result.status).toBe(201);
+    expectUserDTO(result.json.data);
+    expect(result.json.data).toMatchObject({ creditBalance: 0, pendingBonusCredits: 0 });
+    expect(harness.db.select().from(creditLedger).all()).toEqual([]);
   });
 
   it('takes the language from Accept-Language when none is given, and the body wins when it is', async () => {

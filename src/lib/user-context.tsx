@@ -31,9 +31,9 @@ export type CurrentUser = Pick<
   >;
 
 /**
- * The server requires a confirmed address and this account has none: it cannot generate or buy,
- * and its balance is 0 until the sign-up bonus is paid on confirmation. Studio and Pricing say so
- * instead of "not enough credits" / "buy".
+ * The server requires a confirmed address and this account has none: it cannot generate or buy
+ * until the emailed link is opened (confirming pays no credits). Studio and Pricing say so instead
+ * of "not enough credits" / "buy".
  */
 export function needsEmailConfirmation(user: CurrentUser | null): boolean {
   return user !== null && user.emailVerificationRequired === true && user.emailVerified !== true;

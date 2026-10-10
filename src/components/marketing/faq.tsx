@@ -13,11 +13,18 @@ export interface FaqEntry {
   answer: string;
 }
 
-export function faqEntries({ t }: Pick<Translator, 't'>): FaqEntry[] {
+/**
+ * `bonus`: free credits a visitor can earn by signing up with Google. Without it (the default) the
+ * first answer does not promise any, which is always true; the page passes the number it shows.
+ */
+export function faqEntries({ t }: Pick<Translator, 't'>, bonus = 0): FaqEntry[] {
   return FAQ_KEYS.map((key) => ({
     key,
     question: t(`landing.faq.items.${key}.question` satisfies MessageKey),
-    answer: t(`landing.faq.items.${key}.answer` satisfies MessageKey),
+    answer:
+      key === 'free' && bonus <= 0
+        ? t('landing.faq.items.free.answerNoBonus' satisfies MessageKey)
+        : t(`landing.faq.items.${key}.answer` satisfies MessageKey),
   }));
 }
 
@@ -26,7 +33,7 @@ export function faqEntries({ t }: Pick<Translator, 't'>): FaqEntry[] {
  * the expanded state for assistive technology, find-in-page that opens the answer, and it all
  * works without a line of script. Sharing the `name` makes it an accordion (one answer open).
  */
-export function Faq({ i18n }: { i18n: Translator }) {
+export function Faq({ i18n, bonus = 0 }: { i18n: Translator; bonus?: number }) {
   const { t } = i18n;
   return (
     <Section id="faq">
@@ -37,7 +44,7 @@ export function Faq({ i18n }: { i18n: Translator }) {
           styles.reveal,
         )}
       >
-        {faqEntries(i18n).map((entry, index) => (
+        {faqEntries(i18n, bonus).map((entry, index) => (
           <details key={entry.key} name="faq" open={index === 0} className="group px-5 sm:px-6">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-lg py-5 text-start marker:hidden [&::-webkit-details-marker]:hidden">
               <h3 className="text-base font-medium text-foreground rtl:font-semibold">

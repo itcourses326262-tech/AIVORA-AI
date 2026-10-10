@@ -8,6 +8,7 @@ import type { FirebaseWebConfig } from '@/lib/firebase-config';
 import { useI18n } from '@/lib/i18n/client';
 import { AuthHeading, AuthSwitch, authLink } from './auth-parts';
 import { GoogleSignIn } from './google-button';
+import { GoogleSignInPlaceholder } from './google-placeholder';
 import { PasswordField } from './password-field';
 import { loginSchema } from './schemas';
 import { EmailField } from './text-fields';
@@ -22,18 +23,25 @@ export interface LoginFormProps {
   aside?: ReactNode;
   /** The public Firebase identifiers; the "Continue with Google" button shows only with them. */
   firebase?: FirebaseWebConfig | null;
+  /** Development only, without `firebase`: a dashed box where the button will be (see `showGoogleSetupPlaceholder`). */
+  googlePlaceholder?: boolean;
 }
 
-export function LoginForm({ next, aside, firebase }: LoginFormProps) {
+export function LoginForm({ next, aside, firebase, googlePlaceholder }: LoginFormProps) {
   const { t } = useI18n();
   const form = useAuthForm({ mode: 'login', fields: FIELDS, schema: loginSchema, next });
   return (
     <div className="relative grid gap-6">
       <AuthHeading title={t('auth.login.title')} subtitle={t('auth.login.subtitle')} />
-      {firebase ? <GoogleSignIn config={firebase} next={next} showConsent /> : null}
+      {firebase ? (
+        <GoogleSignIn config={firebase} next={next} showConsent />
+      ) : googlePlaceholder ? (
+        <GoogleSignInPlaceholder showConsent />
+      ) : null}
       <FormError>{form.formError}</FormError>
-      <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
+      <form method="post" noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <EmailField
+          autoComplete="username"
           value={form.values.email}
           onValueChange={(value) => form.setValue('email', value)}
           onBlur={(event) => form.onBlur('email', event)}
@@ -41,6 +49,7 @@ export function LoginForm({ next, aside, firebase }: LoginFormProps) {
           inputRef={form.inputRef('email')}
         />
         <PasswordField
+          id="password"
           label={t('auth.fields.password')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}

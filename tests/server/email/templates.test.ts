@@ -22,7 +22,6 @@ function spec(
         kind,
         link: LINK,
         ttlHours: 24,
-        bonusCredits: 50,
         ...overrides,
       } as EmailSpec;
     case 'password_reset':
@@ -137,28 +136,46 @@ describe('renderEmail', () => {
     expect(english).not.toContain(LRI);
   });
 
-  it('uses Arabic grammar and digits for the bonus and the expiry', () => {
+  it('uses Arabic grammar and digits for the expiry and for the credits the welcome mail reports', () => {
     // Format characters (the bidi isolates) are invisible; compare what a person reads.
-    const text = renderEmail(spec('verification', 'ar')).text.replace(/\p{Cf}/gu, '');
-    expect(text).toContain('بعد التأكيد يُضاف ٥٠ رصيدًا مجانًا إلى رصيدك.');
+    const plain = (text: string) => text.replace(/\p{Cf}/gu, '');
+    const text = plain(renderEmail(spec('verification', 'ar')).text);
     expect(text).toContain('٢٤ ساعة');
     const reset = renderEmail(spec('password_reset', 'ar')).text;
     expect(reset).toMatch(/ساعة/);
-    expect(renderEmail(spec('verification', 'en')).text).toContain(
-      'Confirming adds your sign-up bonus of 50 credits to your balance.',
+    expect(plain(renderEmail(spec('welcome', 'ar')).text)).toContain(
+      'أضفنا ٥٠ رصيدًا مجانًا إلى رصيدك لتبدأ فورًا.',
+    );
+    expect(renderEmail(spec('welcome', 'en')).text).toContain(
+      'We added your sign-up bonus of 50 credits to your balance so you can start right away.',
     );
     expect(
-      renderEmail(spec('verification', 'en', { bonusCredits: 1 } as Partial<EmailSpec>)).text,
+      renderEmail(spec('welcome', 'en', { bonusCredits: 1 } as Partial<EmailSpec>)).text,
     ).toContain('sign-up bonus of 1 credit');
     expect(renderEmail(spec('verification', 'en')).text).toContain('24 hours');
   });
 
-  it('leaves the bonus line out when there is no bonus', () => {
-    const none = renderEmail(spec('verification', 'en', { bonusCredits: 0 } as Partial<EmailSpec>));
-    expect(none.text).not.toContain('sign-up bonus');
-    expect(
-      renderEmail(spec('welcome', 'en', { bonusCredits: 0 } as Partial<EmailSpec>)).text,
-    ).not.toContain('sign-up bonus');
+  it('leaves the credits line out of the welcome mail when none were given', () => {
+    for (const locale of ['en', 'ar'] as const) {
+      const none = renderEmail(spec('welcome', locale, { bonusCredits: 0 } as Partial<EmailSpec>));
+      expect(none.text, locale).not.toMatch(/credit|bonus|رصيد|مجان/i);
+      expect(none.html, locale).not.toMatch(/credit|bonus|رصيد|مجان/i);
+      // The line is the only difference: the rest of the mail is still there.
+      expect(none.text.length).toBeGreaterThan(40);
+    }
+  });
+
+  it('never promises credits in the confirmation mail: confirming an address pays none', () => {
+    for (const locale of ['en', 'ar'] as const) {
+      // Even a caller from before this rule (a stale spec with a bonus) cannot make it promise any.
+      const stale = { bonusCredits: 50 } as Partial<EmailSpec>;
+      for (const overrides of [{}, stale]) {
+        const mail = renderEmail(spec('verification', locale, overrides));
+        for (const body of [mail.subject, mail.text, mail.html]) {
+          expect(body, locale).not.toMatch(/credit|bonus|free|رصيد|مجان|هدية|مكافأة/i);
+        }
+      }
+    }
   });
 
   it('states the time of a password change in UTC', () => {
@@ -166,7 +183,7 @@ describe('renderEmail', () => {
   });
 
   it('matches the stored snapshots (structure and wording)', () => {
-    const fixed = { name: 'Layla', bonusCredits: 50 } as Partial<EmailSpec>;
+    const fixed = { name: 'Layla' } as Partial<EmailSpec>;
     expect(renderEmail(spec('verification', 'en', fixed)).html).toMatchSnapshot(
       'verification-en-html',
     );

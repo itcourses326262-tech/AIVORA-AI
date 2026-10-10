@@ -41,6 +41,26 @@ export function parseFirebaseConfig(text: string): Partial<FirebaseWebConfig> {
   return found;
 }
 
+/** The command-line flags that carry one of the four public identifiers, and the field each fills. */
+export const VALUE_FLAGS = {
+  '--api-key': 'apiKey',
+  '--auth-domain': 'authDomain',
+  '--project-id': 'projectId',
+  '--app-id': 'appId',
+} as const satisfies Record<string, keyof FirebaseWebConfig>;
+
+/**
+ * A value typed or pasted after a flag, without the quotes a shell did not remove (cmd.exe keeps
+ * single quotes) and the comma copied along from a `name: "value",` line.
+ */
+export function cleanFlagValue(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^["'`]+/, '')
+    .replace(/["'`,]+$/, '')
+    .trim();
+}
+
 /** True when every field the sign-in needs is present (the bucket may still be missing). */
 export function hasLoginFields(config: Partial<FirebaseWebConfig>): boolean {
   return REQUIRED_FOR_LOGIN.every((name) => Boolean(config[name]));

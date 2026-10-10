@@ -57,7 +57,7 @@ export function ForgotPasswordForm() {
     <div className="grid gap-6">
       <AuthHeading title={t('auth.forgot.title')} subtitle={t('auth.forgot.subtitle')} />
       <FormError>{form.formError}</FormError>
-      <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
+      <form method="post" noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <EmailField
           value={form.values.email}
           onValueChange={(value) => form.setValue('email', value)}

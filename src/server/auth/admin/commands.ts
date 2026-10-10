@@ -336,7 +336,9 @@ export function forceVerify(context: CommandContext): void {
   const user = findUser(context);
   // Confirming never promotes: the operator vouches for the mailbox, not for whoever chose the
   // password. An ADMIN_EMAILS address is promoted by a password reset, or with set-role.
-  const outcome = withTx(getDb(), (tx) => markEmailVerified(tx, user.id));
+  const outcome = withTx(getDb(), (tx) =>
+    markEmailVerified(tx, user.id, Date.now(), { bonus: 'password' }),
+  );
   if (!outcome.changed) {
     context.io.out(`${user.email} had already confirmed their address.`);
     return;

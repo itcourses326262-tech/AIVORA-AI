@@ -95,11 +95,16 @@ export interface UserDTO {
   /**
    * The server asks for a confirmed address before this account may generate or buy credits
    * (`EMAIL_VERIFICATION`): while it is true and `emailVerified` is false, `POST /generations` and
-   * `POST /billing/checkout` answer 403 `email_not_verified` and the balance is 0 until the
-   * sign-up bonus is paid on confirmation.
+   * `POST /billing/checkout` answer 403 `email_not_verified`.
    */
   emailVerificationRequired: boolean;
-  /** Free credits confirming the address would add now; 0 when none (already granted, claimed by another account of the mailbox, or no confirmation needed). */
+  /**
+   * Free credits that confirming the address would add now. 0 in practice: the free sign-up
+   * credits go to accounts created with Google sign-in, so confirming a password account pays
+   * nothing. Only a server configured to pay password accounts too (`SIGNUP_BONUS_PROVIDER=any`,
+   * for development) reports more, and only while the bonus is still unpaid. Kept so older
+   * clients keep working.
+   */
   pendingBonusCredits: number;
   /**
    * False for an account that signs in with Google and never chose a password: changing or

@@ -5,6 +5,7 @@ import { getDb, withTx, type DbOrTx, type Tx } from '@/server/db';
 import { creditLedger, users, type UserRow } from '@/server/db/schema';
 import { getEnv } from '@/server/env';
 import {
+  earnsSignupBonus,
   grantSignupBonus,
   isBonusClaimedByAnother,
   signupBonusKey,
@@ -23,21 +24,25 @@ export function toRecipient(user: Pick<UserRow, 'email' | 'name' | 'locale'>): R
 }
 
 /**
- * Credits the user would still receive on confirming: 0 when the bonus was already granted, is
- * switched off, or was already claimed by another account of the same mailbox (a deleted account
- * registered again), so no email or banner promises what confirming will not give.
+ * Credits the user would still receive on confirming the address by link: 0 unless password
+ * accounts earn the bonus at all (SIGNUP_BONUS_PROVIDER=any; by default only Google sign-in pays
+ * it), and 0 when it was already granted, is switched off, or was already claimed by another
+ * account of the same mailbox (a deleted account registered again), so no email or banner promises
+ * what confirming will not give.
  */
 export function pendingSignupBonus(
   db: DbOrTx,
   user: Pick<UserRow, 'id' | 'email' | 'emailCanonical'>,
 ): number {
+  const env = getEnv();
+  if (!earnsSignupBonus(env, 'password')) return 0;
   const granted = db
     .select({ id: creditLedger.id })
     .from(creditLedger)
     .where(eq(creditLedger.idempotencyKey, signupBonusKey(user.id)))
     .get();
   if (granted || isBonusClaimedByAnother(db, user)) return 0;
-  return getEnv().SIGNUP_BONUS_CREDITS;
+  return env.SIGNUP_BONUS_CREDITS;
 }
 
 export interface VerifiedOutcome {
@@ -48,6 +53,13 @@ export interface VerifiedOutcome {
 }
 
 export interface MarkVerifiedOptions {
+  /**
+   * Whether this confirmation may pay the sign-up bonus, and for what kind of account. Required, so
+   * no caller pays it by accident: `'password'` pays it only where password accounts earn it
+   * (SIGNUP_BONUS_PROVIDER=any; the default policy pays Google sign-in only), `'none'` never. The
+   * Google sign-in paths pass `'none'` and pay through `grantSignupBonus` themselves.
+   */
+  bonus: 'password' | 'none';
   /**
    * Also promote an `ADMIN_EMAILS` address to admin. Default false. Reading the emailed link
    * proves the MAILBOX, not that the owner of the mailbox is the one who holds the account: the
@@ -60,17 +72,17 @@ export interface MarkVerifiedOptions {
 }
 
 /**
- * Marks the address confirmed (compare-and-set on the unconfirmed state) and grants the sign-up
- * bonus if the account never got one. With `options.promoteAdmin` an `ADMIN_EMAILS` address also
- * becomes admin. Idempotent. Synchronous, so the callers run it in the same transaction that
- * consumes the emailed link (or applies the operator's decision), and a failure anywhere burns
- * nothing.
+ * Marks the address confirmed (compare-and-set on the unconfirmed state) and, when
+ * `options.bonus` allows it, grants the sign-up bonus if the account never got one. With
+ * `options.promoteAdmin` an `ADMIN_EMAILS` address also becomes admin. Idempotent. Synchronous, so
+ * the callers run it in the same transaction that consumes the emailed link (or applies the
+ * operator's decision), and a failure anywhere burns nothing.
  */
 export function markEmailVerified(
   tx: Tx,
   userId: string,
-  now: number = Date.now(),
-  options: MarkVerifiedOptions = {},
+  now: number,
+  options: MarkVerifiedOptions,
 ): VerifiedOutcome {
   const row = tx.select().from(users).where(eq(users.id, userId)).get();
   if (!row || row.deletedAt !== null) throw AppError.of('not_found', 'User not found');
@@ -90,7 +102,10 @@ export function markEmailVerified(
   ) {
     tx.update(users).set({ role: 'admin', updatedAt: now }).where(eq(users.id, userId)).run();
   }
-  const bonus = grantSignupBonus(tx, row, env.SIGNUP_BONUS_CREDITS, now);
+  const bonus =
+    options.bonus === 'password' && earnsSignupBonus(env, 'password')
+      ? grantSignupBonus(tx, row, env.SIGNUP_BONUS_CREDITS, now)
+      : null;
   const user = tx.select().from(users).where(eq(users.id, userId)).get();
   if (!user) throw new Error('User row missing right after verification');
   return { user, changed: flipped !== undefined, bonus };
@@ -103,7 +118,7 @@ export interface VerificationState {
   email: string;
   /** Seconds until a new link may be requested (0: now). */
   resendAfterSec: number;
-  /** Free credits confirming would add (0: none, or already granted). */
+  /** Free credits confirming would add (0: none, already granted, or not paid for password accounts). */
   bonusCredits: number;
 }
 
@@ -159,7 +174,7 @@ export async function requestEmailVerification(
     }
     return issueEmailToken(tx, userId, 'verify', now);
   });
-  queueVerificationEmail(toRecipient(row), issued.secret, pendingSignupBonus(db, row));
+  queueVerificationEmail(toRecipient(row), issued.secret);
   return { sent: true, verified: false, resendAfterSec: RESEND_COOLDOWN_SEC };
 }
 
@@ -182,8 +197,9 @@ export interface ConfirmOptions {
 }
 
 /**
- * Uses a confirmation link: marks the address confirmed and grants the sign-up bonus in ONE
- * transaction with burning the link, so a failure leaves the link usable. `bad_request` with
+ * Uses a confirmation link: marks the address confirmed (and pays the sign-up bonus where password
+ * accounts earn one, which is not the default) in ONE transaction with burning the link, so a
+ * failure leaves the link usable. `bad_request` with
  * `details.reason` (`invalid`, `expired`, `used`) for a link that cannot be used. The link is
  * the credential here: callers need no session, the address on the account is what gets confirmed.
  * Admin promotion follows {@link ConfirmOptions.signedInUserId}.
@@ -201,6 +217,7 @@ export function confirmEmailVerification(
       throw new EmailTokenError('invalid');
     }
     return markEmailVerified(tx, token.userId, now, {
+      bonus: 'password',
       promoteAdmin: options.signedInUserId === token.userId,
     });
   });
@@ -219,6 +236,6 @@ export function resendVerificationNow(userId: string, now: number = Date.now()):
   if (!row || row.deletedAt !== null) throw AppError.of('not_found', 'User not found');
   if (row.emailVerifiedAt !== null) return false;
   const issued = withTx(db, (tx) => issueEmailToken(tx, userId, 'verify', now));
-  queueVerificationEmail(toRecipient(row), issued.secret, pendingSignupBonus(db, row));
+  queueVerificationEmail(toRecipient(row), issued.secret);
   return true;
 }

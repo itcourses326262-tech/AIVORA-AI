@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { safeNextPath } from '@/lib/next-path';
 import { describeAuthFailure, type AuthFailure } from './auth-error';
 import { shouldValidateOnBlur } from './blur-policy';
+import { offerToSaveLogin } from './credential-store';
 import { validate, validateField, validationMessage, type FieldName } from './schemas';
 
 export interface UseAuthFormOptions<F extends FieldName> {
@@ -113,9 +114,12 @@ export function useAuthForm<F extends FieldName>({
     }
 
     setSubmitting(true);
+    const { email, password, name }: Partial<Record<FieldName, string>> = checked.data;
     api
       .post<unknown>(`/auth/${mode}`, { ...checked.data, ...extraBody })
       .then(() => {
+        // The client router gives the browser no page load to learn from that this login worked.
+        if (email && password) offerToSaveLogin({ id: email, password, name });
         // Stay in the submitting state while the next page loads: no second click, no flash of the form.
         router.replace(safeNextPath(next));
         router.refresh();

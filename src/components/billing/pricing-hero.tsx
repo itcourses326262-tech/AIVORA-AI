@@ -11,7 +11,7 @@ const POINTS: ReadonlyArray<{ icon: LucideIcon; key: MessageKey }> = [
 
 export interface PricingHeroProps {
   i18n: Translator;
-  /** Credits every new account receives (0 leaves the sentence out). */
+  /** Free credits a visitor can earn by signing up with Google (0 leaves the sentence out). */
   bonus: number;
 }
 

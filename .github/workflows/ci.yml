@@ -132,12 +132,15 @@ jobs:
           tags: aivore:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # SIGNUP_BONUS_PROVIDER=any funds the smoke account: by default only Google sign-up earns the free
+      # credits and a password account starts with none.
       - name: Start the container the way a production host does
         run: |
           docker run -d --name aivore --init -p 3000:3000 \
             -e APP_URL=http://localhost:3000 \
             -e SESSION_SECRET="$(openssl rand -hex 32)" \
             -e TRUST_PROXY=true \
+            -e SIGNUP_BONUS_PROVIDER=any \
             aivore:ci
       - name: Register, generate with the Demo provider, download, check credits
         run: bash .github/scripts/smoke.sh http://localhost:3000

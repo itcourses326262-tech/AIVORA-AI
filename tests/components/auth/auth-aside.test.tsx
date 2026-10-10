@@ -32,7 +32,7 @@ describe('AuthAside', () => {
     const html = await render(50);
     expect(html).toContain('Everything you imagine, ready in seconds');
     expect(items(html)).toEqual([
-      '50 credits free to start',
+      '50 credits free when you sign up with Google',
       'Prompts in Arabic or English',
       'Images and video in one studio',
       'A prompt enhancer that speaks Arabic',
@@ -61,7 +61,7 @@ describe('AuthAside', () => {
   it('is Arabic when the page is, with Arabic grammar for the credits', async () => {
     const html = await render(50, 'ar');
     expect(html).toContain('كل ما تتخيله، جاهز خلال ثوانٍ');
-    expect(items(html)[0]).toBe('٥٠ رصيدًا مجانًا للبدء');
+    expect(items(html)[0]).toBe('٥٠ رصيدًا مجانًا عند التسجيل عبر Google');
     expect(items(html)[3]).toBe('محسّن وصف يفهم العربية');
   });
 

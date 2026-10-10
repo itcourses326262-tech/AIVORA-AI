@@ -103,10 +103,29 @@ describe('the pricing page for a visitor', () => {
   });
 
   it('mentions the sign-up gift from the environment, and leaves it out at zero', async () => {
-    expect(await render()).toContain('New accounts start with 50 credits on us.');
+    vi.stubEnv('FIREBASE_API_KEY', 'k'.repeat(30));
+    vi.stubEnv('FIREBASE_AUTH_DOMAIN', 'demo-project.firebaseapp.com');
+    vi.stubEnv('FIREBASE_PROJECT_ID', 'demo-project');
+    resetEnvForTests();
+    expect(await render()).toContain('Sign up with Google and start with 50 credits on us.');
     vi.stubEnv('SIGNUP_BONUS_CREDITS', '0');
     resetEnvForTests();
-    expect(await render()).not.toContain('New accounts start with');
+    expect(await render()).not.toContain('start with');
+  });
+
+  it('promises the gift only where it can be earned: Google sign-in on, or password accounts paid', async () => {
+    const promise = 'start with 50 credits on us';
+    // The product policy without Google sign-in set up: nobody can earn it, so nothing is promised.
+    vi.stubEnv('SIGNUP_BONUS_PROVIDER', 'google');
+    resetEnvForTests();
+    expect(plain(await render())).not.toContain(promise);
+    // With Google sign-in set up it is promised, in both languages.
+    vi.stubEnv('FIREBASE_API_KEY', 'k'.repeat(30));
+    vi.stubEnv('FIREBASE_AUTH_DOMAIN', 'demo-project.firebaseapp.com');
+    vi.stubEnv('FIREBASE_PROJECT_ID', 'demo-project');
+    resetEnvForTests();
+    expect(plain(await render())).toContain(promise);
+    expect(plain(await render('ar'))).toContain('سجّل عبر Google وابدأ بـ ٥٠ رصيدًا هدية منا.');
   });
 });
 

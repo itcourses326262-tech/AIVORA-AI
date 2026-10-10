@@ -12,12 +12,8 @@ export interface Recipient {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-/** Queues the confirmation link. `bonusCredits` > 0 adds "confirming gives you N free credits". */
-export function queueVerificationEmail(
-  to: Recipient,
-  secret: string,
-  bonusCredits: number = 0,
-): void {
+/** Queues the confirmation link. The mail never promises credits: confirming pays none. */
+export function queueVerificationEmail(to: Recipient, secret: string): void {
   queueEmail(
     renderEmail({
       kind: 'verification',
@@ -26,7 +22,6 @@ export function queueVerificationEmail(
       name: to.name,
       link: appLink('/verify-email', { token: secret }),
       ttlHours: TOKEN_TTL_MS.verify / HOUR_MS,
-      bonusCredits,
     }),
   );
 }
@@ -66,6 +61,7 @@ export function queuePasswordChangedEmail(
   );
 }
 
+/** `bonusCredits` is what the account was just given: 0 (the default) leaves the credits line out. */
 export function queueWelcomeEmail(to: Recipient, bonusCredits: number = 0): void {
   queueEmail(
     renderEmail({

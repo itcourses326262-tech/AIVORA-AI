@@ -15,7 +15,7 @@ const JUMP_LINKS = [
 
 export interface HeroProps {
   i18n: Translator;
-  /** Credits every new account receives (0 hides the number). */
+  /** Free credits a visitor can earn by signing up with Google (0 leaves the promise, and its icon, out). */
   bonus: number;
 }
 
@@ -63,7 +63,9 @@ export function Hero({ i18n, bonus }: HeroProps) {
         </div>
 
         <p className="mt-5 max-w-sm text-sm text-muted sm:max-w-none">
-          <Gift aria-hidden="true" className="me-2 -mt-0.5 inline size-4 text-accent" />
+          {bonus > 0 ? (
+            <Gift aria-hidden="true" className="me-2 -mt-0.5 inline size-4 text-accent" />
+          ) : null}
           {bonus > 0
             ? t('landing.hero.trust', { credits: creditsLabel(i18n, bonus) })
             : t('landing.hero.trustNoBonus')}

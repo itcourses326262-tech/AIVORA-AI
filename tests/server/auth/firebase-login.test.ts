@@ -33,7 +33,9 @@ const FIREBASE_ENV = {
   FIREBASE_AUTH_DOMAIN: 'test-project.firebaseapp.com',
   FIREBASE_PROJECT_ID: 'test-project',
 };
-beforeEach(() => stubEnv(FIREBASE_ENV));
+// The product policy: Google sign-in is the only way to the free credits (so a password account in
+// these tests starts with none and is paid when it first links Google).
+beforeEach(() => stubEnv({ ...FIREBASE_ENV, SIGNUP_BONUS_PROVIDER: 'google' }));
 
 interface Google {
   sub?: string;
@@ -363,10 +365,11 @@ describe('an account that owns the mailbox already', () => {
 
       expect(result.created).toBe(false);
       expect(result.user.id).toBe(user.id);
-      // The same account, with its own data: name, credits, confirmation date, no second bonus.
-      expect(result.user).toMatchObject({ name: 'Layla', creditBalance: 12, hasPassword: false });
+      // The same account, with its own data: name, credits, confirmation date. The first Google
+      // link pays the free sign-up credits it never got, on top of the 12 it holds.
+      expect(result.user).toMatchObject({ name: 'Layla', creditBalance: 62, hasPassword: false });
       expect(userRow('layla@example.com')?.emailVerifiedAt).toBe(confirmedAt);
-      expect(bonusRows(user.id)).toHaveLength(0);
+      expect(bonusRows(user.id)).toHaveLength(1);
       expect(identitiesOf(user.id)).toHaveLength(1);
       // Whoever knew the password, held a session or an API key is out.
       const row = userRow('layla@example.com');
@@ -395,6 +398,8 @@ describe('an account that owns the mailbox already', () => {
       // password and sessions are not touched by that.
       confirmEmailVerification(linkIn(await mailTo('victim@example.com')).token);
       expect(userRow('victim@example.com')?.emailVerifiedAt).toEqual(expect.any(Number));
+      // Confirming the address by link pays nothing: the free credits are for Google sign-in.
+      expect(bonusRows(squatter.user.id)).toHaveLength(0);
       const planted = await createApiKey(squatter.user.id, 'planted');
       expect(resolveSession(squatter.token)).not.toBeNull();
       expect(resolveApiKey(planted.key)).not.toBeNull();
@@ -411,7 +416,9 @@ describe('an account that owns the mailbox already', () => {
         (await failure(loginUser({ email: 'victim@example.com', password: GOOD_PASSWORD }))).code,
       ).toBe('unauthorized');
       expect(userRow('victim@example.com')?.hasPassword).toBe(false);
-      // The confirmation already paid the bonus: Google does not pay it again.
+      // Registering and confirming by the link paid nothing; the first Google link paid, once.
+      expect(bonusRows(squatter.user.id)).toHaveLength(1);
+      await signIn({ email: 'victim@example.com', name: 'Victim' });
       expect(bonusRows(squatter.user.id)).toHaveLength(1);
     });
 
@@ -472,7 +479,7 @@ describe('an account that owns the mailbox already', () => {
     });
   });
 
-  it('a confirmed account without a password (Google only) is linked and nothing about it changes', async () => {
+  it('a confirmed account without a password (Google only) is linked and keeps its hash, sessions and keys', async () => {
     stubEnv(SMTP);
     stubRelay();
     const user = createUser(harness.db, {
@@ -582,7 +589,7 @@ describe('an account that owns the mailbox already', () => {
       ).toMatchObject([{ revokedAt: expect.any(Number) }]);
       expect(sessionsOf(registered.user.id).map((session) => session.id)).toHaveLength(1);
       expect(resolveSession(result.token)?.user.id).toBe(registered.user.id);
-      // The account is the same one: the bonus it got at registration is not paid again.
+      // The account is the same one: registering paid nothing, the first Google link pays once.
       expect(bonusRows(registered.user.id)).toHaveLength(1);
       expect(identitiesOf(registered.user.id)).toHaveLength(1);
     });

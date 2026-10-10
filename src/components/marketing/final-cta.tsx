@@ -7,6 +7,7 @@ import { creditsLabel } from './credits-label';
 import { MeshBackdrop } from './mesh-backdrop';
 import styles from './marketing.module.css';
 
+/** `bonus`: free credits a visitor can earn by signing up with Google (0 leaves the promise, and its icon, out). */
 export function FinalCta({ i18n, bonus }: { i18n: Translator; bonus: number }) {
   const { t } = i18n;
   return (
@@ -46,7 +47,7 @@ export function FinalCta({ i18n, bonus }: { i18n: Translator; bonus: number }) {
             </Button>
           </div>
           <p className="mt-5 flex items-center justify-center gap-2 text-sm text-muted">
-            <Gift aria-hidden="true" className="size-4 shrink-0 text-accent" />
+            {bonus > 0 ? <Gift aria-hidden="true" className="size-4 shrink-0 text-accent" /> : null}
             <span>
               {bonus > 0
                 ? t('landing.hero.trust', { credits: creditsLabel(i18n, bonus) })

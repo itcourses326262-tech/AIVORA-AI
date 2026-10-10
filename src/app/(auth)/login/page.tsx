@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { AuthAside } from '@/components/auth/auth-aside';
+import { showGoogleSetupPlaceholder } from '@/components/auth/google-setup';
 import { LoginForm } from '@/components/auth/login-form';
 import { firstParam } from '@/components/auth/search-params';
 import { getOptionalUser } from '@/lib/auth-guard';
 import { getI18n } from '@/lib/i18n/server';
 import { safeNextPath } from '@/lib/next-path';
+import { signupBonusOffer } from '@/server/auth/bonus';
 import { firebaseWebConfig } from '@/server/auth/firebase';
 import { getEnv } from '@/server/env';
 
@@ -24,11 +26,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   const next = safeNextPath(firstParam((await searchParams).next));
   if (await getOptionalUser()) redirect(next);
   const env = getEnv();
+  const firebase = firebaseWebConfig(env);
   return (
     <LoginForm
       next={next}
-      aside={<AuthAside bonus={env.SIGNUP_BONUS_CREDITS} />}
-      firebase={firebaseWebConfig(env)}
+      aside={<AuthAside bonus={signupBonusOffer(env)} />}
+      firebase={firebase}
+      googlePlaceholder={showGoogleSetupPlaceholder(env, firebase)}
     />
   );
 }

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type * as PasswordModule from '@/server/auth/password';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteAccount } from '@/server/auth/account-deletion';
 import { registerUser } from '@/server/auth/users';
 import {
@@ -29,19 +29,23 @@ const input = (email: string) => ({
   locale: 'en' as const,
 });
 
-const BONUS_LINE = /sign-up bonus/;
+const CREDITS_WORDS = /credit|bonus/i;
 
-describe('the bonus is promised only when confirming will really give it', () => {
-  it('a first registration advertises it, in the mail and in the banner state, and confirming pays it', async () => {
+// Where password accounts earn the bonus at all (development). Under the product policy the
+// pending bonus is always 0: google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
+
+describe('the pending bonus (banner state, DTO) promises only what confirming will really give', () => {
+  it('a first registration shows it as pending, confirming pays it, and the mail never promised it', async () => {
     stubEnv({ EMAIL_VERIFICATION: 'required' });
     const { user } = await registerUser(input('layla@example.com'));
     const mail = await mailTo('layla@example.com');
-    expect(mail?.text).toMatch(BONUS_LINE);
+    expect(mail?.text).not.toMatch(CREDITS_WORDS);
     expect(getVerificationState(user.id)?.bonusCredits).toBe(50);
     expect(confirmEmailVerification(linkIn(mail).token).bonusCredits).toBe(50);
   });
 
-  it('a mailbox that already got its bonus (deleted account, registered again) is promised nothing', async () => {
+  it('a mailbox that already got its bonus (deleted account, registered again) has none pending', async () => {
     stubEnv({ EMAIL_VERIFICATION: 'required' });
     const first = await registerUser(input('layla@example.com'));
     confirmEmailVerification(linkIn(await mailTo('layla@example.com')).token);
@@ -50,13 +54,12 @@ describe('the bonus is promised only when confirming will really give it', () =>
     const second = await registerUser(input('layla@example.com'));
     const mail = await mailTo('layla@example.com');
     expect(mail?.kind).toBe('verification');
-    expect(mail?.text).not.toMatch(BONUS_LINE);
-    expect(mail?.text).not.toMatch(/\b50\b/);
+    expect(mail?.text).not.toMatch(CREDITS_WORDS);
     expect(getVerificationState(second.user.id)?.bonusCredits).toBe(0);
 
-    // The resend, the banner state and the outcome all agree with the mail.
+    // The resend, the banner state and the outcome all agree.
     await requestEmailVerification(second.user.id, Date.now() + 120_000);
-    expect((await mailTo('layla@example.com'))?.text).not.toMatch(BONUS_LINE);
+    expect((await mailTo('layla@example.com'))?.text).not.toMatch(CREDITS_WORDS);
     expect(confirmEmailVerification(linkIn(await mailTo('layla@example.com')).token)).toMatchObject(
       { verified: true, bonusCredits: 0 },
     );
@@ -67,8 +70,8 @@ describe('the bonus is promised only when confirming will really give it', () =>
     const first = await registerUser(input('lay.la@gmail.com'));
     confirmEmailVerification(linkIn(await mailTo('lay.la@gmail.com')).token);
     await deleteAccount(first.user.id);
-    await registerUser(input('layla+again@gmail.com'));
-    expect((await mailTo('layla+again@gmail.com'))?.text).not.toMatch(BONUS_LINE);
+    const again = await registerUser(input('layla+again@gmail.com'));
+    expect(getVerificationState(again.user.id)?.bonusCredits).toBe(0);
   });
 
   it('pendingSignupBonus is 0 for an account that has its bonus, and for another account of a claimed mailbox', async () => {

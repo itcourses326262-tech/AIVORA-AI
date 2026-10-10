@@ -3,6 +3,7 @@
 import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
+import { offerToSaveLogin, stopSilentSignIn } from '@/components/auth/credential-store';
 import { PasswordField } from '@/components/auth/password-field';
 import { SetPasswordPrompt } from '@/components/auth/set-password-prompt';
 import { scorePassword } from '@/components/auth/password-strength';
@@ -63,6 +64,8 @@ function PasswordForm() {
     try {
       const body: ChangePasswordRequest = { currentPassword: current, newPassword: next };
       await api.post('/account/password', body);
+      // So the browser's saved password for this account is updated, not left stale.
+      if (user) offerToSaveLogin({ id: user.email, password: next, name: user.name });
       setCurrent('');
       setNext('');
       toast.success(t('account.security.success'));
@@ -165,6 +168,7 @@ function SignOutEverywhere() {
     setError(null);
     try {
       await api.post('/auth/logout-all');
+      stopSilentSignIn();
       toast.success(t('account.security.signedOut'));
       router.replace('/login');
       router.refresh();

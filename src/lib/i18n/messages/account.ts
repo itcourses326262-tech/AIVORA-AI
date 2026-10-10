@@ -238,7 +238,7 @@ export default defineMessages({
         steps: {
           setup: {
             title: 'Create a key and set up',
-            body: 'Create an API key under **Account → API keys** and copy it: it is shown only once. Keep it in an environment variable called `AIVORE_API_KEY`, never in source code.\n\nThe account also needs credits. New accounts start with a free bonus.',
+            body: 'Create an API key under **Account → API keys** and copy it: it is shown only once. Keep it in an environment variable called `AIVORE_API_KEY`, never in source code.\n\nThe account also needs credits to generate: buy a pack or a plan on the pricing page.',
           },
           generate: {
             title: 'Create a generation',
@@ -617,7 +617,7 @@ export default defineMessages({
         steps: {
           setup: {
             title: 'أنشئ مفتاحًا وجهّز البيئة',
-            body: 'أنشئ مفتاح API من **الحساب ← مفاتيح API** وانسخه، فهو يظهر مرة واحدة فقط. احفظه في متغير بيئة اسمه `AIVORE_API_KEY` ولا تكتبه داخل الشيفرة أبدًا.\n\nيحتاج الحساب أيضًا إلى رصيد، والحسابات الجديدة تبدأ برصيد هدية مجاني.',
+            body: 'أنشئ مفتاح API من **الحساب ← مفاتيح API** وانسخه، فهو يظهر مرة واحدة فقط. احفظه في متغير بيئة اسمه `AIVORE_API_KEY` ولا تكتبه داخل الشيفرة أبدًا.\n\nيحتاج الحساب أيضًا إلى رصيد لينشئ: اشترِ حزمة أو باقة من صفحة الأسعار.',
           },
           generate: {
             title: 'أنشئ عملية توليد',

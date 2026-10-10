@@ -3,7 +3,8 @@
 #   health -> landing page -> register -> Demo generation to "succeeded" -> download the result -> credits.
 # Needs curl and jq. The server must run with the Demo provider on (ENABLE_MOCK_PROVIDER=true, the default),
 # an inline or external worker, and APP_URL equal to the base URL given here (the sign-up request is
-# same-origin checked). It registers one throw-away account per run.
+# same-origin checked). It registers one throw-away account per run, which needs the free credits: by
+# default only Google sign-up earns them, so start the server with SIGNUP_BONUS_PROVIDER=any.
 #
 #   .github/scripts/smoke.sh http://localhost:3000
 set -euo pipefail

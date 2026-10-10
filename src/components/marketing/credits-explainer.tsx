@@ -58,7 +58,7 @@ function PriceList({
 
 export interface CreditsExplainerProps {
   i18n: Translator;
-  /** Credits every new account receives (0 hides the free-credits card). */
+  /** Free credits a visitor can earn by signing up with Google (0 hides the free-credits card). */
   bonus: number;
   samples: CreditSamples;
 }

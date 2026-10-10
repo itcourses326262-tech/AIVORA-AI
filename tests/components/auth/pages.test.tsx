@@ -49,9 +49,17 @@ beforeEach(() => {
   mocks.cookies.clear();
   mocks.getOptionalUser.mockReset().mockResolvedValue(null);
   mocks.redirect.mockClear();
+  // Google sign-in set up: the only situation in which the pages promise the free credits.
+  process.env.FIREBASE_API_KEY = 'k'.repeat(30);
+  process.env.FIREBASE_AUTH_DOMAIN = 'demo-project.firebaseapp.com';
+  process.env.FIREBASE_PROJECT_ID = 'demo-project';
+  resetEnvForTests();
 });
 
 afterEach(() => {
+  delete process.env.FIREBASE_API_KEY;
+  delete process.env.FIREBASE_AUTH_DOMAIN;
+  delete process.env.FIREBASE_PROJECT_ID;
   process.env.SIGNUP_ENABLED = 'true';
   resetEnvForTests();
 });

@@ -17,6 +17,7 @@ import { errorCodeOf } from '@/lib/errors';
 import { useI18n } from '@/lib/i18n/client';
 import { isRecord } from '@/lib/utils';
 import { useUser } from '@/lib/user-context';
+import { stopSilentSignIn } from './credential-store';
 import { SetPasswordPrompt } from './set-password-prompt';
 
 const EXPORT_FALLBACK_NAME = 'aivore-export.json';
@@ -121,6 +122,7 @@ function DeleteCard() {
     api
       .delete('/account', { body: { password } })
       .then(() => {
+        stopSilentSignIn();
         router.replace('/');
         router.refresh();
       })

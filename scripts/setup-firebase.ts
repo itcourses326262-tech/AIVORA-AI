@@ -6,6 +6,10 @@
 //   npm run setup:firebase                        asks for the config block, then whether to also set
 //                                                 up Cloud Storage (it needs the key file)
 //   npm run setup:firebase -- --config <p|text>   the firebaseConfig block, as a file path or inline text
+//   npm run setup:firebase -- --api-key <v> --auth-domain <v> --project-id <v> --app-id <v>
+//                                                 the four public identifiers one by one, so ONE line
+//                                                 sets Google sign-in up (nothing to paste or quote);
+//                                                 each overrides the same value of --config
 //   npm run setup:firebase -- --signin-only       Google sign-in only: no question, no key file, and
 //                                                 STORAGE_DRIVER, the bucket and the key path in the env
 //                                                 file stay as they are (--no-storage is the same)
@@ -20,6 +24,9 @@
 //   npm run setup:firebase -- --env <path>        write to another env file (default ./.env.local)
 //                                                 (--env-file also works, but Node itself reads that
 //                                                 flag and fails when the file does not exist yet)
+//
+// The one-line form, for a shell where pasting a multi-line block is awkward (PowerShell):
+//   npm.cmd run setup:firebase -- --signin-only --yes --api-key <v> --auth-domain <v> --project-id <v> --app-id <v>
 //
 // The web config is public (every browser receives it), so it is typed visibly. The service-account
 // key is the one secret: it is validated, copied to ./data/firebase-service-account.json (mode 600)
@@ -43,6 +50,7 @@ import { readEnvValue, upsertEnv, writePrivateFile } from './lib/env-file';
 import {
   bareBucketName,
   checkFirebaseConfig,
+  cleanFlagValue,
   findDownloadedKeys,
   hasLoginFields,
   looksLikeSnippetCode,
@@ -50,6 +58,7 @@ import {
   missingFields,
   normalizePathInput,
   parseFirebaseConfig,
+  VALUE_FLAGS,
   type FirebaseWebConfig,
 } from './lib/firebase-config';
 import { hasLocalMedia } from './lib/media-files';
@@ -61,10 +70,14 @@ const USAGE = [
   'usage: npm run setup:firebase -- [--config <file|text>] [--yes] [--env <path>]',
   '                                  [--signin-only | --no-storage]',
   '                                  [--file <service-account.json>] [--use-storage]',
+  '                                  [--api-key <v>] [--auth-domain <v>] [--project-id <v>] [--app-id <v>]',
   '--signin-only (alias --no-storage) configures Google sign-in alone and excludes --file and --use-storage.',
+  '--api-key, --auth-domain, --project-id and --app-id give the public identifiers one by one (they',
+  'override the same value of --config); with all four, nothing is asked.',
 ].join('\n');
 
-const FLAGS_WITH_VALUE = ['--config', '--file', '--env', '--env-file'];
+const VALUE_FLAG_NAMES = Object.keys(VALUE_FLAGS);
+const FLAGS_WITH_VALUE = ['--config', '--file', '--env', '--env-file', ...VALUE_FLAG_NAMES];
 const FLAGS = [
   '--yes',
   '--signin-only',
@@ -107,14 +120,32 @@ function say(line = '') {
   console.log(line);
 }
 
+/**
+ * How an argument we do not know is named in the error. What follows an `=` and anything that is not
+ * a flag is never repeated: `--api-key=<value>` is the likeliest mistake and the value should not
+ * land on the screen (or in a pasted bug report).
+ */
+function describeUnknown(arg: string): string {
+  if (!arg.startsWith('-')) return 'a value without a flag in front of it';
+  const [flag = arg, ...rest] = arg.split('=');
+  if (rest.length > 0 && FLAGS_WITH_VALUE.includes(flag)) {
+    return `${flag}=... (write a space instead of "=": ${flag} <value>)`;
+  }
+  return flag;
+}
+
 /** Why a flag list cannot be used, or undefined. */
 function badUsage(): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] as string;
-    if (!FLAGS.includes(arg)) return `Unknown argument: ${arg}`;
+    if (!FLAGS.includes(arg)) return `Unknown argument: ${describeUnknown(arg)}`;
     if (FLAGS_WITH_VALUE.includes(arg)) {
       const value = args[index + 1];
       if (value === undefined || value.startsWith('--')) return `${arg} needs a value.`;
+      if (VALUE_FLAG_NAMES.includes(arg)) {
+        if (cleanFlagValue(value) === '') return `${arg} needs a value.`;
+        if (args.indexOf(arg) !== index) return `${arg} was given twice.`;
+      }
       index += 1;
     }
   }
@@ -201,6 +232,16 @@ async function askValue(
   return undefined;
 }
 
+/** The identifiers given on the command line (`--api-key` ...), without quotes around them. */
+function configFromFlags(): Partial<FirebaseWebConfig> {
+  const given: Partial<FirebaseWebConfig> = {};
+  for (const [flag, field] of Object.entries(VALUE_FLAGS)) {
+    const value = option(flag);
+    if (value !== undefined) given[field] = cleanFlagValue(value);
+  }
+  return given;
+}
+
 /** `bucket`: ask for the storage bucket too when the block lacks it (only when Storage is wanted). */
 async function collectConfig(
   prompter: Prompter,
@@ -210,11 +251,23 @@ async function collectConfig(
   sawAnalytics: boolean;
 } | null> {
   const flagged = option('--config');
-  const text = flagged !== undefined ? readConfigFlag(flagged) : await readPastedBlock(prompter);
-  const config = parseFirebaseConfig(text);
+  const given = configFromFlags();
+  const givenCount = Object.keys(given).length;
+  // Identifiers given one by one mean nobody is about to paste a block: nothing is waited for.
+  const text =
+    flagged !== undefined
+      ? readConfigFlag(flagged)
+      : givenCount > 0
+        ? ''
+        : await readPastedBlock(prompter);
+  const fromBlock = parseFirebaseConfig(text);
+  const config = { ...fromBlock, ...given };
   const sawAnalytics = /measurementId|getAnalytics/.test(text);
-  if (Object.keys(config).length > 0) {
-    say(`Read ${Object.keys(config).length} values from the config block.`);
+  if (Object.keys(fromBlock).length > 0) {
+    say(`Read ${Object.keys(fromBlock).length} values from the config block.`);
+  }
+  if (givenCount > 0) {
+    say(`Took ${givenCount} ${givenCount === 1 ? 'value' : 'values'} from the command line.`);
   }
   const absent = missingFields(config).filter((name) => bucket || name !== 'storageBucket');
   if (absent.length === 0) return { config, sawAnalytics };
@@ -223,8 +276,10 @@ async function collectConfig(
   const order = (['projectId', 'apiKey', 'appId', 'authDomain', 'storageBucket'] as const).filter(
     (name) => absent.includes(name),
   );
-  if (text.trim() !== '' || flagged !== undefined) {
-    say(`Missing from the block: ${order.join(', ')}. Type them in.`);
+  if (text.trim() !== '' || flagged !== undefined || givenCount > 0) {
+    say(
+      `Missing from the ${givenCount > 0 && text.trim() === '' ? 'command line' : 'block'}: ${order.join(', ')}. Type them in.`,
+    );
   } else {
     say('Open Firebase console > Project settings > General > Your apps > Web app (SDK setup).');
   }

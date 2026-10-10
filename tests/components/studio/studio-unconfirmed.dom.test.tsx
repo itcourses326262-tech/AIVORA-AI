@@ -34,7 +34,7 @@ const UNCONFIRMED = {
   pendingBonusCredits: 50,
 } as const;
 
-const TITLE = 'Confirm your email to get your free credits';
+const TITLE = 'Confirm your email to start creating';
 
 interface Server {
   /** What `GET /auth/me` answers now: change it to "confirm in another tab". */
@@ -90,10 +90,10 @@ describe('Studio: an account that has not confirmed its email address', () => {
     expect(document.getElementById('studio-confirm-email')).toHaveTextContent(TITLE);
     expect(screen.getByText(TITLE)).toBeInTheDocument();
     expect(
-      screen.getByText(
-        /We sent a link to .*layla@example\.com.*Open it to add 50 credits to your balance/,
-      ),
+      screen.getByText(/We sent a link to .*layla@example\.com.*Open it, then come back/),
     ).toBeInTheDocument();
+    // Confirming pays no credits, so the notice promises none even when the server reports 50 pending.
+    expect(screen.queryByText(/free credits|sign-up bonus|add 50 credits/)).not.toBeInTheDocument();
     // The old advice would send a person to buy what they cannot use.
     expect(screen.queryByText(/enough credits/)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Get credits' })).not.toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('Studio: an account that has not confirmed its email address', () => {
     expect(document.getElementById(described ?? '')).toHaveTextContent(TITLE);
   });
 
-  it('does not say "free credits" to an account that has no bonus waiting, and blocks it even when it has credits', async () => {
+  it('says the same to an account that has no bonus pending, and blocks it even when it has credits', async () => {
     mount({
       balance: 20,
       user: { ...UNCONFIRMED, creditBalance: 20, pendingBonusCredits: 0 },
@@ -115,8 +115,7 @@ describe('Studio: an account that has not confirmed its email address', () => {
       },
     });
     await ready();
-    expect(screen.getByText('Confirm your email to start creating')).toBeInTheDocument();
-    expect(screen.queryByText(TITLE)).not.toBeInTheDocument();
+    expect(screen.getByText(TITLE)).toBeInTheDocument();
     expect(screen.queryByText(/free credits|sign-up bonus/)).not.toBeInTheDocument();
     // 20 credits would pay for an image, but the server refuses the generation until the address is confirmed.
     expect(generateButton()).toBeDisabled();
@@ -239,7 +238,8 @@ describe('Studio: an account that has not confirmed its email address', () => {
   it('speaks Arabic, with the address kept left to right', async () => {
     mount({ locale: 'ar' });
     await ready();
-    expect(screen.getByText('أكّد بريدك الإلكتروني لتحصل على رصيدك المجاني')).toBeInTheDocument();
+    expect(screen.getByText('أكّد بريدك الإلكتروني لتبدأ الإنشاء')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/مجاني|هدية|مكافأة/);
     expect(screen.getByRole('button', { name: 'إعادة إرسال الرابط' })).toBeInTheDocument();
     const body = screen.getByText(/أرسلنا رابطًا إلى/);
     expect(body.textContent).toContain(

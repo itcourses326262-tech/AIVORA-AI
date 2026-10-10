@@ -4,7 +4,6 @@ import { Coins, LogIn, MailWarning, Sparkles, TriangleAlert } from 'lucide-react
 import { useCallback, useSyncExternalStore, type MouseEvent } from 'react';
 import { isolateLtr } from '@/components/auth/bidi';
 import { useResendVerification } from '@/components/layout/verify-email-banner';
-import { creditsLabel } from '@/components/marketing/credits-label';
 import { creditsText } from '@/lib/generations/format';
 import { useI18n } from '@/lib/i18n/client';
 import { cn, formatCredits } from '@/lib/utils';
@@ -42,19 +41,13 @@ export function ConfirmEmailNotice({
   className?: string;
   compact?: boolean;
 }) {
-  const i18n = useI18n();
-  const { t } = i18n;
+  const { t } = useI18n();
   const { user, refresh } = useUser();
   const onVerified = useCallback(() => void refresh(), [refresh]);
   const { remaining, busy, resend, label } = useResendVerification(onVerified);
   if (!user) return null;
-  const bonus = user.pendingBonusCredits ?? 0;
-  const email = isolateLtr(user.email);
-  const title = bonus > 0 ? t('studio.confirmEmail.title') : t('studio.confirmEmail.titleNoBonus');
-  const body =
-    bonus > 0
-      ? t('studio.confirmEmail.bodyBonus', { email, credits: creditsLabel(i18n, bonus) })
-      : t('studio.confirmEmail.body', { email });
+  const title = t('studio.confirmEmail.title');
+  const body = t('studio.confirmEmail.body', { email: isolateLtr(user.email) });
   const button = (
     <Button
       size="sm"

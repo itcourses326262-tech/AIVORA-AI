@@ -592,3 +592,18 @@ describe('the extra namespaces', () => {
     }
   });
 });
+
+describe('the free sign-up credits in the terms', () => {
+  it('say they come from signing up with Google, and that the sentence is for counsel to confirm', () => {
+    for (const language of LANGUAGES) {
+      const line = bodyOf(language, 'terms', 'credits')
+        .split('\n')
+        .find((candidate) =>
+          candidate.includes(language === 'en' ? 'Free credits' : 'الرصيد المجاني'),
+        );
+      expect(line, language).toBeDefined();
+      expect(line, language).toContain('Google');
+      expect(line, language).toContain('{confirm}');
+    }
+  });
+});

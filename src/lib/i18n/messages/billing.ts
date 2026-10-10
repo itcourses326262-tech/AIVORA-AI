@@ -21,7 +21,7 @@ export default defineMessages({
         title: 'Pay only for what you create',
         subtitle:
           'Credits are one balance for every image and video. Buy a pack once, or subscribe for a fresh batch every month. Credits never expire.',
-        bonus: 'New accounts start with {credits} on us.',
+        bonus: 'Sign up with Google and start with {credits} on us.',
       },
       points: {
         never: 'Credits never expire',
@@ -44,7 +44,6 @@ export default defineMessages({
       confirmEmail: {
         title: 'Confirm your email to buy credits',
         body: 'Purchases need a confirmed email address, so that receipts and renewal links reach you. We sent a link to {email}. Open it, then come back: this page updates by itself.',
-        bonus: 'Confirming also adds your sign-up bonus of {credits}.',
       },
       hasPlan: {
         title: 'You already have a plan',
@@ -112,7 +111,7 @@ export default defineMessages({
           credits: {
             question: 'What is a credit, and do credits expire?',
             answer:
-              'A credit is the unit your generations cost. A fast image can cost a single credit while a video clip costs more, and the studio shows the exact price before you generate. Credits never expire, whether they came from a pack, a plan or the welcome gift.',
+              'A credit is the unit your generations cost. A fast image can cost a single credit while a video clip costs more, and the studio shows the exact price before you generate. Credits never expire, whether they came from a pack, a plan or a gift.',
           },
           choose: {
             question: 'Should I buy a pack or subscribe?',
@@ -431,7 +430,7 @@ export default defineMessages({
         title: 'ادفع فقط مقابل ما تصنعه',
         subtitle:
           'الرصيد محفظة واحدة لكل الصور والفيديوهات. اشترِ حزمة لمرة واحدة، أو اشترك لتحصل على رصيد جديد كل شهر. والرصيد لا ينتهي أبدًا.',
-        bonus: 'يبدأ كل حساب جديد بـ {credits} هدية منا.',
+        bonus: 'سجّل عبر Google وابدأ بـ {credits} هدية منا.',
       },
       points: {
         never: 'الرصيد لا ينتهي',
@@ -454,7 +453,6 @@ export default defineMessages({
       confirmEmail: {
         title: 'أكّد بريدك الإلكتروني لتشتري رصيدًا',
         body: 'تتطلب عمليات الشراء بريدًا إلكترونيًا مؤكّدًا حتى تصلك الإيصالات وروابط التجديد. أرسلنا رابطًا إلى {email}. افتحه ثم عُد إلى هنا: تتحدّث الصفحة تلقائيًا.',
-        bonus: 'وسيضيف التأكيد أيضًا مكافأة التسجيل البالغة {credits}.',
       },
       hasPlan: {
         title: 'لديك باقة بالفعل',
@@ -522,7 +520,7 @@ export default defineMessages({
           credits: {
             question: 'ما هو الرصيد، وهل ينتهي؟',
             answer:
-              'الرصيد هو وحدة تكلفة عمليات التوليد. قد تكلّف صورة سريعة رصيدًا واحدًا بينما يكلّف مقطع الفيديو أكثر، ويعرض لك الاستوديو السعر بالضبط قبل أن تبدأ. والرصيد لا ينتهي أبدًا، سواء جاء من حزمة أو باقة أو من هدية الترحيب.',
+              'الرصيد هو وحدة تكلفة عمليات التوليد. قد تكلّف صورة سريعة رصيدًا واحدًا بينما يكلّف مقطع الفيديو أكثر، ويعرض لك الاستوديو السعر بالضبط قبل أن تبدأ. والرصيد لا ينتهي أبدًا، سواء جاء من حزمة أو باقة أو هدية.',
           },
           choose: {
             question: 'هل أشتري حزمة أم أشترك في باقة؟',

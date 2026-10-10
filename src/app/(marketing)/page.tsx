@@ -17,6 +17,7 @@ import {
 import { Showcase } from '@/components/marketing/showcase';
 import { getModels } from '@/lib/catalog';
 import { getI18n } from '@/lib/i18n/server';
+import { signupBonusOffer } from '@/server/auth/bonus';
 import { getEnv } from '@/server/env';
 
 export async function generateMetadata(
@@ -33,7 +34,8 @@ export async function generateMetadata(
  */
 export default async function HomePage() {
   const i18n = await getI18n();
-  const bonus = getEnv().SIGNUP_BONUS_CREDITS;
+  // What can be promised to a visitor: 0 hides every mention of the free credits.
+  const bonus = signupBonusOffer(getEnv());
   const origin = siteOrigin();
   const samples = pickCreditSamples(getModels());
   const cheapestImage = samples.images[0];
@@ -41,7 +43,7 @@ export default async function HomePage() {
   return (
     <main id="main-content" tabIndex={-1} className="outline-none">
       <JsonLd data={softwareApplicationJsonLd(i18n, origin)} />
-      <JsonLd data={faqJsonLd(faqEntries(i18n))} />
+      <JsonLd data={faqJsonLd(faqEntries(i18n, bonus))} />
       <Hero i18n={i18n} bonus={bonus} />
       <Showcase i18n={i18n} />
       <Features i18n={i18n} />
@@ -55,7 +57,7 @@ export default async function HomePage() {
           cost: cheapestImage?.credits ?? 1,
         }}
       />
-      <Faq i18n={i18n} />
+      <Faq i18n={i18n} bonus={bonus} />
       <FinalCta i18n={i18n} bonus={bonus} />
     </main>
   );

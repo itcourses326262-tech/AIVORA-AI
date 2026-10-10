@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   bareBucketName,
   checkFirebaseConfig,
+  cleanFlagValue,
   findDownloadedKeys,
   hasLoginFields,
   looksLikeSnippetCode,
@@ -12,6 +13,7 @@ import {
   missingFields,
   normalizePathInput,
   parseFirebaseConfig,
+  VALUE_FLAGS,
 } from '../../scripts/lib/firebase-config';
 
 // Fixtures are assembled at runtime: key-shaped literals are rejected by tests/security.
@@ -288,5 +290,49 @@ describe('findDownloadedKeys', () => {
 
   it('survives folders that do not exist', () => {
     expect(findDownloadedKeys('demo-project', [join(dir, 'nope'), dir])).toEqual([]);
+  });
+});
+
+describe('the flags that carry the four identifiers', () => {
+  it('names one flag per identifier the sign-in needs', () => {
+    expect(VALUE_FLAGS).toEqual({
+      '--api-key': 'apiKey',
+      '--auth-domain': 'authDomain',
+      '--project-id': 'projectId',
+      '--app-id': 'appId',
+    });
+    // The storage bucket is not one of them: it is only asked for when Storage is wanted.
+    expect(Object.values(VALUE_FLAGS)).not.toContain('storageBucket');
+  });
+
+  it('cleanFlagValue strips the quotes a shell left and the comma copied from a config line', () => {
+    expect(cleanFlagValue(API_KEY)).toBe(API_KEY);
+    expect(cleanFlagValue(`  ${API_KEY}  `)).toBe(API_KEY);
+    expect(cleanFlagValue(`"${API_KEY}"`)).toBe(API_KEY);
+    expect(cleanFlagValue(`'${API_KEY}',`)).toBe(API_KEY);
+    expect(cleanFlagValue(`\`${APP_ID}\``)).toBe(APP_ID);
+    // Only the ends: the inside of a value is not touched.
+    expect(cleanFlagValue("a'b")).toBe("a'b");
+    expect(cleanFlagValue('""')).toBe('');
+    expect(cleanFlagValue('   ')).toBe('');
+  });
+
+  it('values taken from flags pass through the same checks as a pasted block', () => {
+    const fromFlags = checkFirebaseConfig(
+      {
+        apiKey: cleanFlagValue(`'${API_KEY}'`),
+        authDomain: cleanFlagValue('https://demo-project.firebaseapp.com/'),
+        projectId: cleanFlagValue('"demo-project"'),
+        appId: cleanFlagValue(`${APP_ID},`),
+      },
+      { storage: false },
+    );
+    expect(fromFlags.problems).toEqual([]);
+    expect(fromFlags.config).toMatchObject({
+      apiKey: API_KEY,
+      authDomain: 'demo-project.firebaseapp.com',
+      projectId: 'demo-project',
+      appId: APP_ID,
+    });
   });
 });

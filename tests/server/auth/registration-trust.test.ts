@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type * as PasswordModule from '@/server/auth/password';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/lib/errors';
 import { deleteAccount } from '@/server/auth/account-deletion';
 import { UNKNOWN_ADDRESS_CAP_FACTOR, signupCapFor } from '@/server/auth/signup-guard';
@@ -24,6 +24,9 @@ vi.mock('@/server/auth/password', async (importOriginal) => ({
 
 const harness = freshDb();
 trustTestState();
+// This file is about WHEN the sign-up bonus is paid for an account that earns one (at registration,
+// or at the confirmation) and what the mails say; who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 
 const input = (email: string, overrides: Partial<Parameters<typeof registerUser>[0]> = {}) => ({
   email,
@@ -154,13 +157,13 @@ describe('the confirmation policy matrix (EMAIL_VERIFICATION x SMTP configured)'
     expect(bonusRows(user.id)).toEqual([]);
   });
 
-  it('names the bonus in the confirmation email only when there is one to unlock', async () => {
+  it('never names credits in the confirmation email, whether or not confirming pays a bonus', async () => {
     stubEnv({ EMAIL_VERIFICATION: 'required' });
     await registerUser(input('layla@example.com'));
-    expect((await mailTo('layla@example.com'))?.text).toContain('50 credits');
+    expect((await mailTo('layla@example.com'))?.text).not.toMatch(/credit|bonus/i);
     stubEnv({ EMAIL_VERIFICATION: 'required', SIGNUP_BONUS_CREDITS: '0' });
     await registerUser(input('omar@example.com'));
-    expect((await mailTo('omar@example.com'))?.text).not.toContain('credits');
+    expect((await mailTo('omar@example.com'))?.text).not.toMatch(/credit|bonus/i);
   });
 
   it('writes the email in the language the person registered with', async () => {
@@ -173,13 +176,14 @@ describe('the confirmation policy matrix (EMAIL_VERIFICATION x SMTP configured)'
 });
 
 describe('operator-created accounts', () => {
-  it('are confirmed on the spot and receive their credits, even where confirmation is required', async () => {
+  it('are confirmed on the spot and receive the credits the operator asked for (none by default), even where confirmation is required', async () => {
     stubEnv({ EMAIL_VERIFICATION: 'required' });
     const user = await provisionUser({
       email: 'ops@example.com',
       password: GOOD_PASSWORD,
       name: 'Ops',
       role: 'admin',
+      bonusCredits: 50,
     });
     const row = userRow('ops@example.com');
     expect(row?.emailVerifiedAt).not.toBeNull();

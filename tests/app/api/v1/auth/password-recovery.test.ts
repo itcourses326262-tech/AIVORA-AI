@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { POST as forgotRoute } from '@/app/api/v1/auth/password/forgot/route';
 import { POST as resetRoute } from '@/app/api/v1/auth/password/reset/route';
 import { GET as me } from '@/app/api/v1/auth/me/route';
@@ -20,6 +20,9 @@ import { browser, routeTestState, stubEnv, type ErrorBody } from './support';
 const harness = freshDb();
 const fixture = passwordFixture();
 routeTestState();
+// The bonus assertions in this file are about a setup where password accounts earn it
+// (SIGNUP_BONUS_PROVIDER=any, the suite default); who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 cleanEmailState();
 
 const FORGOT_URL = '/api/v1/auth/password/forgot';

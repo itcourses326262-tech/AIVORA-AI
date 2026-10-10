@@ -9,6 +9,8 @@ import { useI18n } from '@/lib/i18n/client';
 
 export interface PasswordFieldProps {
   name?: string;
+  /** A fixed id (`password`) for pages with one password field, so a password manager knows the form again. */
+  id?: string;
   label: string;
   value: string;
   onValueChange: (value: string) => void;
@@ -28,6 +30,7 @@ export interface PasswordFieldProps {
  */
 export function PasswordField({
   name = 'password',
+  id: fixedId,
   label,
   value,
   onValueChange,
@@ -38,7 +41,8 @@ export function PasswordField({
   inputRef,
 }: PasswordFieldProps) {
   const { t } = useI18n();
-  const id = `password-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const generatedId = `password-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const id = fixedId ?? generatedId;
   const [visible, setVisible] = useState(false);
   return (
     <Field id={id} label={label} error={error} hint={hint} required>

@@ -78,7 +78,8 @@ describe('ADMIN_EMAILS promotion needs proof that the owner of the mailbox holds
     expect(resolveSession(squatter.token, harness.db)).toBeNull();
   });
 
-  it('the sign-up bonus is still granted on a bare click (credits are not a privilege)', async () => {
+  it('where password accounts earn the sign-up bonus, a bare click still grants it (credits are not a privilege)', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' });
     const { link } = await squatBossAddress();
     expect(confirmEmailVerification(link)).toMatchObject({ bonusCredits: 50 });
     expect(userRow('boss@example.com')?.creditBalance).toBe(50);
@@ -87,14 +88,18 @@ describe('ADMIN_EMAILS promotion needs proof that the owner of the mailbox holds
   it('markEmailVerified promotes only when the caller says the holder is proven', async () => {
     stubEnv({ ADMIN_EMAILS: 'boss@example.com' });
     const plain = createUser(harness.db, { email: 'boss@example.com', emailVerifiedAt: null });
-    withTx(harness.db, (tx) => markEmailVerified(tx, plain.id));
+    withTx(harness.db, (tx) => markEmailVerified(tx, plain.id, Date.now(), { bonus: 'none' }));
     expect(userRow('boss@example.com')?.role).toBe('user');
     // Promotion does not depend on the address having been unconfirmed a moment ago.
-    withTx(harness.db, (tx) => markEmailVerified(tx, plain.id, Date.now(), { promoteAdmin: true }));
+    withTx(harness.db, (tx) =>
+      markEmailVerified(tx, plain.id, Date.now(), { bonus: 'none', promoteAdmin: true }),
+    );
     expect(userRow('boss@example.com')?.role).toBe('admin');
     // Not listed: never promoted, whatever the caller asks.
     const other = createUser(harness.db, { email: 'other@example.com', emailVerifiedAt: null });
-    withTx(harness.db, (tx) => markEmailVerified(tx, other.id, Date.now(), { promoteAdmin: true }));
+    withTx(harness.db, (tx) =>
+      markEmailVerified(tx, other.id, Date.now(), { bonus: 'none', promoteAdmin: true }),
+    );
     expect(userRow('other@example.com')?.role).toBe('user');
   });
 });

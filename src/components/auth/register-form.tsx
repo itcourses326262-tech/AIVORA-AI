@@ -11,6 +11,7 @@ import type { FirebaseWebConfig } from '@/lib/firebase-config';
 import { useI18n } from '@/lib/i18n/client';
 import { AuthHeading, AuthSwitch, authLink } from './auth-parts';
 import { GoogleSignIn } from './google-button';
+import { GoogleSignInPlaceholder } from './google-placeholder';
 import { PasswordField } from './password-field';
 import { scorePassword } from './password-strength';
 import { PasswordStrengthMeter } from './password-strength-meter';
@@ -31,6 +32,8 @@ export interface RegisterFormProps {
   aside?: ReactNode;
   /** The public Firebase identifiers; the "Continue with Google" button shows only with them. */
   firebase?: FirebaseWebConfig | null;
+  /** Development only, without `firebase`: a dashed box where the button will be (see `showGoogleSetupPlaceholder`). */
+  googlePlaceholder?: boolean;
 }
 
 function Benefits({ bonus }: { bonus: number }) {
@@ -63,7 +66,14 @@ function Benefits({ bonus }: { bonus: number }) {
   );
 }
 
-export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: RegisterFormProps) {
+export function RegisterForm({
+  next,
+  bonus,
+  signupOpen,
+  aside,
+  firebase,
+  googlePlaceholder,
+}: RegisterFormProps) {
   const { t, locale } = useI18n();
   const form = useAuthForm({
     mode: 'register',
@@ -73,6 +83,8 @@ export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: Regis
     extraBody: { locale },
   });
   const strength = scorePassword(form.values.password, form.values.email);
+  // The consent line sits under whatever stands in the Google button's place, the real one or the dev box.
+  const googleShown = Boolean(firebase) || googlePlaceholder === true;
   const heading = (
     <AuthHeading title={t('auth.register.title')} subtitle={t('auth.register.subtitle')} />
   );
@@ -98,9 +110,11 @@ export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: Regis
       <Benefits bonus={bonus} />
       {firebase ? (
         <GoogleSignIn config={firebase} next={next} showConsent describedBy={CONSENT_LINE_ID} />
+      ) : googlePlaceholder ? (
+        <GoogleSignInPlaceholder showConsent describedBy={CONSENT_LINE_ID} />
       ) : null}
       <FormError>{form.formError}</FormError>
-      <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
+      <form method="post" noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <NameField
           value={form.values.name}
           onValueChange={(value) => form.setValue('name', value)}
@@ -110,6 +124,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: Regis
         />
         <div className="grid gap-2">
           <EmailField
+            autoComplete="username"
             value={form.values.email}
             onValueChange={(value) => form.setValue('email', value)}
             onBlur={(event) => form.onBlur('email', event)}
@@ -126,6 +141,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: Regis
           ) : null}
         </div>
         <PasswordField
+          id="password"
           label={t('auth.fields.password')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}
@@ -143,7 +159,7 @@ export function RegisterForm({ next, bonus, signupOpen, aside, firebase }: Regis
         {/* With Google offered, the one line sits under its button (a Google sign-in creates the
             account at once, so it must be read there) and still describes this button: the line
             has a fixed id, so it cannot appear twice on the page. */}
-        {firebase ? null : <ConsentLine />}
+        {googleShown ? null : <ConsentLine />}
         <Button
           type="submit"
           size="lg"

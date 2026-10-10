@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import * as confirmModule from '@/app/api/v1/auth/verify-email/confirm/route';
 import * as requestModule from '@/app/api/v1/auth/verify-email/request/route';
 import { createApiKey } from '@/server/auth/api-keys';
@@ -15,6 +15,9 @@ import { browser, routeTestState, stubEnv, type ErrorBody } from './support';
 
 const harness = freshDb();
 routeTestState();
+// The bonus assertions in this file are about a setup where password accounts earn it
+// (SIGNUP_BONUS_PROVIDER=any, the suite default); who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 cleanEmailState();
 
 const REQUEST_URL = '/api/v1/auth/verify-email/request';
@@ -138,6 +141,18 @@ describe('POST /api/v1/auth/verify-email/request', () => {
 });
 
 describe('POST /api/v1/auth/verify-email/confirm', () => {
+  it('confirms under the product policy without paying anything: the credits are for Google sign-in', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'google' });
+    const { user } = unconfirmed();
+    const { secret } = issueEmailToken(harness.db, user.id, 'verify');
+    const result = await confirm({ token: secret });
+    expect(result.status).toBe(200);
+    expect(result.json.data).toEqual({ verified: true, alreadyVerified: false, bonusCredits: 0 });
+    const row = harness.db.select().from(users).where(eq(users.id, user.id)).get();
+    expect(row?.emailVerifiedAt).toBeGreaterThan(0);
+    expect(row?.creditBalance).toBe(0);
+  });
+
   it('confirms with the link alone: no cookie, no origin, any device', async () => {
     const { user } = unconfirmed();
     const { secret } = issueEmailToken(harness.db, user.id, 'verify');

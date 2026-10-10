@@ -11,6 +11,7 @@ import { getModels } from '@/lib/catalog';
 import { LOCALES } from '@/lib/i18n/locales';
 import { getI18n } from '@/lib/i18n/server';
 import { LEGAL_MESSAGE_KEY, LEGAL_PATHS } from '@/lib/legal';
+import { signupBonusOffer } from '@/server/auth/bonus';
 import { buildCatalog } from '@/server/billing/catalog';
 import { getEnv } from '@/server/env';
 
@@ -49,7 +50,7 @@ export default async function PricingPage() {
 
   return (
     <main id="main-content" tabIndex={-1} className="outline-none">
-      <PricingHero i18n={i18n} bonus={getEnv().SIGNUP_BONUS_CREDITS} />
+      <PricingHero i18n={i18n} bonus={signupBonusOffer(getEnv())} />
       <div className="mx-auto grid w-full max-w-6xl gap-14 px-4 pt-4 pb-20 sm:px-6 sm:pb-28">
         <PricingView catalog={catalog} />
         <CreditCalculator samples={samples} amounts={amounts} initial={initial} />

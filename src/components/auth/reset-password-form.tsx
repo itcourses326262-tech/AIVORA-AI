@@ -94,8 +94,9 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
     <div className="grid gap-6">
       <AuthHeading title={t('auth.reset.title')} subtitle={t('auth.reset.subtitle')} />
       <FormError>{form.formError}</FormError>
-      <form noValidate onSubmit={form.onSubmit} className="grid gap-5">
+      <form method="post" noValidate onSubmit={form.onSubmit} className="grid gap-5">
         <PasswordField
+          id="password"
           label={t('auth.reset.newPassword')}
           value={form.values.password}
           onValueChange={(value) => form.setValue('password', value)}

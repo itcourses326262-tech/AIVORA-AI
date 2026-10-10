@@ -46,7 +46,7 @@ export const authEndpoints: EndpointSpec[] = [
     path: '/auth/register',
     summary: 'Create an account',
     description: [
-      'Creates an account, signs the browser in (`aivore_session` cookie) and grants the signup bonus in the same step. Where email confirmation is required the bonus follows the confirmation.',
+      'Creates an account and signs the browser in (`aivore_session` cookie). The account starts with no credits: the free signup credits are for accounts created with Google sign-in. Where email confirmation is required the account cannot generate until the address is confirmed.',
       originNote,
     ].join('\n\n'),
     access: 'public',
@@ -270,7 +270,7 @@ export const authEndpoints: EndpointSpec[] = [
     path: '/auth/verify-email/confirm',
     summary: 'Confirm an email address',
     description:
-      'Confirms the address with the secret from the emailed link and releases the signup bonus if it was waiting. Opening the link in a browser changes nothing by itself; the page it opens calls this endpoint, so mail scanners cannot use the link up. No session is needed: the link may be opened on another device.',
+      'Confirms the address with the secret from the emailed link. This pays no credits on a server that gives the free signup credits to Google sign-in only (the default). Opening the link in a browser changes nothing by itself; the page it opens calls this endpoint, so mail scanners cannot use the link up. No session is needed: the link may be opened on another device.',
     access: 'public',
     limits: [rateLimit(VERIFY_CONFIRM_RATE_LIMIT, 'public')],
     request: {
@@ -283,7 +283,7 @@ export const authEndpoints: EndpointSpec[] = [
       data(200, 'Confirmed.', ref('VerifyEmailConfirmResult'), {
         verified: true,
         alreadyVerified: false,
-        bonusCredits: 50,
+        bonusCredits: 0,
       }),
       linkProblem('The link cannot be used.'),
       validationFailed('`token` is missing or is not a string.', [

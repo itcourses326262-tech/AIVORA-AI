@@ -41,8 +41,11 @@ describe('what the pages may promise', () => {
     // Google sign-in on: the amount.
     expect(signupBonusOffer(parseEnv(GOOGLE))).toBe(50);
     expect(signupBonusOffer(parseEnv({ ...GOOGLE, FIREBASE_AUTH: 'off' }))).toBe(0);
-    // Password accounts earn them too (development): the amount, with or without Google.
-    expect(signupBonusOffer(parseEnv({ SIGNUP_BONUS_PROVIDER: 'any' }))).toBe(50);
+    // Password accounts that earn them (development, tests) are never advertised.
+    expect(signupBonusOffer(parseEnv({ SIGNUP_BONUS_PROVIDER: 'any' }))).toBe(0);
+    expect(signupBonusOffer(parseEnv({ ...GOOGLE, SIGNUP_BONUS_PROVIDER: 'any' }))).toBe(50);
+    // Sign-up closed: a visitor cannot take it.
+    expect(signupBonusOffer(parseEnv({ ...GOOGLE, SIGNUP_ENABLED: 'false' }))).toBe(0);
     // Zero amount: never.
     expect(signupBonusOffer(parseEnv({ ...GOOGLE, SIGNUP_BONUS_CREDITS: '0' }))).toBe(0);
   });

@@ -44,7 +44,7 @@ describe('RegisterForm', () => {
     stubDesktopPointer();
     mount();
     expect(name()).toHaveAttribute('autocomplete', 'name');
-    expect(email()).toHaveAttribute('autocomplete', 'email');
+    expect(email()).toHaveAttribute('autocomplete', 'username');
     expect(password()).toHaveAttribute('autocomplete', 'new-password');
     expect(name()).toHaveFocus();
     expect(
@@ -205,7 +205,9 @@ describe('RegisterForm', () => {
   it('lists what a new account gets, with the real number of credits', () => {
     const { unmount } = mount({ bonus: 120 });
     const list = screen.getByRole('list', { name: 'What you get' });
-    expect(within(list).getByText('120 credits free to start')).toBeInTheDocument();
+    expect(
+      within(list).getByText('120 credits free when you sign up with Google'),
+    ).toBeInTheDocument();
     expect(within(list).getAllByRole('listitem')).toHaveLength(3);
     unmount();
     mount({ bonus: 0 });
@@ -214,10 +216,25 @@ describe('RegisterForm', () => {
     expect(within(bare).queryByText(/credits/)).not.toBeInTheDocument();
   });
 
+  it('promises no credits anywhere on the page when nobody can earn them', () => {
+    // The subtitle used to say "Start with free credits": with Google-only credits it must not.
+    mount({ bonus: 0 });
+    expect(document.body.textContent).not.toMatch(/credit/i);
+    expect(document.body.textContent).not.toMatch(/free/i);
+    mount({ bonus: 0 }, 'ar');
+    expect(document.body.textContent).not.toMatch(/رصيد|مجان/);
+  });
+
+  it('ties the free credits to signing up with Google, in the subtitle and the list', () => {
+    mount({ bonus: 50 });
+    expect(screen.getByText('50 credits free when you sign up with Google')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('Start with free credits');
+  });
+
   it('says the number of credits in Arabic grammar', () => {
     mount({ bonus: 50 }, 'ar');
     const list = screen.getByRole('list', { name: 'ما ستحصل عليه' });
-    expect(within(list).getByText('٥٠ رصيدًا مجانًا للبدء')).toBeInTheDocument();
+    expect(within(list).getByText('٥٠ رصيدًا مجانًا عند التسجيل عبر Google')).toBeInTheDocument();
   });
 
   it('shows no form at all when registration is closed, only the way to log in', () => {

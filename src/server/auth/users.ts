@@ -10,7 +10,7 @@ import { isSmtpConfigured } from '@/server/email/transport';
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { getRateLimiter } from '@/server/security/rate-limit';
-import { grantSignupBonus } from './bonus';
+import { earnsSignupBonus, grantSignupBonus } from './bonus';
 import type { SessionUser } from './context';
 import { toSessionUser } from './dto';
 import { canonicalizeEmail } from './email-canonical';
@@ -27,7 +27,6 @@ import {
 import { openSession, revokeOtherSessions } from './sessions';
 import { assertEmailAllowed, assertSignupsWithinCap, signupAddress } from './signup-guard';
 import { fieldError, normalizeEmail, parseEmail, parseName, passwordNotSet } from './validation';
-import { pendingSignupBonus } from './verification';
 
 export interface RegisterInput {
   email: string;
@@ -96,8 +95,8 @@ export interface NewAccount {
   locale: Locale;
   role: UserRole;
   /**
-   * Credits granted as `signup_bonus` in the same transaction. 0 grants nothing: when emails must
-   * be confirmed the bonus waits for the confirmation (`markEmailVerified`).
+   * Credits granted as `signup_bonus` in the same transaction. 0 grants nothing, which is what
+   * every caller but the Google sign-in passes under the default policy (only Google earns it).
    */
   bonusCredits: number;
   /** Client address of the registration (counts towards the daily cap); null for operator-made accounts. */
@@ -155,10 +154,12 @@ export function insertAccount(tx: Tx, account: NewAccount, now: number): UserRow
 }
 
 /**
- * Creates the account and opens a session. Without mandatory email confirmation the signup bonus
- * is granted in the same transaction and the first `ADMIN_EMAILS` match becomes admin; with it, the
- * account starts with no credits and no privileges, a confirmation link is mailed, and bonus and
- * admin role follow the confirmation (`markEmailVerified`).
+ * Creates the account and opens a session. The free sign-up credits go to Google sign-in, not to
+ * this path: a password account starts with none, unless SIGNUP_BONUS_PROVIDER=any (development),
+ * where they are granted in the same transaction when emails need no confirmation and follow the
+ * confirmation otherwise. Without mandatory email confirmation the first `ADMIN_EMAILS` match
+ * becomes admin; with it, the account has no privileges until a confirmation link mailed to it is
+ * used (the admin role follows `markEmailVerified`, the credits only under `any`).
  *
  * `conflict` for a taken address (also an alias of a taken mailbox), `signup_disabled` when
  * registration is closed, `email_not_allowed` for a throwaway-mail domain, `signup_limit` when the
@@ -196,7 +197,10 @@ export async function registerUser(
           // required the promotion happens at confirmation. Otherwise whoever registers an
           // ADMIN_EMAILS address first owns it (docs/ARCHITECTURE.md section 16).
           role: !confirmFirst && env.ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
-          bonusCredits: confirmFirst ? 0 : env.SIGNUP_BONUS_CREDITS,
+          // Mailbox not proven yet: with confirmation required the bonus (where password accounts
+          // earn one at all) waits for it.
+          bonusCredits:
+            !confirmFirst && earnsSignupBonus(env, 'password') ? env.SIGNUP_BONUS_CREDITS : 0,
           signupIp: signupAddress(meta.ip),
           verifiedAt: null,
         },
@@ -204,14 +208,12 @@ export async function registerUser(
       );
       const session = openSession(tx, user.id, meta, now);
       const confirmation = confirmFirst ? issueEmailToken(tx, user.id, 'verify', now) : null;
-      // What the email may promise: nothing for a mailbox that already got its bonus once.
-      const promisedBonus = confirmation ? pendingSignupBonus(tx, user) : 0;
-      return { user, session, confirmation, promisedBonus };
+      return { user, session, confirmation };
     });
     getLogger().info('User registered', { userId: result.user.id, role: result.user.role });
     const recipient = { email, name: result.user.name, locale: result.user.locale };
     if (result.confirmation) {
-      queueVerificationEmail(recipient, result.confirmation.secret, result.promisedBonus);
+      queueVerificationEmail(recipient, result.confirmation.secret);
     } else if (isSmtpConfigured(env)) {
       queueWelcomeEmail(recipient, result.user.creditBalance);
     }
@@ -233,7 +235,7 @@ export interface ProvisionInput {
   name: string;
   locale?: Locale;
   role?: UserRole;
-  /** Defaults to SIGNUP_BONUS_CREDITS. */
+  /** Defaults to 0: the free sign-up credits are for Google sign-in, an operator grants more on purpose. */
   bonusCredits?: number;
 }
 
@@ -254,7 +256,7 @@ export async function provisionUser(input: ProvisionInput): Promise<SessionUser>
           passwordHash,
           locale: isLocale(input.locale) ? input.locale : DEFAULT_LOCALE,
           role: input.role ?? 'user',
-          bonusCredits: input.bonusCredits ?? getEnv().SIGNUP_BONUS_CREDITS,
+          bonusCredits: input.bonusCredits ?? 0,
           // The operator vouches for the address, so there is nothing to confirm or to cap.
           signupIp: null,
           verifiedAt: now,

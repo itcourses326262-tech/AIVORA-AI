@@ -3,7 +3,6 @@
 import { useCallback } from 'react';
 import { isolateLtr } from '@/components/auth/bidi';
 import { useResendVerification } from '@/components/layout/verify-email-banner';
-import { creditsLabel } from '@/components/marketing/credits-label';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n/client';
 import { useUser } from '@/lib/user-context';
@@ -19,13 +18,11 @@ export const CONFIRM_EMAIL_NOTICE_ID = 'pricing-confirm-email';
  * instead of letting the buyer press a button and meet an error.
  */
 export function ConfirmEmailNotice() {
-  const i18n = useI18n();
-  const { t } = i18n;
+  const { t } = useI18n();
   const { user, refresh } = useUser();
   const onVerified = useCallback(() => void refresh(), [refresh]);
   const { remaining, busy, resend, label } = useResendVerification(onVerified);
   if (!user) return null;
-  const bonus = user.pendingBonusCredits ?? 0;
   return (
     <div id={CONFIRM_EMAIL_NOTICE_ID}>
       <Notice
@@ -45,9 +42,6 @@ export function ConfirmEmailNotice() {
         }
       >
         {t('billing.pricing.confirmEmail.body', { email: isolateLtr(user.email) })}
-        {bonus > 0
-          ? ` ${t('billing.pricing.confirmEmail.bonus', { credits: creditsLabel(i18n, bonus) })}`
-          : ''}
       </Notice>
     </div>
   );

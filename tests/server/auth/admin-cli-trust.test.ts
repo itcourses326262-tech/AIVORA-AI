@@ -200,7 +200,8 @@ describe('resend-verification', () => {
 });
 
 describe('force-verify', () => {
-  it('confirms without the link and grants the sign-up bonus the account never got', async () => {
+  it('confirms without the link and, where password accounts earn it, grants the sign-up bonus the account never got', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' });
     createUser(harness.db, { email: 'a@example.com', emailVerifiedAt: null, creditBalance: 0 });
     const result = await run(['force-verify', 'a@example.com']);
     expect(result.code).toBe(EXIT_OK);
@@ -210,7 +211,20 @@ describe('force-verify', () => {
     expect(harness.db.select().from(creditLedger).all()).toHaveLength(1);
   });
 
+  it('pays no credits under the product policy: the free ones are for Google sign-in', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'google' });
+    createUser(harness.db, { email: 'a@example.com', emailVerifiedAt: null, creditBalance: 0 });
+    const result = await run(['force-verify', 'a@example.com']);
+    expect(result.code).toBe(EXIT_OK);
+    expect(result.out).toContain('Confirmed a@example.com.');
+    expect(result.out).not.toContain('sign-up credits');
+    expect(userRow('a@example.com')).toMatchObject({ creditBalance: 0 });
+    expect(userRow('a@example.com')?.emailVerifiedAt).toBeGreaterThan(0);
+    expect(harness.db.select().from(creditLedger).all()).toEqual([]);
+  });
+
   it('is repeatable and never pays twice', async () => {
+    stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' });
     createUser(harness.db, { email: 'a@example.com', emailVerifiedAt: null, creditBalance: 0 });
     await run(['force-verify', 'a@example.com']);
     const again = await run(['force-verify', 'a@example.com']);
@@ -224,7 +238,7 @@ describe('force-verify', () => {
   });
 
   it('never promotes an ADMIN_EMAILS address (the operator vouches for the mailbox, not for the holder) and says how to', async () => {
-    stubEnv({ ADMIN_EMAILS: 'boss@example.com' });
+    stubEnv({ ADMIN_EMAILS: 'boss@example.com', SIGNUP_BONUS_PROVIDER: 'any' });
     createUser(harness.db, { email: 'boss@example.com', emailVerifiedAt: null, creditBalance: 0 });
     createUser(harness.db, { email: 'a@example.com', emailVerifiedAt: null, creditBalance: 0 });
 

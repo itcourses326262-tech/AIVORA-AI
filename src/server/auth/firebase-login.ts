@@ -9,6 +9,7 @@ import { isSmtpConfigured } from '@/server/email/transport';
 import { getEnv } from '@/server/env';
 import { getLogger } from '@/server/logger';
 import { revokeAllApiKeys } from './api-keys';
+import { earnsSignupBonus, grantSignupBonus } from './bonus';
 import { toSessionUser } from './dto';
 import { canonicalizeEmail } from './email-canonical';
 import { isFirebaseAuthEnabled, verifyFirebaseIdToken, type FirebaseIdentity } from './firebase';
@@ -32,6 +33,10 @@ import { markEmailVerified, toRecipient } from './verification';
  *   3. a new account, created through the same code as registration.
  * All state changes of one sign-in happen in a single transaction, so two simultaneous first
  * sign-ins of one Google account end up as one user, one bonus and two sessions.
+ *
+ * Google is the only way to earn the free sign-up credits (SIGNUP_BONUS_PROVIDER): a new account
+ * gets them with its creation, an existing one with its first Google link. Both go through
+ * `grantSignupBonus`, so a user and a mailbox are paid at most once.
  */
 
 const PROVIDER = 'google';
@@ -67,6 +72,8 @@ interface Outcome {
   keysRevoked: number;
   /** The address of the account became confirmed in this sign-in. */
   confirmedNow: boolean;
+  /** Free sign-up credits this sign-in paid (0: none, or the account had them already). */
+  bonusCredits: number;
   at: number;
 }
 
@@ -193,6 +200,7 @@ function signInInTransaction(
       passwordEnded: false,
       keysRevoked: 0,
       confirmedNow: false,
+      bonusCredits: 0,
       at: now,
     };
   }
@@ -220,10 +228,19 @@ function signInInTransaction(
       passwordEnded = true;
     }
     if (existing.emailVerifiedAt === null) {
-      // Google confirmed the mailbox, so the sign-up bonus is paid now if it never was, and an
-      // `ADMIN_EMAILS` address is promoted: the holder of the account is the owner of the mailbox.
-      confirmedNow = markEmailVerified(tx, existing.id, now, { promoteAdmin: true }).changed;
+      // Google confirmed the mailbox, so an `ADMIN_EMAILS` address is promoted: the holder of the
+      // account is the owner of the mailbox. The bonus is paid just below, for every first link.
+      confirmedNow = markEmailVerified(tx, existing.id, now, {
+        bonus: 'none',
+        promoteAdmin: true,
+      }).changed;
     }
+    // The first link is what earns the free credits, whether or not the address had been
+    // confirmed by a link before (that pays nothing). Once per user and once per mailbox: an
+    // account that has its bonus, or a mailbox that was paid under another account, gets none.
+    const bonus = earnsSignupBonus(env, 'google')
+      ? grantSignupBonus(tx, existing, env.SIGNUP_BONUS_CREDITS, now)
+      : null;
     // What the caller sees is the account as it is now, not as it was found.
     const user = tx.select().from(users).where(eq(users.id, existing.id)).get() ?? existing;
     const session = openSession(tx, user.id, meta, now);
@@ -235,6 +252,7 @@ function signInInTransaction(
       passwordEnded,
       keysRevoked,
       confirmedNow,
+      bonusCredits: bonus?.created ? bonus.entry.delta : 0,
       at: now,
     };
   }
@@ -254,7 +272,7 @@ function signInInTransaction(
       locale,
       // The mailbox is confirmed by Google, which is what `ADMIN_EMAILS` promotion waits for.
       role: env.ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
-      bonusCredits: env.SIGNUP_BONUS_CREDITS,
+      bonusCredits: earnsSignupBonus(env, 'google') ? env.SIGNUP_BONUS_CREDITS : 0,
       signupIp: signupAddress(meta.ip),
       verifiedAt: now,
     },
@@ -270,6 +288,8 @@ function signInInTransaction(
     passwordEnded: false,
     keysRevoked: 0,
     confirmedNow: false,
+    // Nothing else can be in the balance of an account that has just been created.
+    bonusCredits: user.creditBalance,
     at: now,
   };
 }
@@ -332,7 +352,7 @@ export async function signInWithFirebase(
   }
   if (isSmtpConfigured(env)) {
     if (outcome.created || outcome.confirmedNow) {
-      queueWelcomeEmail(toRecipient(outcome.user), outcome.user.creditBalance);
+      queueWelcomeEmail(toRecipient(outcome.user), outcome.bonusCredits);
     }
     // The owner of the address learns that the password is gone, and why every key stopped working.
     if (outcome.passwordEnded) {

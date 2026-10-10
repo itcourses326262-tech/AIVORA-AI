@@ -32,9 +32,22 @@ beforeEach(() => {
   mocks.acceptLanguage = null;
 });
 
+/** Google sign-in set up: the only situation in which the pages advertise the free credits. */
+function withGoogle() {
+  process.env.FIREBASE_API_KEY = 'k'.repeat(30);
+  process.env.FIREBASE_AUTH_DOMAIN = 'demo-project.firebaseapp.com';
+  process.env.FIREBASE_PROJECT_ID = 'demo-project';
+  resetEnvForTests();
+}
+
 afterEach(() => {
+  delete process.env.FIREBASE_API_KEY;
+  delete process.env.FIREBASE_AUTH_DOMAIN;
+  delete process.env.FIREBASE_PROJECT_ID;
   delete process.env.SIGNUP_BONUS_CREDITS;
   process.env.SIGNUP_BONUS_CREDITS = '50';
+  // The suite default (tests/setup.ts): password accounts earn the credits too.
+  process.env.SIGNUP_BONUS_PROVIDER = 'any';
   resetEnvForTests();
 });
 
@@ -76,25 +89,58 @@ describe('landing page', () => {
   });
 
   it('invites visitors to sign up and to explore, and says what a sign-up is worth', async () => {
+    withGoogle();
     const html = await render();
     expect(html).toMatch(/<a [^>]*href="\/register"[^>]*>Start creating free/);
     expect(html).toMatch(/<a [^>]*href="\/explore"[^>]*>Explore creations/);
-    expect(html).toContain('Sign up and get 50 credits on us. No card needed.');
+    expect(html).toContain('Sign up with Google and get 50 credits free. No card needed.');
   });
 
   it('shows the sign-up bonus from the environment, and leaves the number out when there is none', async () => {
+    withGoogle();
     process.env.SIGNUP_BONUS_CREDITS = '120';
     resetEnvForTests();
-    expect(await render()).toContain('Sign up and get 120 credits on us.');
+    expect(await render()).toContain('Sign up with Google and get 120 credits free.');
 
     process.env.SIGNUP_BONUS_CREDITS = '0';
     resetEnvForTests();
     const none = await render();
     expect(none).toContain('Sign up in seconds. No card needed.');
     expect(none).not.toContain('Free to start');
+    expect(none).not.toContain('with Google');
+  });
+
+  it('promises the free credits only where they can be earned', async () => {
+    // The product policy and no Google sign-in: nobody can earn them, so the page says nothing.
+    process.env.SIGNUP_BONUS_PROVIDER = 'google';
+    resetEnvForTests();
+    const closed = await render();
+    expect(closed).toContain('Sign up in seconds. No card needed.');
+    expect(closed).not.toContain('Free to start');
+    expect(closed).not.toContain('with Google');
+    // The description every search result and share card shows cannot depend on the setup, so it
+    // promises no credits at all.
+    expect(closed).not.toMatch(/credits on sign-up|free credits/i);
+
+    process.env.FIREBASE_API_KEY = 'k'.repeat(30);
+    process.env.FIREBASE_AUTH_DOMAIN = 'demo-project.firebaseapp.com';
+    process.env.FIREBASE_PROJECT_ID = 'demo-project';
+    resetEnvForTests();
+    try {
+      const open = await render();
+      expect(open).toContain('Sign up with Google and get 50 credits free. No card needed.');
+      expect(open).toContain('Free to start');
+      expect(open).toContain('Sign up with Google and get');
+      expect(await render('ar')).toContain('سجّل عبر Google واحصل على ٥٠ رصيدًا مجانًا.');
+    } finally {
+      delete process.env.FIREBASE_API_KEY;
+      delete process.env.FIREBASE_AUTH_DOMAIN;
+      delete process.env.FIREBASE_PROJECT_ID;
+    }
   });
 
   it('answers in Arabic, right to left, with Arabic digits and grammar', async () => {
+    withGoogle();
     const html = await render('ar');
     expect(html).toContain('ابدأ الإبداع مجانًا');
     expect(html).toContain('٥٠ رصيدًا');

@@ -42,7 +42,6 @@ function outgoing(to = 'layla@example.com'): OutgoingEmail {
     name: 'ليلى',
     link: 'https://aivore.example/verify-email?token=abc',
     ttlHours: 24,
-    bonusCredits: 50,
   });
   return { ...message, from: 'AIVORE <no-reply@aivore.example>' };
 }

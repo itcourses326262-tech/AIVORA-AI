@@ -128,7 +128,10 @@ export async function resetPassword(
     const revoked = revokeAllApiKeys(tx, consumed.userId, now);
     // The mailbox owner chose this password and nothing else still works: the one moment an
     // ADMIN_EMAILS address may be promoted without trusting whoever registered it first.
-    const verified = markEmailVerified(tx, consumed.userId, now, { promoteAdmin: true });
+    const verified = markEmailVerified(tx, consumed.userId, now, {
+      bonus: 'password',
+      promoteAdmin: true,
+    });
     return { user: verified.user, keysRevoked: revoked };
   });
   getLogger().info('Password reset completed', {

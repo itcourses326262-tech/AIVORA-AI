@@ -3,6 +3,7 @@
 import { CircleUserRound, Images, Loader, LogOut, WandSparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { stopSilentSignIn } from '@/components/auth/credential-store';
 import { api } from '@/lib/api-client';
 import { LOCALES } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/client';
@@ -55,6 +56,8 @@ export function UserMenu({ navigation = true, preferences = true }: UserMenuProp
       toast.error(errorMessage(t, error));
       return;
     }
+    // A saved password must not sign this person straight back in.
+    stopSilentSignIn();
     router.replace('/');
     router.refresh();
     toast.success(t('common.toast.loggedOut'));

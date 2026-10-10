@@ -5,7 +5,7 @@ export default defineMessages({
     meta: {
       title: 'AIVORE: AI images and video from Arabic or English prompts',
       description:
-        'Turn a sentence in Arabic or English into stunning images and videos in seconds. Start free with credits on sign-up. No card needed.',
+        'Turn a sentence in Arabic or English into stunning images and videos in seconds. No card needed to start.',
       appDescription:
         'A bilingual studio for creating images and videos with AI from Arabic or English prompts, with a prompt enhancer, a personal gallery and a developer API.',
     },
@@ -25,7 +25,7 @@ export default defineMessages({
         'Describe a scene in Arabic or English and get stunning images and videos in seconds.',
       cta: 'Start creating free',
       ctaSecondary: 'Explore creations',
-      trust: 'Sign up and get {credits} on us. No card needed.',
+      trust: 'Sign up with Google and get {credits} free. No card needed.',
       trustNoBonus: 'Sign up in seconds. No card needed.',
     },
     credits: {
@@ -109,7 +109,7 @@ export default defineMessages({
       subtitle:
         'One balance pays for everything. You see the exact cost before you generate, and a failed generation is refunded automatically.',
       freeTitle: 'Free to start',
-      freeLead: 'Every new account gets',
+      freeLead: 'Sign up with Google and get',
       freeBody: 'Enough for up to {count} images with a fast model. No card needed.',
       imagesTitle: 'Images',
       imagesUnit: 'per image',
@@ -149,7 +149,9 @@ export default defineMessages({
         free: {
           question: 'Do I have to pay to start?',
           answer:
-            'No. Creating an account is free and needs no card. New accounts also receive free credits to try the tools.',
+            'No. Creating an account is free and needs no card. Sign up with Google and you also get free credits to try the tools.',
+          answerNoBonus:
+            'Creating an account is free and needs no card. Generating costs credits, which you can buy at any time as a one-time pack or a monthly plan.',
         },
         arabic: {
           question: 'Can I write prompts in Arabic?',
@@ -180,7 +182,7 @@ export default defineMessages({
     },
     finalCta: {
       title: 'Your next idea is one sentence away',
-      description: 'Create a free account and make your first image or video in under a minute.',
+      description: 'Create an account, add credits and make your first image or video in minutes.',
     },
     footer: {
       tagline: 'Turn a sentence into images and video, in Arabic or English.',
@@ -217,7 +219,7 @@ export default defineMessages({
     meta: {
       title: 'AIVORE: صور وفيديوهات بالذكاء الاصطناعي من وصف عربي أو إنجليزي',
       description:
-        'حوّل جملة بالعربية أو الإنجليزية إلى صور وفيديوهات مذهلة في ثوانٍ. ابدأ مجانًا برصيد هدية عند التسجيل، ودون بطاقة بنكية.',
+        'حوّل جملة بالعربية أو الإنجليزية إلى صور وفيديوهات مذهلة في ثوانٍ. دون بطاقة بنكية.',
       appDescription:
         'استوديو ثنائي اللغة لإنشاء الصور والفيديوهات بالذكاء الاصطناعي من وصف عربي أو إنجليزي، مع محسّن للوصف ومعرض شخصي وواجهة برمجية للمطوّرين.',
     },
@@ -236,7 +238,7 @@ export default defineMessages({
       subtitle: 'صِف المشهد بالعربية أو الإنجليزية، واحصل على صور وفيديوهات مذهلة في ثوانٍ.',
       cta: 'ابدأ الإبداع مجانًا',
       ctaSecondary: 'استكشف الإبداعات',
-      trust: 'سجّل واحصل على {credits} مجانًا. لا حاجة لبطاقة بنكية.',
+      trust: 'سجّل عبر Google واحصل على {credits} مجانًا. لا حاجة لبطاقة بنكية.',
       trustNoBonus: 'سجّل خلال ثوانٍ. لا حاجة لبطاقة بنكية.',
     },
     credits: {
@@ -315,7 +317,7 @@ export default defineMessages({
       subtitle:
         'رصيد واحد يغطي كل شيء. تعرف التكلفة بالضبط قبل التوليد، ويُعاد رصيدك تلقائيًا إذا فشلت العملية.',
       freeTitle: 'ابدأ مجانًا',
-      freeLead: 'يحصل كل حساب جديد على',
+      freeLead: 'سجّل عبر Google واحصل على',
       freeBody: 'تكفي لإنشاء ما يصل إلى {count} صورة بنموذج سريع. لا حاجة لبطاقة بنكية.',
       imagesTitle: 'الصور',
       imagesUnit: 'للصورة الواحدة',
@@ -355,7 +357,9 @@ export default defineMessages({
         free: {
           question: 'هل أحتاج إلى الدفع للبدء؟',
           answer:
-            'لا. إنشاء الحساب مجاني ولا يتطلب بطاقة بنكية. وتحصل الحسابات الجديدة على رصيد مجاني لتجربة الأدوات.',
+            'لا. إنشاء الحساب مجاني ولا يتطلب بطاقة بنكية. وإذا سجّلت عبر Google فستحصل أيضًا على رصيد مجاني لتجربة الأدوات.',
+          answerNoBonus:
+            'إنشاء الحساب مجاني ولا يتطلب بطاقة بنكية. أما التوليد فيستهلك رصيدًا، ويمكنك شراؤه في أي وقت كحزمة لمرة واحدة أو كباقة شهرية.',
         },
         arabic: {
           question: 'هل يمكنني كتابة الوصف بالعربية؟',
@@ -386,7 +390,7 @@ export default defineMessages({
     },
     finalCta: {
       title: 'فكرتك التالية على بُعد جملة واحدة',
-      description: 'أنشئ حسابًا مجانيًا، وابتكر أول صورة أو فيديو لك في أقل من دقيقة.',
+      description: 'أنشئ حسابك، وأضف رصيدًا، وابتكر أول صورة أو فيديو لك في دقائق.',
     },
     footer: {
       tagline: 'حوّل جملة واحدة إلى صور وفيديوهات، بالعربية أو الإنجليزية.',

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type * as BonusModule from '@/server/auth/bonus';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/lib/errors';
 import { EmailTokenError, findEmailToken, issueEmailToken } from '@/server/auth/email-tokens';
 import {
@@ -8,6 +8,7 @@ import {
   confirmEmailVerification,
   getVerificationState,
   markEmailVerified,
+  pendingSignupBonus,
   requestEmailVerification,
   resendVerificationNow,
 } from '@/server/auth/verification';
@@ -32,6 +33,9 @@ vi.mock('@/server/auth/bonus', async (importOriginal) => {
 
 const harness = freshDb();
 trustTestState();
+// The mechanics below (paid once, in the confirming transaction, undone with it) are those of the
+// sign-up bonus wherever password accounts earn it. WHO earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 
 const SECOND = 1000;
 
@@ -130,26 +134,13 @@ describe('requestEmailVerification', () => {
     expect((await failure(requestEmailVerification(makeId()))).code).toBe('not_found');
   });
 
-  it('mentions the bonus only while it is still to come', async () => {
+  it('never promises credits: confirming an address is not what pays them', async () => {
     const user = unconfirmedUser();
+    // Even where password accounts do get a bonus (the setting of this file), the mail only asks
+    // for the confirmation.
+    expect(pendingSignupBonus(harness.db, user)).toBe(50);
     await requestEmailVerification(user.id);
-    expect((await mailTo('layla@example.com'))?.text).toContain('50 credits');
-    // An account that already holds its bonus is not promised another.
-    const paid = unconfirmedUser({ email: 'paid@example.com' });
-    harness.db
-      .insert(creditLedger)
-      .values({
-        id: 'led_x',
-        userId: paid.id,
-        delta: 50,
-        balanceAfter: 50,
-        reason: 'signup_bonus',
-        idempotencyKey: `signup_bonus:${paid.id}`,
-        createdAt: Date.now(),
-      })
-      .run();
-    await requestEmailVerification(paid.id);
-    expect((await mailTo('paid@example.com'))?.text).not.toContain('credits');
+    expect((await mailTo('layla@example.com'))?.text).not.toMatch(/credit|bonus/i);
   });
 });
 
@@ -198,7 +189,7 @@ describe('getVerificationState', () => {
 });
 
 describe('confirmEmailVerification', () => {
-  it('confirms the address, pays the bonus and welcomes the person - once', async () => {
+  it('confirms the address, pays the bonus (where password accounts earn one) and welcomes the person - once', async () => {
     const user = unconfirmedUser();
     const { secret } = issueEmailToken(harness.db, user.id, 'verify');
 
@@ -282,10 +273,12 @@ describe('confirmEmailVerification', () => {
 });
 
 describe('markEmailVerified', () => {
+  const PAYS = { bonus: 'password' } as const;
+
   it('is idempotent and never pays twice', () => {
     const user = unconfirmedUser();
-    const first = withTx(harness.db, (tx) => markEmailVerified(tx, user.id));
-    const second = withTx(harness.db, (tx) => markEmailVerified(tx, user.id));
+    const first = withTx(harness.db, (tx) => markEmailVerified(tx, user.id, Date.now(), PAYS));
+    const second = withTx(harness.db, (tx) => markEmailVerified(tx, user.id, Date.now(), PAYS));
     expect(first).toMatchObject({ changed: true, bonus: { created: true } });
     expect(second).toMatchObject({ changed: false, bonus: { created: false } });
     expect(first.user.emailVerifiedAt).toBe(second.user.emailVerifiedAt);
@@ -294,18 +287,31 @@ describe('markEmailVerified', () => {
 
   it('refuses a deleted or unknown account', () => {
     const deleted = unconfirmedUser({ deletedAt: Date.now() });
-    expect(() => withTx(harness.db, (tx) => markEmailVerified(tx, deleted.id))).toThrow(
-      /not found/i,
-    );
     expect(() =>
-      withTx(harness.db, (tx) => markEmailVerified(tx, 'usr_00000000000000000000000000')),
+      withTx(harness.db, (tx) => markEmailVerified(tx, deleted.id, Date.now(), PAYS)),
+    ).toThrow(/not found/i);
+    expect(() =>
+      withTx(harness.db, (tx) =>
+        markEmailVerified(tx, 'usr_00000000000000000000000000', Date.now(), PAYS),
+      ),
     ).toThrow(/not found/i);
   });
 
   it('leaves the last mail alone: no email is sent by the primitive itself', async () => {
     const user = unconfirmedUser();
-    withTx(harness.db, (tx) => markEmailVerified(tx, user.id));
+    withTx(harness.db, (tx) => markEmailVerified(tx, user.id, Date.now(), PAYS));
     await mailTo('layla@example.com');
     expect(lastOutboxMessage('layla@example.com')).toBeUndefined();
+  });
+
+  it('pays nothing when the caller says the confirmation may not (Google sign-in pays by itself)', () => {
+    const user = unconfirmedUser();
+    const outcome = withTx(harness.db, (tx) =>
+      markEmailVerified(tx, user.id, Date.now(), { bonus: 'none' }),
+    );
+    // Confirmed, but no credit even though password accounts earn one in this file's setting.
+    expect(outcome).toMatchObject({ changed: true, bonus: null });
+    expect(userRow(user.id)).toMatchObject({ creditBalance: 0 });
+    expect(harness.db.select().from(creditLedger).all()).toEqual([]);
   });
 });

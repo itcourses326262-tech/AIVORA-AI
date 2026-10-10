@@ -10,9 +10,9 @@ export interface CreditStatus {
    */
   signedOut?: boolean;
   /**
-   * The server wants a confirmed email address before this account may generate: the balance reads
-   * 0 because the sign-up bonus is paid on confirmation, so "get credits" would be the wrong
-   * advice. The notice asks for the confirmation instead and Generate stays off.
+   * The server wants a confirmed email address before this account may generate or buy credits, so
+   * "get credits" would be the wrong advice whatever the balance reads. The notice asks for the
+   * confirmation instead and Generate stays off.
    */
   unconfirmed?: boolean;
 }

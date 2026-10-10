@@ -22,13 +22,15 @@ export function earnsSignupBonus(env: Env, method: SignupMethod): boolean {
 }
 
 /**
- * The number of free credits the pages may promise a visitor: 0 when nobody can earn them here
- * (Google sign-in is not set up and password accounts get none).
+ * The number of free credits the pages may promise a visitor: 0 unless a visitor can really earn
+ * them through Google sign-in here (set up, sign-up open). Password accounts that earn them under
+ * SIGNUP_BONUS_PROVIDER=any (development, tests) are never advertised.
  */
 export function signupBonusOffer(env: Env): number {
+  // Only the Google route is ever advertised ("N free credits when you sign up with Google"): a
+  // visitor cannot take it when sign-up is closed or when there is no Google button to press.
   const reachable =
-    (isFirebaseAuthEnabled(env) && earnsSignupBonus(env, 'google')) ||
-    earnsSignupBonus(env, 'password');
+    env.SIGNUP_ENABLED && isFirebaseAuthEnabled(env) && earnsSignupBonus(env, 'google');
   return reachable ? env.SIGNUP_BONUS_CREDITS : 0;
 }
 

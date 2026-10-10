@@ -13,11 +13,31 @@ interface TextFieldProps {
   inputRef?: Ref<HTMLInputElement>;
 }
 
-/** The email address: typed left to right whatever the page language, with the usual keyboard and autofill hints. */
-export function EmailField({ value, onValueChange, onBlur, error, inputRef }: TextFieldProps) {
+interface EmailFieldProps extends TextFieldProps {
+  /**
+   * `username` where the address is what the person logs in with (log in, sign up): the browser's
+   * password manager then saves and fills it together with the password. `email` where it is just
+   * an address (asking for a reset link).
+   */
+  autoComplete?: 'email' | 'username';
+}
+
+/**
+ * The email address: typed left to right whatever the page language, with the usual keyboard and
+ * autofill hints. Its `id` and `name` are fixed (`email`), which is what password managers
+ * recognise a saved form by; a page has one of these.
+ */
+export function EmailField({
+  value,
+  onValueChange,
+  onBlur,
+  error,
+  inputRef,
+  autoComplete = 'email',
+}: EmailFieldProps) {
   const { t } = useI18n();
   return (
-    <Field label={t('auth.fields.email')} error={error} required>
+    <Field id="email" label={t('auth.fields.email')} error={error} required>
       <Input
         ref={inputRef}
         name="email"
@@ -26,7 +46,7 @@ export function EmailField({ value, onValueChange, onBlur, error, inputRef }: Te
         className="rtl:text-end"
         size="lg"
         inputMode="email"
-        autoComplete="email"
+        autoComplete={autoComplete}
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
@@ -42,7 +62,7 @@ export function EmailField({ value, onValueChange, onBlur, error, inputRef }: Te
 export function NameField({ value, onValueChange, onBlur, error, inputRef }: TextFieldProps) {
   const { t } = useI18n();
   return (
-    <Field label={t('auth.fields.name')} error={error} required>
+    <Field id="name" label={t('auth.fields.name')} error={error} required>
       <Input
         ref={inputRef}
         name="name"

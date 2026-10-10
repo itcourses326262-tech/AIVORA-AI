@@ -3,8 +3,8 @@ import { getEnv, type Env } from '@/server/env';
 import { isSmtpConfigured } from '@/server/email/transport';
 
 /**
- * Whether an account must confirm its email address before it may create generations (and before
- * it receives the sign-up bonus). `EMAIL_VERIFICATION=auto` (the default) ties it to SMTP: with a
+ * Whether an account must confirm its email address before it may create generations (and, where password
+ * accounts earn the sign-up bonus, before it receives it). `EMAIL_VERIFICATION=auto` (the default) ties it to SMTP: with a
  * relay configured the confirmation email can actually be delivered, without one a fresh checkout
  * would lock every new user out of the studio.
  *

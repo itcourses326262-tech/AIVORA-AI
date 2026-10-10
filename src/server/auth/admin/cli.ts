@@ -30,6 +30,8 @@ Usage: npm run admin -- <command> [options]
 Commands:
   create-user     --email <email> [--name <name>] [--locale ar|en] [--role user|admin]
                   [--credits <n>] [--password-stdin | --password <value>]
+                  starts with 0 credits unless --credits is given (the free sign-up credits
+                  are for accounts created through Google sign-in)
   grant-credits   --email <email> --amount <n> [--note <text>]
   set-role        --email <email> --role user|admin [--force]
   disable         --email <email> [--force]      also signs the user out everywhere
@@ -40,8 +42,8 @@ Commands:
   users-stats     [--json]                       accounts, confirmed emails, new sign-ups, credits
                   (also: users stats)
   resend-verification <email>                    mails a new confirmation link (no resend gap)
-  force-verify    <email>                        confirms the address without the link; grants
-                                                 the sign-up bonus if the account has none (never
+  force-verify    <email>                        confirms the address without the link (pays no
+                                                 credits unless SIGNUP_BONUS_PROVIDER=any; never
                                                  changes the role: use set-role for that)
   delete-user     <email> | --id <usr_...> [--yes] [--force]
                   deletes the account like the user's own request (without the password);

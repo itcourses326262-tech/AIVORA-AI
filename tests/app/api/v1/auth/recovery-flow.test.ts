@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as LoggerModule from '@/server/logger';
 import { DELETE as deleteAccount } from '@/app/api/v1/account/route';
 import { GET as exportData } from '@/app/api/v1/account/export/route';
@@ -39,6 +39,9 @@ vi.mock('@/server/logger', async (importOriginal) => {
 
 freshDb();
 routeTestState();
+// The bonus assertions in this file are about a setup where password accounts earn it
+// (SIGNUP_BONUS_PROVIDER=any, the suite default); who earns it is google-only-bonus.test.ts.
+beforeEach(() => stubEnv({ SIGNUP_BONUS_PROVIDER: 'any' }));
 cleanEmailState();
 
 type Body = { data: Record<string, unknown> } & ErrorBody;

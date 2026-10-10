@@ -16,7 +16,10 @@ import {
 
 afterEach(resetBillingTest);
 
-/** An account on a server that wants its address confirmed, with the bonus still waiting. */
+/**
+ * An account on a server that wants its address confirmed. The server reports a pending bonus (as
+ * a development setup that pays password accounts would), and the page still promises none.
+ */
 const UNCONFIRMED: CurrentUser = {
   ...LAYLA,
   creditBalance: 0,
@@ -59,13 +62,13 @@ function mount(
 const buyButtons = () => screen.getAllByRole('button', { name: 'Confirm your email first' });
 
 describe('/pricing for an account that has not confirmed its email address', () => {
-  it('says politely that buying needs a confirmed address, with the way to a new link and the bonus', () => {
+  it('says politely that buying needs a confirmed address, with the way to a new link and no promise of credits', () => {
     mount();
     const notice = screen.getByText(TITLE).closest('[role="status"]') as HTMLElement;
     expect(notice).toBeInTheDocument();
     expect(notice).toHaveTextContent('Purchases need a confirmed email address');
     expect(notice).toHaveTextContent('layla@example.com');
-    expect(notice).toHaveTextContent('Confirming also adds your sign-up bonus of 50 credits.');
+    expect(notice).not.toHaveTextContent(/sign-up bonus|Confirming also adds/);
     expect(within(notice).getByRole('button', { name: 'Resend link' })).toBeEnabled();
   });
 
@@ -128,13 +131,13 @@ describe('/pricing for an account that has not confirmed its email address', () 
     expect(screen.getByText('أكّد بريدك الإلكتروني لتشتري رصيدًا')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'أكّد بريدك أولًا' })).toHaveLength(3);
     expect(screen.getByRole('button', { name: 'إعادة إرسال الرابط' })).toBeInTheDocument();
-    expect(document.body.textContent).toContain('مكافأة التسجيل البالغة');
+    expect(document.body.textContent).not.toMatch(/مكافأة|هدية|مجانًا/);
     expect(document.body.textContent).toContain(
       `${String.fromCodePoint(0x2066)}layla@example.com${String.fromCodePoint(0x2069)}`,
     );
   });
 
-  it('leaves out the bonus sentence when there is no bonus to wait for', () => {
+  it('reads the same whether or not the server reports a pending bonus', () => {
     mount({ user: { ...UNCONFIRMED, pendingBonusCredits: 0 } });
     expect(screen.getByText(TITLE)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('sign-up bonus');

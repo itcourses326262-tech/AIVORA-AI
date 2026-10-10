@@ -79,7 +79,7 @@ We may set limits for fairness and safety, for example on how many generations c
 - **Credits never expire.** Unused credits stay in your account for as long as the account exists.
 - Credits have no cash value. They cannot be transferred, sold, gifted or exchanged for money, except for the refunds described in the [Refund Policy](/refunds).
 - If a generation fails, or you cancel it before it finishes, the credits it cost are returned to your balance automatically. If a request returns fewer results than you paid for, the credits for the missing results are returned.
-- Free credits we give you, for example when you sign up, are a gift. We may change or end such offers at any time, and they cannot be refunded as money.
+- Free credits we give you, for example when you sign up with Google, are a gift. We may change or end such offers at any time, and they cannot be refunded as money {confirm}.
 - Your balance and its history (purchases, usage and refunds) are shown in your [account](/account).
 
 We may correct a balance that is wrong because of a technical error, and we may remove credits that were obtained through abuse or fraud.`,
@@ -526,7 +526,7 @@ If someone is in immediate danger, or you come across child sexual abuse materia
 - **لا تنتهي صلاحية الرصيد.** يبقى الرصيد غير المستخدم في حسابك ما دام الحساب قائمًا.
 - ليس للرصيد قيمة نقدية، ولا يجوز تحويله أو بيعه أو إهداؤه أو استبداله بمال، باستثناء حالات الاسترداد المبيّنة في [سياسة الاسترداد](/refunds).
 - إذا فشل التوليد، أو ألغيته قبل اكتماله، يُعاد الرصيد الذي استهلكه إلى حسابك تلقائيًا. وإذا أنتج الطلب نتائج أقل مما دفعت ثمنه، يُعاد رصيد النتائج الناقصة.
-- الرصيد المجاني الذي نمنحه لك، كرصيد التسجيل مثلًا، هبة منا. ويجوز لنا تعديل هذه العروض أو إنهاؤها في أي وقت، ولا يمكن استرداده نقدًا.
+- الرصيد المجاني الذي نمنحه لك، كرصيد التسجيل عبر Google مثلًا، هبة منا. ويجوز لنا تعديل هذه العروض أو إنهاؤها في أي وقت، ولا يمكن استرداده نقدًا {confirm}.
 - يظهر رصيدك وسجلّه (المشتريات والاستخدام وعمليات الاسترداد) في [حسابك](/account).
 
 ويجوز لنا تصحيح أي رصيد يظهر خطأً بسبب عطل تقني، وخصم الرصيد الذي أُخذ بطريق إساءة الاستخدام أو الاحتيال.`,
