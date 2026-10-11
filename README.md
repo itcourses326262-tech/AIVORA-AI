@@ -62,6 +62,8 @@ npm run dev
 
 **ويندوز (مشاكل معروفة):**
 
+- **تشغيل بنقرتين:** انقر مرتين على الملف `start-aivore.cmd` في مجلد المشروع: يجلب آخر نسخة ويثبّت الحزم ويشغّل الموقع على `http://localhost:3000`. إغلاق نافذته يوقف الموقع.
+
 - رسالة «running scripts is disabled on this system» في PowerShell: استعمل `npm.cmd install` و`npm.cmd run dev` بدل `npm`، أو نفّذ مرة واحدة `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
 - خطأ `gyp ERR! find VS` أثناء `npm install` (يطلب Visual Studio): سببه أن npm 11 يحاول تجميع `better-sqlite3` من الكود مع أن الحزمة تحمل بناءً جاهزًا. ملف `.npmrc` في المشروع يتجاوز سكربتات التثبيت لتفادي ذلك، فإن ظهر الخطأ عندك فاحصل على آخر نسخة (`git pull`)، واحذف مجلد `node_modules`، ثم أعد `npm install` (أو نفّذ `npm install --ignore-scripts`).
 
@@ -420,6 +422,8 @@ To run it in a container: `docker compose up -d --build` after copying `.env.exa
 **Connect fal.ai (real models) with one command:** `npm run setup:fal` (PowerShell: `npm.cmd run setup:fal`). It asks for the key with hidden typing, saves it to `.env.local` (ignored by git, so it is never uploaded), adds a daily spend cap `DAILY_UPSTREAM_BUDGET_CREDITS=200`, then offers one real test image (about USD 0.003 at fal) and tells you exactly why it failed if it does (rejected key, exhausted balance, network). To re-check later without retyping the key: `npm run check:fal`. A running `npm run dev` picks the new key up by itself within a few seconds (development only: production reads `.env` once at start-up, so recreate the container after changing it, see docs/OPERATIONS.md). To remove a key, leave its value blank (`FAL_KEY=`) or restart: deleting `.env.local` does not unset it in a running site. Write prompts in English for FLUX models.
 
 **Windows (known issues):**
+
+- **Start with a double click:** double-click `start-aivore.cmd` in the project folder: it fetches the latest version, installs the packages and starts the site at `http://localhost:3000`. Closing its window stops the site.
 
 - "running scripts is disabled on this system" in PowerShell: use `npm.cmd install` and `npm.cmd run dev` instead of `npm`, or run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once.
 - `gyp ERR! find VS` during `npm install` (asks for Visual Studio): npm 11 tries to compile `better-sqlite3` from source although the package ships a prebuilt binary. The `.npmrc` in the project skips install scripts to avoid that. If you still see the error, pull the latest version (`git pull`), delete the `node_modules` folder and run `npm install` again (or `npm install --ignore-scripts`).
