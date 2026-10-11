@@ -92,6 +92,7 @@ afterEach(() => {
   // Unmount first: the buttons clean up with the browser features the test gave this window.
   cleanup();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
   // Properties a test put on this window's navigator; the prototype's own values show again.
   for (const property of ['userAgent', 'maxTouchPoints']) {
@@ -509,6 +510,65 @@ describe('when it does not work out', () => {
       await user.click(googleButton());
       await screen.findByText(/could not verify your Google sign-in/);
       expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('while the site is being set up (development)', () => {
+    const detailText = () => document.querySelector('[aria-live="polite"]')?.textContent ?? '';
+
+    it('names the Firebase code under the message, and puts the whole error in the console', async () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const failure = new FirebaseAuthError('auth/internal-error');
+      sdk.signInWithPopup.mockRejectedValue(failure);
+      const user = userEvent.setup();
+      mountButton();
+      await user.click(googleButton());
+      await screen.findByText(/could not sign you in with Google/);
+      expect(detailText()).toContain('Developer detail: auth/internal-error');
+      expect(errors).toHaveBeenCalledWith('[google-sign-in]', failure);
+      warn.mockRestore();
+    });
+
+    it('names a failed request and any other exception, and blanks a key-shaped string', async () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      sdk.signInWithPopup.mockRejectedValueOnce(
+        new TypeError(
+          `Failed to fetch dynamically imported module, key ${'AIza' + 'x'.repeat(30)}`,
+        ),
+      );
+      const user = userEvent.setup();
+      mountButton();
+      await user.click(googleButton());
+      await screen.findByText(/could not sign you in with Google/);
+      expect(detailText()).toContain('TypeError: Failed to fetch dynamically imported module');
+      expect(detailText()).toContain('[key hidden]');
+      expect(detailText()).not.toContain('x'.repeat(30));
+
+      stubFetch(() => apiError(401, 'unauthorized'));
+      await user.click(googleButton());
+      await screen.findByText(/could not verify your Google sign-in/);
+      expect(detailText()).toContain('Developer detail: unauthorized (HTTP 401)');
+    });
+
+    it('shows nothing of it outside development, and nothing when the person just backed out', async () => {
+      sdk.signInWithPopup.mockRejectedValueOnce(new FirebaseAuthError('auth/internal-error'));
+      const user = userEvent.setup();
+      mountButton();
+      await user.click(googleButton());
+      await screen.findByText(/could not sign you in with Google/);
+      expect(detailText()).not.toContain('Developer detail');
+      expect(detailText()).not.toContain('auth/internal-error');
+
+      vi.stubEnv('NODE_ENV', 'development');
+      sdk.signInWithPopup.mockRejectedValueOnce(
+        new FirebaseAuthError('auth/cancelled-popup-request'),
+      );
+      await user.click(googleButton());
+      await waitFor(() => expect(googleButton()).not.toHaveAttribute('aria-busy'));
+      expect(detailText()).toBe('');
     });
   });
 

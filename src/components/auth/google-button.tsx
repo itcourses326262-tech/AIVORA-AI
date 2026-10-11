@@ -18,6 +18,7 @@ import {
 import {
   QUICK_CLOSE_MS,
   describeGoogleFailure,
+  developmentDetail,
   firebaseCodeOf,
   type GoogleFailure,
 } from './google-error';
@@ -60,6 +61,8 @@ export function GoogleSignIn({ config, next, showConsent, describedBy }: GoogleS
   const { t, locale } = i18n;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<GoogleFailure | null>(null);
+  // Only while developing the site: what went wrong, for a screenshot (see developmentDetail).
+  const [detail, setDetail] = useState<string | null>(null);
   // State updates are asynchronous: a quick second click would pass a `busy` check once more.
   const running = useRef(false);
   // The ready Firebase client, once warming up has finished; what `start` reaches for first.
@@ -106,6 +109,7 @@ export function GoogleSignIn({ config, next, showConsent, describedBy }: GoogleS
     running.current = true;
     setBusy(true);
     setFailure(null);
+    setDetail(null);
     const clickedAt = Date.now();
     let client: FirebaseClient | undefined;
     let signedIn = false;
@@ -124,6 +128,10 @@ export function GoogleSignIn({ config, next, showConsent, describedBy }: GoogleS
       const code = firebaseCodeOf(error);
       if (code !== null && described !== null) console.warn(`Google sign-in failed: ${code}`);
       setFailure(described);
+      if (described !== null) {
+        setDetail(developmentDetail(error));
+        if (process.env.NODE_ENV === 'development') console.error('[google-sign-in]', error);
+      }
     } finally {
       await client?.signOut();
     }
@@ -164,7 +172,14 @@ export function GoogleSignIn({ config, next, showConsent, describedBy }: GoogleS
         ) : failure ? (
           <p className="flex items-start gap-2.5 rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-3 text-sm text-danger">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-            <span className="min-w-0 flex-1">{failure.message}</span>
+            <span className="min-w-0 flex-1">
+              {failure.message}
+              {detail ? (
+                <span dir="ltr" className="mt-1 block text-xs opacity-80">
+                  Developer detail: {detail}
+                </span>
+              ) : null}
+            </span>
           </p>
         ) : null}
       </div>

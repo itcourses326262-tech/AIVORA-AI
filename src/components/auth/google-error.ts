@@ -10,6 +10,20 @@ export function firebaseCodeOf(error: unknown): string | null {
   return typeof code === 'string' && code.startsWith('auth/') ? code : null;
 }
 
+/**
+ * While the site is being set up (`next dev`) the error also names what went wrong: the Firebase
+ * code, the failed request, or the exception. The person setting it up can screenshot it. On a real
+ * site (production) a visitor never sees it. A key-shaped string is blanked, the text is cut short.
+ */
+export function developmentDetail(error: unknown): string | null {
+  if (process.env.NODE_ENV !== 'development') return null;
+  const firebase = firebaseCodeOf(error);
+  if (firebase !== null) return firebase;
+  if (isApiError(error)) return `${error.code} (HTTP ${error.status})`;
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[key hidden]').slice(0, 200);
+}
+
 /** The person closed the window or clicked again: nothing went wrong, so nothing is said. */
 const SILENT = new Set([
   'auth/popup-closed-by-user',
