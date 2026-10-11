@@ -24,6 +24,7 @@
     "setup:fal": "tsx --conditions=react-server scripts/setup-fal.ts",
     "check:fal": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/check-fal.ts",
     "setup:firebase": "tsx --conditions=react-server scripts/setup-firebase.ts",
+    "check:firebase": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/check-firebase.ts",
     "check:storage": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/check-storage.ts",
     "migrate:media": "tsx --conditions=react-server --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate-media.ts",
     "format": "prettier --write .",

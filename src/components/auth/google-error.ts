@@ -40,8 +40,22 @@ const NOT_CONFIGURED = new Set([
   'auth/unauthorized-domain',
   'auth/operation-not-allowed',
   'auth/invalid-api-key',
+  'auth/api-key-not-valid',
   'auth/configuration-not-found',
 ]);
+
+/**
+ * Codes the SDK builds from Google's own sentence keep it: `auth/api-key-not-valid.-please-pass-a-
+ * valid-api-key.`, `auth/requests-from-referer-http://localhost:3000-are-blocked.`. Only what comes
+ * before the first dot or the address is the code, and a blocked key or website is the same kind of
+ * site mistake.
+ */
+function isNotConfigured(code: string): boolean {
+  if (NOT_CONFIGURED.has(code.split('.')[0] ?? code)) return true;
+  return (
+    code.startsWith('auth/requests-from-referer') || code.startsWith('auth/requests-to-this-api')
+  );
+}
 
 /**
  * What an embedded in-app browser (the one inside Instagram, Facebook, TikTok ...) answers with: it
@@ -92,7 +106,7 @@ export function describeGoogleFailure(
     if (firebase === 'auth/popup-closed-by-user' && closedQuickly) return inApp();
     if (SILENT.has(firebase)) return null;
     if (IN_APP_BROWSER.has(firebase)) return inApp();
-    if (NOT_CONFIGURED.has(firebase)) return plain(t('auth.google.errors.notConfigured'));
+    if (isNotConfigured(firebase)) return plain(t('auth.google.errors.notConfigured'));
     if (firebase === 'auth/popup-blocked') return plain(t('auth.google.errors.popupBlocked'));
     if (firebase === 'auth/network-request-failed') return plain(t('errors.network_error'));
     return plain(t('auth.google.errors.failed'));

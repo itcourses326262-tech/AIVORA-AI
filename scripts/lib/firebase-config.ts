@@ -119,8 +119,12 @@ export function checkFirebaseConfig(
   const appId = clean(input.appId);
 
   if (apiKey === '') problems.push('apiKey is missing.');
-  else if (/\s/.test(apiKey) || apiKey.length < 20 || apiKey.length > 100) {
-    problems.push('apiKey does not look right: copy it again from the Firebase console.');
+  else if (/[^A-Za-z0-9_-]/.test(apiKey) || apiKey.length < 20 || apiKey.length > 100) {
+    problems.push(
+      'apiKey does not look right (only letters, digits, - and _ ): copy it again from the Firebase console.',
+    );
+  } else if (!/^AIza[0-9A-Za-z_-]{35}$/.test(apiKey)) {
+    warnings.push('apiKey is not the usual shape (AIza and 39 characters): is it right?');
   }
   if (authDomain === '') problems.push('authDomain is missing.');
   else if (!HOSTNAME.test(authDomain)) {
